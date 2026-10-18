@@ -83,6 +83,17 @@ function saveSession(session) {
 function clearSession() {
   state.session = null;
   sessionStorage.removeItem(STORAGE_KEY);
+  // Nada da sessão anterior (formulário aberto, aviso de erro) aparece para o próximo usuário.
+  state.detailId = null;
+  state.ticket = null;
+  for (const form of document.querySelectorAll('main form:not(#login-form)')) {
+    form.reset();
+  }
+  $('new-ticket-form').hidden = true;
+  $('edit-form').hidden = true;
+  for (const banner of document.querySelectorAll('main .banner:not(#login-error)')) {
+    showBanner(banner, '');
+  }
 }
 
 function basicAuth(login, password) {
