@@ -143,6 +143,21 @@ describe.skipIf(!TEST_DATABASE_URL)('processJob: create/update idempotente com m
       expect(markersInB(1)).toBe(1);
     });
 
+    it('o sync morre entre o create no B e o mapeamento (B3): o retry acha o marcador em vez de criar de novo', async () => {
+      // Erro que não é do adapter = o processo caiu no meio; a intenção gravada antes do create fica
+      const original = B.client.createRecord;
+      B.client.createRecord = async (input, o) => {
+        await original(input, o);
+        throw new Error('processo morreu antes de gravar o mapeamento');
+      };
+      await expect(run()).rejects.toThrow('processo morreu');
+      B.client.createRecord = original;
+      expect(await getMapping(pool, 1)).toMatchObject({ state: 'create_uncertain', b_record_id: null });
+      await processJob(await reclaim(), new AbortController().signal);
+      expect(markersInB(1)).toBe(1);
+      expect(await getMapping(pool, 1)).toMatchObject({ state: 'active', b_record_id: 'B-1' });
+    });
+
     it('falha não ambígua (429, disjuntor aberto) não marca create_uncertain: o B não gravou', async () => {
       B.plan.create.push({ reason: 'rate_limited', status: 429 });
       await expect(run()).rejects.toMatchObject({ reason: 'rate_limited', ambiguous: false });
