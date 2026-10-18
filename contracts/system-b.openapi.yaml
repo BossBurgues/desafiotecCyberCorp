@@ -91,6 +91,12 @@ paths:
       responses:
         '200':
           description: Registro encontrado
+          headers:
+            ETag:
+              x-capability: etag
+              description: "Versão otimista do registro para uso em `If-Match` no `PUT` (capacidade opcional, ADR-011)"
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -107,6 +113,14 @@ paths:
       description: |
         Precedido de `GET` para detectar alterações concorrentes feitas no B (ADR-011) e seguido de
         verificação pós-escrita para confirmar que o B realmente persistiu os dados (seção 4 do plano).
+      parameters:
+        - in: header
+          name: If-Match
+          required: false
+          x-capability: etag
+          description: "Enviado quando o `GET` prévio devolveu `ETag`; se o B mudou nesse meio-tempo, responde 412 (ADR-011)"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -120,6 +134,64 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Record'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        default:
+          $ref: '#/components/responses/DefaultError'
+  /records/{id}/comments:
+    x-capability: B_SUPPORTS_COMMENTS
+    parameters:
+      - $ref: '#/components/parameters/RecordIdParam'
+    get:
+      operationId: listRecordComments
+      summary: Lista comentários de um registro (capacidade opcional B_SUPPORTS_COMMENTS)
+      description: |
+        Capacidade opcional (`B_SUPPORTS_COMMENTS`, S2.3). Sem ela, notas do A vão para um bloco
+        "Histórico" em `description` (seção 7 do plano, ADR-003). Sujeito ao mesmo modo caos dos records.
+      x-capability: B_SUPPORTS_COMMENTS
+      responses:
+        '200':
+          description: Lista de comentários do registro
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Comment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        default:
+          $ref: '#/components/responses/DefaultError'
+    post:
+      operationId: createRecordComment
+      summary: Adiciona um comentário a um registro (capacidade opcional B_SUPPORTS_COMMENTS)
+      description: |
+        Capacidade opcional (`B_SUPPORTS_COMMENTS`, S2.3). Notas sincronizadas A → B incluem o
+        marcador `⟦n:<followup_id>⟧` para idempotência e anti-eco (seção 5 do plano).
+      x-capability: B_SUPPORTS_COMMENTS
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentInput'
+      responses:
+        '201':
+          description: Comentário criado no B
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -233,6 +305,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Attachment'
+        updatedBy:
+          type: [string, 'null']
+          readOnly: true
+          x-capability: updatedBy
+          description: "Autor da última alteração no B (capacidade opcional; sem ela, a nota diz 'não informado pelo B' — seção 5.2, ADR-011)"
         createdAt:
           type: string
           format: date-time
@@ -322,6 +399,44 @@ components:
           type: integer
           minimum: 0
           description: Total informado pelo B (não confiável no modo caos)
+    Comment:
+      type: object
+      additionalProperties: false
+      x-capability: B_SUPPORTS_COMMENTS
+      description: Comentário em um registro do B (capacidade opcional `B_SUPPORTS_COMMENTS`, S2.3)
+      required:
+        - id
+        - text
+        - createdAt
+      properties:
+        id:
+          type: string
+          minLength: 1
+          readOnly: true
+        text:
+          type: string
+          minLength: 1
+          description: "Texto do comentário (pode conter marcador `⟦n:<followup_id>⟧` quando enviado pelo sync)"
+        author:
+          type: [string, 'null']
+          description: Autor do comentário no B (opcional; se ausente, o A registra 'Sistema B')
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Relógio do B, não confiável (ADR-003, ADR-005)
+    CommentInput:
+      type: object
+      additionalProperties: false
+      x-capability: B_SUPPORTS_COMMENTS
+      required:
+        - text
+      properties:
+        text:
+          type: string
+          minLength: 1
+        author:
+          type: [string, 'null']
     Error:
       type: object
       additionalProperties: false
@@ -345,6 +460,13 @@ components:
             $ref: '#/components/schemas/Error'
     NotFound:
       description: Registro não encontrado (se já tinha mapeamento ativo, inicia o fluxo de exclusão em 2 passos — ADR-007)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    PreconditionFailed:
+      x-capability: etag
+      description: "ETag divergiu (`If-Match`): o sync relê e reclassifica antes de escrever (ADR-011)"
       content:
         application/json:
           schema:
