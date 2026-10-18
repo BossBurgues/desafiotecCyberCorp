@@ -18,6 +18,10 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 18/10 | #21 [S1.6] UI do Sistema A (login, lista, chamado, conversa, aprovações) | 3 | 0.5 | inclui QA |
 | 18/10 | #30 [S3.2] Domínio puro: mapper A→B, hash, fuso | 3 | 0.5 | inclui QA |
 | 18/10 | #23 [S2.1] API de records do B (contrato mínimo, formato próprio) | 3 | _a preencher_ | inclui QA |
+| 18/10 | #28 [S2.6] Testes xUnit e Dockerfile do Sistema B | 1.5 | 0.25 | sprint M1; smoke + build amd64/arm64 na CI |
+| 18/10 | #24 [S2.2] Middleware de caos configurável e reproduzível | 3 | 0.5 | sprint M1 |
+| 18/10 | #26 [S2.4] UI do Operador B | 2.5 | 0.5 | sprint M1; "comentar" segue com a S2.3 (#25) |
+| 18/10 | #29 [S3.1] Bootstrap do sync: config, logs, HTTP, health/ready, migrations | 3 | 0.5 | sprint M1 |
 
 ## Totais por milestone
 
