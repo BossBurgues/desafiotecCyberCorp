@@ -56,6 +56,7 @@ export function buildServer({
   trustProxy = env.A_TRUST_PROXY === 'true' || env.A_TRUST_PROXY === true,
 } = {}) {
   const authConfig = loadAuthConfig(env, auth);
+  const appTokens = [authConfig.appToken, authConfig.uiAppToken];
   const webhookConfig = loadWebhookConfig(env, webhookOverrides);
   const app = Fastify({ logger, trustProxy });
   const store = new TicketStore(dbPath);
@@ -160,7 +161,7 @@ export function buildServer({
         if (routeUrl === '/apirest.php/initSession') {
           return;
         }
-        validateAppTokenHeader(request.headers['app-token'], authConfig.appToken);
+        validateAppTokenHeader(request.headers['app-token'], appTokens);
         const { token, user } = validateSessionTokenHeader(
           request.headers['session-token'],
           store,
@@ -187,7 +188,7 @@ export function buildServer({
       });
 
       api.get('/initSession', async (request) => {
-        validateAppTokenHeader(request.headers['app-token'], authConfig.appToken);
+        validateAppTokenHeader(request.headers['app-token'], appTokens);
         const parsed = parseAuthorization(request.headers.authorization);
 
         if (parsed.kind === 'basic') {

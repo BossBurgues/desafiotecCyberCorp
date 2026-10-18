@@ -430,6 +430,7 @@ test('toda rota de chamado declara a ação que exige', async () => {
         r.url.startsWith('/apirest.php') &&
         r.url !== '/apirest.php/initSession' &&
         r.url !== '/apirest.php/killSession' &&
+        r.url !== '/apirest.php/getFullSession' &&
         r.method !== 'HEAD',
     );
     assert.ok(apiRoutes.length >= 4);

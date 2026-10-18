@@ -51,6 +51,7 @@ test(
         PORT: String(port),
         A_DB_PATH: path.join(dir, 'a.db'),
         A_APP_TOKEN: TEST_AUTH_CONFIG.appToken,
+        A_UI_APP_TOKEN: TEST_AUTH_CONFIG.uiAppToken,
         A_TECNICO_PASSWORD: TEST_AUTH_CONFIG.tecnicoPassword,
         A_ESTAGIARIO_PASSWORD: TEST_AUTH_CONFIG.estagiarioPassword,
         A_SYNC_BOT_TOKEN: TEST_AUTH_CONFIG.syncBotToken,
