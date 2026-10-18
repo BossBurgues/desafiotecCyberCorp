@@ -21,6 +21,46 @@ dotnet test apps/system-b                            # testes xUnit (mesmo coman
 |---|---|---|
 | `ASPNETCORE_URLS` | `http://0.0.0.0:5002` | Endereço e porta |
 | `B_DB_PATH` | `./data/system-b.db` | Arquivo SQLite (os registros sobrevivem a reinício) |
+| `B_ADMIN_TOKEN` | _(vazio = admin desligado)_ | Token das rotas `/admin` |
+| `B_CHAOS_*` | tudo desligado | Caos (seção abaixo) |
+
+## Caos (S2.2)
+
+O caos vale **só para `/api/v2`** (a API que o sync usa). `/health`, `/operator`, `/admin` e a UI ficam fora, para a demo continuar operável.
+
+Cada requisição faz **um sorteio** e cai em no máximo uma falha, por isso a soma das taxas de falha não pode passar de 1. Com `seed`, a mesma sequência de requisições produz as mesmas decisões (reprodutível na CI e na demo); reconfigurar com a mesma seed recomeça a sequência.
+
+| Variável (`B_CHAOS_*`) | Campo no `/admin/chaos` | O que faz | Cenário |
+|---|---|---|---|
+| `SEED` | `seed` | Semente do sorteio (vazio = aleatório) | todos |
+| `LATENCY_MS` | `latencyMs` | Atraso fixo em toda requisição | E |
+| `ERROR_RATE` | `errorRate` | 500 ou 503 **sem gravar** | B1 |
+| `TIMEOUT_RATE` / `TIMEOUT_MS` | `timeoutRate` / `timeoutMs` (padrão 30000) | Segura a resposta além do timeout do cliente e **grava depois** | A2 |
+| `COMMIT_THEN_FAIL_RATE` | `commitThenFailRate` | **Grava** e devolve 500 (só POST/PUT) | A1 |
+| `ACK_WITHOUT_PERSIST_RATE` | `ackWithoutPersistRate` | Devolve 201/200 **sem gravar**; o ID devolvido no POST não existe (só POST/PUT) | B5 |
+| `OK_WITH_ERROR_BODY_RATE` | `okWithErrorBodyRate` | Executa de verdade e devolve **200 com corpo de erro** | A3 |
+| `RATE_LIMIT_RATE` | `rateLimitRate` | 429 com `Retry-After: 1`, sem gravar | E |
+| `TRUNCATE_TEXT` | `truncateText` | Corta `description` em N caracteres ao gravar (0 = desliga); o marcador no fim some | S3.7 |
+| `PAGE_REPEAT_RATE` / `PAGE_SKIP_RATE` | `pageRepeatRate` / `pageSkipRate` | Listagem desloca o offset: repete o último item da página anterior ou pula um | A7, S3.9 |
+| `LIST_DELAY_MS` | `listDelayMs` | Registro recém-criado só aparece na listagem depois de N ms (o GET por ID já acha) | A7 |
+
+Valor inválido nas variáveis derruba a subida (falha rápido).
+
+### Admin do caos
+
+Exige `X-Admin-Token` igual a `B_ADMIN_TOKEN` (comparação em tempo constante). Sem `B_ADMIN_TOKEN`, as rotas `/admin` respondem 403.
+
+| Rota | Efeito |
+|---|---|
+| `GET /admin/chaos` | Configuração atual |
+| `PUT /admin/chaos` | Substitui a configuração inteira (campo ausente = 0/desligado). 422 se uma taxa sair de 0–1 ou a soma passar de 1; 400 para campo desconhecido |
+| `POST /admin/chaos/reset` | Volta para o que veio das variáveis `B_CHAOS_*` |
+
+```bash
+curl -s -X PUT $B/admin/chaos -H "X-Admin-Token: $B_ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"seed":42,"errorRate":0.2,"timeoutRate":0.05,"timeoutMs":8000,"commitThenFailRate":0.05}'
+curl -s -X POST $B/admin/chaos/reset -H "X-Admin-Token: $B_ADMIN_TOKEN"
+```
 
 ## Container (S2.6)
 
@@ -66,7 +106,6 @@ Erros sempre `{ "error": "...", "message": "..." }`:
 
 | O quê | Issue |
 |---|---|
-| Caos | S2.2 (#24) |
 | Comentários (`B_SUPPORTS_COMMENTS`) | S2.3 (#25) |
 | UI do Operador B | S2.4 (#26) |
 | Admin, wipe e drift com token | S2.5 (#27) |
