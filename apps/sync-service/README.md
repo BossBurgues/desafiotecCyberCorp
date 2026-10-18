@@ -49,6 +49,8 @@ Na subida, em ordem: **valida a config** (zod; qualquer variável inválida list
 | `B_MARKER_FIELD` | `description` | Campo do B que carrega o marcador `⟦s:glpi-id⟧` (`description` ou `title`) |
 | `CREATE_UNCERTAIN_SCANS` | `2` | Varreduras da listagem do B sem achar o marcador antes de recriar um create ambíguo |
 | `B_LIST_PAGE_SIZE` | `100` | Página usada na varredura do B |
+| `B_ADMIN_TOKEN` | — | Admin do B para o painel de caos do dashboard (sem ele, o painel fica desligado) |
+| `DASHBOARD_CONTROLS` | `false` | `true` liga reprocessar a DLQ e mexer no caos pelo dashboard (sem login até a S5.3) |
 
 ### HTTP
 
@@ -56,6 +58,11 @@ Na subida, em ordem: **valida a config** (zod; qualquer variável inválida list
 |---|---|
 | `GET /health` | 200 `{ "status": "ok" }` sempre que o processo responde (liveness; não olha dependências, para o B instável não fazer o orquestrador reiniciar o sync) |
 | `GET /ready` | 200 ou **503** com `checks.postgres`, `checks.system_a`, `checks.system_b` (`ok`, `latency_ms`, `error`). Cenário **H5**: sem Postgres → 503 |
+| `GET /dashboard` | Dashboard (S3.10): fila, DLQ com o motivo e botão de reprocessar, mapeamentos, caixa de saída de alertas, disjuntor do B e painel de caos. Atualiza a cada 2 s |
+| `GET /api/dashboard/summary` | JSON do dashboard |
+| `POST /api/dashboard/dlq/:id/reprocess` | Job novo que relê o A. **403** com `DASHBOARD_CONTROLS=false` |
+| `GET` / `PUT /api/dashboard/chaos`, `POST /api/dashboard/chaos/reset` | Repassa ao `/admin/chaos` do B com o `X-Admin-Token`. **503** sem `B_ADMIN_TOKEN`; escrita **403** sem controles |
+| `GET /metrics` | Prometheus: `sync_jobs{status}`, `sync_dlq_pending`, `sync_ticket_mappings{state}`, `sync_b_circuit_breaker` |
 | `POST /webhooks/system-a` | Webhook `ticket.changed` do A. **401** sem assinatura válida ou fora da janela; **400** fora do contrato; **200** `{ accepted, duplicate }` depois de gravar evento + job |
 
 ### Logs e `correlation_id`

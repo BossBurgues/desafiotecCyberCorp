@@ -108,6 +108,10 @@ services:
       CREATE_UNCERTAIN_SCANS: ${CREATE_UNCERTAIN_SCANS:-2}
       POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-10000}
       POLL_OVERLAP_MS: ${POLL_OVERLAP_MS:-120000}
+      # Painel de caos do dashboard fala com o /admin do B pela rede interna
+      B_ADMIN_TOKEN: ${B_ADMIN_TOKEN:?defina B_ADMIN_TOKEN}
+      # Reprocessar a DLQ e mexer no caos alteram o sistema: desligados até o login do dashboard (S5.3)
+      DASHBOARD_CONTROLS: ${DASHBOARD_CONTROLS:-false}
     # Só o Postgres é pré-requisito: A ou B fora não impedem a subida, o /ready mostra e o worker pausa
     depends_on:
       postgres:

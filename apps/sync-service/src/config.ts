@@ -43,6 +43,12 @@ const schema = z.object({
   POLL_INTERVAL_MS: ms(500, 3_600_000).default(10_000),
   POLL_OVERLAP_MS: ms(0, 3_600_000).default(120_000),
   POLL_PAGE_SIZE: z.coerce.number().int().min(1).max(500).default(100),
+  // Dashboard (S3.10): o painel de caos usa o admin do B; reprocessar e mexer no caos só com DASHBOARD_CONTROLS=true
+  B_ADMIN_TOKEN: z.string().min(1).optional(),
+  DASHBOARD_CONTROLS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 });
 
 export type Config = z.infer<typeof schema>;
