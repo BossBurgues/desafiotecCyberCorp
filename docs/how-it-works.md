@@ -6,9 +6,14 @@ Guia para ler o código na ordem em que um chamado viaja do A para o B. Cada se�
 
 `infra/docker-compose.yml` sobe A, B, sync, Postgres e Caddy com o mesmo arquivo em local, CI e VM. O sync aplica as migrations na subida e só depende do Postgres: A ou B fora aparecem no `/ready`, e o worker pausa (não gasta tentativas). Detalhes em [`infra/README.md`](../infra/README.md).
 
-## 2. Entrada: um job por chamado
+## 2. Entrada: webhook + poller
 
-> Webhook e poller (S3.4, #32) ainda vão chamar `enqueue`.
+Duas portas de entrada, as duas terminam em `enqueue` (S3.4):
+
+- **Webhook** `POST /webhooks/system-a` (`src/infra/http/webhook.ts`). Confere `X-Signature-256 = sha256=HMAC(segredo, "<X-Timestamp>.<corpo cru>")` em tempo constante e recusa timestamp com mais de 5 min de diferença (**anti-replay**). O evento é gravado em `inbound_events` e o job é enfileirado **na mesma transação, antes do 200** (**perda**: se o sync cair depois de responder, o job já está no Postgres). O mesmo `event_id` entregue de novo é aceito e ignorado. Recusas vão para o `audit_log`.
+- **Poller** (`src/application/poller.ts`), a rede de segurança para o webhook perdido (o A do E2E perde 30% de propósito). A cada 10 s pede ao A tudo com `date_mod >= checkpoint − 2 min`. A **sobreposição** cobre o commit atrasado e o relógio. O limite inferior é calculado com o menor offset do fuso na janela (horário de verão, `pollLowerBoundLocal`). O checkpoint só avança depois de enfileirar e nunca passa de agora. Chamado com o mesmo hash já sincronizado, ou com job pendente, não gera sinal novo. Comparar pelo hash cobre dois updates no mesmo segundo (B12).
+
+## 3. Fila: um job por chamado
 
 `apps/sync-service/src/infra/queue/queue.ts`, `enqueue(ticketId)`:
 
@@ -16,12 +21,12 @@ Guia para ler o código na ordem em que um chamado viaja do A para o B. Cada se�
 - O job **não guarda o conteúdo** do chamado, só o ID. O worker sempre lê o estado atual do A (ADR-005), então aglutinar não perde nada.
 - Evento que chega **enquanto o job roda** marca `rerun`, e o job volta para a fila ao terminar (**perda**: a mudança feita depois da leitura não fica para trás).
 
-## 3. Worker: pegar, processar, concluir ou falhar
+## 4. Worker: pegar, processar, concluir ou falhar
 
 `src/infra/queue/queue.ts` + `runner.ts`:
 
 1. `claim` pega jobs vencidos com `FOR UPDATE SKIP LOCKED` e dá a cada um um **lease** (`locked_until` + `lease_token`).
-2. `runOnce` chama o processador (o `processJob` entra na S3.6, #34) e renova o lease a cada terço do prazo.
+2. `runOnce` chama o `processJob` (seção 5) e renova o lease a cada terço do prazo. Lease perdido aborta o processamento antes de escrever no B.
 3. Sucesso → `complete`. Falha → `fail`, que decide entre nova tentativa e DLQ:
 
 ```mermaid
@@ -40,7 +45,31 @@ flowchart LR
 - Worker que caiu: o lease vence e outro worker retoma (**perda**). O worker antigo, se acordar, não consegue concluir nem falhar o job: o token não é mais dele.
 - DLQ: `status = 'dead'` + `alerts_outbox`. `reprocessDead` cria um job novo, que relê o A (ADR-008, cenário B10).
 
-## 4. Falar com o B
+## 5. processJob: o chamado chega ao B uma vez só
+
+`src/application/process-job.ts` (S3.6, ADR-004):
+
+```mermaid
+flowchart TD
+  L[lê o chamado ATUAL no A] --> H{hash = last_synced_hash?}
+  H -- sim --> N[no-op]
+  H -- não --> M{mapeamento?}
+  M -- não --> C[create com ⟦s:glpi-id⟧]
+  C -- ok --> S[(mapeamento active<br/>+ last_written_hash + audit)]
+  C -- falha ambígua --> U[create_uncertain]
+  U -- próximo ciclo --> V{marcador na<br/>listagem do B?}
+  V -- achou --> AD[adota o registro<br/>e atualiza]
+  V -- N varreduras sem achar --> C
+  V -- ainda não --> R[retry com backoff]
+  M -- active --> UP[update] --> S
+```
+
+- **Antigo sobre novo:** o job só tem o ID; o estado vem do A na hora (um job atrasado nunca escreve dado velho).
+- **Duplicata:** create ambíguo (timeout, 5xx, 200 com erro: o B pode ter gravado) nunca é reenviado às cegas. O chamado fica em `create_uncertain` e o próximo ciclo procura o marcador em todas as páginas da listagem. Achou → adota. Só depois de `CREATE_UNCERTAIN_SCANS` (2) varreduras sem achar é que recria (a listagem do B pode estar atrasada, A7, ou pular página).
+- **Atomicidade:** mapeamento, hashes e `audit_log` são gravados numa transação só. `last_written_hash` é o hash do que escrevemos no B: é a base do anti-eco (ADR-009).
+- O sync fala com o A como **sync-bot** (`src/adapters/system-a/client.ts`, `user_token`), que só lê chamados e escreve notas. Sessão expirada (401) é reaberta uma vez.
+
+## 6. Falar com o B
 
 `src/adapters/system-b/` (ADR-003, ADR-008):
 
@@ -48,6 +77,6 @@ flowchart LR
 - `circuit-breaker.ts`: 5 falhas seguidas → aberto 30 s → uma requisição de teste.
 - "**B fora**" (timeout, rede, 5xx, 200 com erro) é transitório. "**B recusou**" (400/422, drift de formato) é permanente. `ambiguous = true` num create significa que o B pode ter gravado: nunca reenviar às cegas, procurar o marcador (ADR-004, S3.6).
 
-## 5. O B hostil, para testar
+## 7. O B hostil, para testar
 
 `apps/system-b`: caos em `/api/v2` (`B_CHAOS_*` ou `PUT /admin/chaos`), drift de formato (`formatDrift`: `title` vira `summary`), `DELETE /admin/records/{id}` e `POST /admin/wipe` para simular perda (autocura pelo auditor, S3.9). Tudo atrás do `X-Admin-Token`. O override `infra/docker-compose.e2e.yml` liga o caos agressivo com seed fixa.
