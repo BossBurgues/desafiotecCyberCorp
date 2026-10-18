@@ -18,6 +18,7 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
+      contracts: ${{ steps.filter.outputs.contracts }}
       system-a: ${{ steps.filter.outputs.system-a }}
       system-b: ${{ steps.filter.outputs.system-b }}
       sync-service: ${{ steps.filter.outputs.sync-service }}
@@ -28,6 +29,12 @@ jobs:
         id: filter
         with:
           filters: |
+            contracts:
+              - 'contracts/**'
+              - 'redocly.yaml'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/ci.yml'
             system-a:
               - 'apps/system-a/**'
               - 'contracts/**'
@@ -44,6 +51,19 @@ jobs:
               - 'apps/system-b/**'
               - 'contracts/**'
               - '.github/workflows/ci.yml'
+
+  contracts:
+    needs: changes
+    if: needs.changes.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run lint:contracts
 
   system-a:
     needs: changes
@@ -113,7 +133,7 @@ jobs:
 
   # Única verificação exigida pelas proteções: resume o resultado de todos os jobs acima
   ci-ok:
-    needs: [changes, system-a, sync-service, system-b, prod-source-guard]
+    needs: [changes, contracts, system-a, sync-service, system-b, prod-source-guard]
     if: always()
     runs-on: ubuntu-latest
     steps:

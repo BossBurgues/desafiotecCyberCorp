@@ -38,7 +38,7 @@ Se falhar: corrigir no mesmo PR e repetir, ou abrir uma issue `[bug]`. O tamanho
 ## CI
 
 - O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda em PRs para `Dev` ou `Prod` e em push nas branches `milestone/**`.
-- Só os apps alterados (`system-a`, `system-b`, `sync-service`) rodam; mexer em `contracts/` ou no `ci.yml` roda todos.
+- Só os apps alterados (`system-a`, `system-b`, `sync-service`) rodam; mexer em `contracts/` roda o job `contracts` (Redocly + Ajv) e todos os apps.
 - `ci-ok` é a verificação obrigatória nas proteções; ela resume o resultado dos outros jobs.
 - PR para a `Prod` só é aceito a partir da `Dev` (job `prod-source-guard`).
 - Proteções: `Dev` e `Prod` não aceitam push direto e exigem `ci-ok` verde e merge commit; a `Dev` também exige a branch atualizada.
