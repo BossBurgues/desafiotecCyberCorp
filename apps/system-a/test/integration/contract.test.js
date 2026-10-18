@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +12,11 @@ import { buildTestServer, login } from '../helpers/session.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const contractPath = path.resolve(__dirname, '../../../../contracts/system-a.openapi.yaml');
 const openapiDoc = YAML.parse(fs.readFileSync(contractPath, 'utf8'));
+const eventSchemaPath = path.resolve(
+  __dirname,
+  '../../../../contracts/events/ticket-changed.schema.json',
+);
+const eventSchema = JSON.parse(fs.readFileSync(eventSchemaPath, 'utf8'));
 
 function createContractValidators() {
   const ajv = new Ajv2020({ strict: false, allErrors: true });
@@ -212,5 +218,76 @@ test('GET /health respeita o contrato (200 e 503)', async () => {
     assert.equal(validate503(down.json()), true, ajv.errorsText(validate503.errors));
   } finally {
     await app.close().catch(() => {});
+  }
+});
+
+test('webhook ticket.changed respeita o schema do evento e os patterns de cabeçalho do OpenAPI', async () => {
+  const ajv = new Ajv2020({ strict: false, allErrors: true });
+  addFormats(ajv);
+  const validateEvent = ajv.compile(eventSchema);
+
+  const params = openapiDoc.webhooks['ticket.changed'].post.parameters;
+  const sigPattern = new RegExp(
+    params.find((p) => p.name === 'X-Signature-256').schema.pattern,
+  );
+  const tsPattern = new RegExp(params.find((p) => p.name === 'X-Timestamp').schema.pattern);
+
+  const received = [];
+  const receiver = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      received.push({
+        headers: req.headers,
+        rawBody: Buffer.concat(chunks).toString('utf8'),
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{"ok":true}');
+    });
+  });
+
+  await new Promise((resolve) => receiver.listen(0, '127.0.0.1', resolve));
+  const { port } = receiver.address();
+
+  const app = buildTestServer({
+    timeZone: 'America/Sao_Paulo',
+    now: () => Date.parse('2026-10-18T17:03:22Z'),
+    webhook: {
+      enabled: true,
+      url: `http://127.0.0.1:${port}/webhooks/system-a`,
+      secret: 'segredo-contrato-0123456789abcdef012345',
+      dropRate: 0,
+    },
+  });
+
+  try {
+    const headers = await login(app, 'tecnico');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/apirest.php/Ticket',
+      headers,
+      payload: {
+        input: {
+          name: 'Chamado validado contra o contrato do webhook',
+          content: 'Corpo do chamado',
+        },
+      },
+    });
+    assert.equal(res.statusCode, 201);
+    await app.webhook.close();
+
+    assert.equal(received.length, 1);
+    assert.match(received[0].headers['x-signature-256'], sigPattern);
+    assert.match(received[0].headers['x-timestamp'], tsPattern);
+
+    const parsed = JSON.parse(received[0].rawBody);
+    assert.equal(
+      validateEvent(parsed),
+      true,
+      `Evento divergiu de ticket-changed.schema.json: ${ajv.errorsText(validateEvent.errors)}`,
+    );
+  } finally {
+    await app.close();
+    await new Promise((resolve) => receiver.close(resolve));
   }
 });
