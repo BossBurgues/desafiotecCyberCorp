@@ -21,6 +21,12 @@ const schema = z.object({
   B_TIMEOUT_MS: ms(100, 60_000).default(5_000),
   B_BREAKER_THRESHOLD: z.coerce.number().int().min(1).max(100).default(5),
   B_BREAKER_OPEN_MS: ms(1_000, 600_000).default(30_000),
+  // Fila (S3.3, ADR-002 e ADR-008)
+  QUEUE_LEASE_MS: ms(1_000, 3_600_000).default(60_000),
+  QUEUE_BACKOFF_BASE_MS: ms(10, 60_000).default(1_000),
+  QUEUE_BACKOFF_MAX_MS: ms(1_000, 3_600_000).default(300_000),
+  QUEUE_TRANSIENT_MAX_AGE_MS: ms(60_000, 7 * 86_400_000).default(86_400_000),
+  QUEUE_PERMANENT_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(100).default(3),
 });
 
 export type Config = z.infer<typeof schema>;
