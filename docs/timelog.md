@@ -17,6 +17,7 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 18/10 | #18 [S1.3] Webhook ticket.changed com HMAC e modo "perder X%" | 2 | 0.5 | inclui QA |
 | 18/10 | #21 [S1.6] UI do Sistema A (login, lista, chamado, conversa, aprovações) | 3 | 0.5 | inclui QA |
 | 18/10 | #30 [S3.2] Domínio puro: mapper A→B, hash, fuso | 3 | 0.5 | inclui QA |
+| 18/10 | #23 [S2.1] API de records do B (contrato mínimo, formato próprio) | 3 | _a preencher_ | inclui QA |
 
 ## Totais por milestone
 
