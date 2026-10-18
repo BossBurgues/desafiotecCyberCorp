@@ -61,3 +61,5 @@ O ambiente completo vai subir com `docker compose -f infra/docker-compose.yml up
 
 - **Obrigatório:** A → B com as três garantias, publicado em URL, com documentação.
 - **Opcional (em andamento se houver tempo):** retorno B → A no modelo *"o B propõe, o A aprova"*, com anti-eco e tratamento de concorrência.
+
+<!-- test-ci-readme -->
