@@ -161,6 +161,16 @@ describe.skipIf(!TEST_DATABASE_URL)('entrada: webhook HMAC + poller (S3.4)', () 
       expect((await pool.query('SELECT rerun FROM sync_jobs')).rows).toEqual([{ rerun: true }]);
     });
 
+    it('chamado cuja versão atual já foi para a DLQ não volta a cada ciclo; mudou no A depois, volta', async () => {
+      const A = fakeA([ticket(1, { date_mod: '2026-10-18 09:59:00' })]);
+      await pollOnce(deps(A));
+      // O job morreu às 13:00:30 UTC (09:59 em SP = 12:59 UTC): esta versão já foi tentada
+      await pool.query(`UPDATE sync_jobs SET status = 'dead', updated_at = '2026-10-18T13:00:30Z'`);
+      expect((await pollOnce(deps(A))).enqueued).toBe(0);
+      A.put(ticket(1, { date_mod: '2026-10-18 10:00:45', name: 'corrigido no A' }));
+      expect((await pollOnce(deps(A))).enqueued).toBe(1);
+    });
+
     it('webhook e poll da mesma mudança viram um job só', async () => {
       const A = fakeA([ticket(7)]);
       const app = buildServer({

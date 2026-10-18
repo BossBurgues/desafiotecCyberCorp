@@ -56,13 +56,18 @@ export async function pollOnce(deps: PollerDeps): Promise<PollResult> {
       const client = await deps.pool.connect();
       try {
         await client.query('BEGIN');
-        // Já entregue (mesmo hash) ou já esperando na fila (o job pendente vai reler o A): nada a registrar.
-        // Job rodando não conta: o worker pode ter lido o A antes desta versão, e o enqueue marca rerun
+        // Nada a registrar quando: já entregue (mesmo hash); já esperando na fila (o job pendente vai reler o A); ou
+        // esta versão já foi para a DLQ (morreu pelo menos 1 s depois do date_mod). Sem a última regra, a sobreposição
+        // reenfileiraria a cada ciclo um chamado que o B recusa, e a DLQ encheria do mesmo chamado. Se o A mudar o
+        // chamado de novo, o date_mod passa da morte e ele volta. Job rodando não conta: o enqueue marca rerun
         const fresh = await client.query(
           `SELECT 1 FROM ticket_mapping WHERE a_ticket_id = $1 AND state = 'active' AND last_synced_hash = $2
            UNION ALL
-           SELECT 1 FROM sync_jobs WHERE ticket_id = $1 AND status = 'pending'`,
-          [ticket.id, hashTicket(ticket)],
+           SELECT 1 FROM sync_jobs WHERE ticket_id = $1 AND status = 'pending'
+           UNION ALL
+           SELECT 1 FROM sync_jobs WHERE ticket_id = $1 AND status = 'dead' AND reprocessed_at IS NULL
+             AND updated_at >= $3::timestamptz + interval '1 second'`,
+          [ticket.id, hashTicket(ticket), dateModUtc],
         );
         if (fresh.rowCount === 0) {
           await client.query(`INSERT INTO inbound_events (source, ticket_id, payload) VALUES ('poll', $1, $2)`, [

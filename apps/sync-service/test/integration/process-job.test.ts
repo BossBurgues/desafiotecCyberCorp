@@ -132,6 +132,17 @@ describe.skipIf(!TEST_DATABASE_URL)('processJob: create/update idempotente com m
       expect(markersInB(1)).toBe(1);
     });
 
+    it('drift de formato no create (o B gravou, só a resposta mudou): create_uncertain, nunca recria às cegas', async () => {
+      B.plan.create.push({ reason: 'schema_drift', persist: true });
+      await expect(run()).rejects.toMatchObject({ reason: 'schema_drift' });
+      expect(await getMapping(pool, 1)).toMatchObject({ state: 'create_uncertain' });
+      // A listagem também vem com drift: a varredura falha (permanente) sem criar nada
+      B.plan.list.push({ reason: 'schema_drift' });
+      await expect(processJob(await reclaim(), new AbortController().signal)).rejects.toMatchObject({ reason: 'schema_drift' });
+      expect(B.calls.create).toBe(1);
+      expect(markersInB(1)).toBe(1);
+    });
+
     it('falha não ambígua (429, disjuntor aberto) não marca create_uncertain: o B não gravou', async () => {
       B.plan.create.push({ reason: 'rate_limited', status: 429 });
       await expect(run()).rejects.toMatchObject({ reason: 'rate_limited', ambiguous: false });
