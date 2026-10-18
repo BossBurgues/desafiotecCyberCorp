@@ -1,0 +1,22 @@
+{
+  "name": "desafiotec-cybercorp",
+  "private": true,
+  "description": "Monorepo do sincronizador de chamados: Sistema A (Node/JS), Sistema B (C#/.NET) e Sync Service (Node/TS).",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "apps/system-a",
+    "apps/sync-service",
+    "tests/e2e"
+  ],
+  "scripts": {
+    "lint": "npm run lint -w apps/system-a -w apps/sync-service --if-present",
+    "typecheck": "npm run typecheck -w apps/system-a -w apps/sync-service --if-present",
+    "test": "npm run test -w apps/system-a -w apps/sync-service --if-present",
+    "build": "npm run build -w apps/system-a -w apps/sync-service --if-present",
+    "test:b": "dotnet test apps/system-b",
+    "e2e": "npm run test -w tests/e2e --if-present"
+  }
+}

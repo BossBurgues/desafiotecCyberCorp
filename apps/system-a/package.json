@@ -1,0 +1,11 @@
+{
+  "name": "@desafiotec/system-a",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Sistema A: mock do GLPI (fonte da verdade dos chamados). Node.js + JavaScript.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {}
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@desafiotec/sync-service",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Sync Service: mantém os chamados do Sistema A sincronizados no Sistema B. Node.js + TypeScript.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {}
+}
