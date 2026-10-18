@@ -24,6 +24,10 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 18/10 | #29 [S3.1] Bootstrap do sync: config, logs, HTTP, health/ready, migrations | 3 | 0.5 | sprint M1 |
 | 18/10 | #64 [S9.2] architecture.md com diagramas Mermaid | 2 | 0.5 | sprint M5; 8 diagramas validados no parser do Mermaid 11 |
 | 18/10 | #67 [S9.5] out-of-scope.md | 1 | 0.25 | sprint M5 |
+| 18/10 | #27 [S2.5] Admin do B: apagar registro, wipe, drift de formato | 1.5 | 0.5 | sprint M1 |
+| 18/10 | #33 [S3.5] Adapter B: timeout, circuit breaker, validação de resposta | 3 | 0.75 | sprint M1 |
+| 18/10 | #31 [S3.3] Fila: um job por chamado, SKIP LOCKED, lease, backoff, DLQ | 4 | 1 | sprint M1; `rerun` para evento que chega durante o processamento |
+| 18/10 | #39 [S4.1] Docker Compose completo (local = produção) + override E2E | 2 | 0.75 | sprint M1; inclui o Dockerfile do sync |
 
 ## Totais por milestone
 
