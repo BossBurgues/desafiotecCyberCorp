@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import YAML from 'yaml';
-import { buildServer } from '../../src/server.js';
+import { buildTestServer, login } from '../helpers/session.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const contractPath = path.resolve(__dirname, '../../../../contracts/system-a.openapi.yaml');
@@ -19,14 +19,18 @@ function createContractValidators() {
 
   const validateTicket = ajv.getSchema('openapi#/components/schemas/Ticket');
   const validateGlpiError = ajv.getSchema('openapi#/components/schemas/GlpiError');
+  const validateInitSession = ajv.compile(
+    openapiDoc.paths['/initSession'].get.responses['200'].content['application/json'].schema,
+  );
   assert.ok(validateTicket, 'Schema Ticket deve existir em contracts/system-a.openapi.yaml');
   assert.ok(validateGlpiError, 'Schema GlpiError deve existir em contracts/system-a.openapi.yaml');
 
-  return { ajv, validateTicket, validateGlpiError };
+  return { ajv, validateTicket, validateGlpiError, validateInitSession };
 }
 
-test('respostas de POST, GET, PUT e listagem respeitam o schema Ticket de contracts/system-a.openapi.yaml', async () => {
-  const { ajv, validateTicket, validateGlpiError } = createContractValidators();
+test('respostas de POST, GET, PUT, listagem, initSession e erros 401/403/404 respeitam contracts/system-a.openapi.yaml', async () => {
+  const { ajv, validateTicket, validateGlpiError, validateInitSession } =
+    createContractValidators();
 
   const instants = [
     Date.parse('2026-10-18T16:50:00Z'), // 2026-10-18 13:50:00 em America/Sao_Paulo
@@ -34,19 +38,45 @@ test('respostas de POST, GET, PUT e listagem respeitam o schema Ticket de contra
   ];
   let idx = 0;
 
-  const app = buildServer({
-    dbPath: ':memory:',
+  const app = buildTestServer({
     timeZone: 'America/Sao_Paulo',
     now: () => instants[Math.min(idx++, instants.length - 1)],
   });
 
   try {
+    const initRes = await app.inject({
+      method: 'GET',
+      url: '/apirest.php/initSession',
+      headers: {
+        'App-Token': app.authConfig.appToken,
+        Authorization: `Basic ${Buffer.from(`tecnico:${app.authConfig.tecnicoPassword}`).toString('base64')}`,
+      },
+    });
+    assert.equal(initRes.statusCode, 200);
+    const initBody = initRes.json();
+    assert.equal(
+      validateInitSession(initBody),
+      true,
+      `GET /initSession divergiu do contrato: ${ajv.errorsText(validateInitSession.errors)}`,
+    );
+
+    const headers = {
+      'App-Token': app.authConfig.appToken,
+      'Session-Token': initBody.session_token,
+    };
+
+    const estagiarioHeaders = await login(app, 'estagiario');
+
+    // Reinicia índice do relógio antes de criar o chamado de exemplo
+    idx = 0;
+
     // Reserva IDs 1..41 no SQLite para que o próximo chamado criado pela API receba id 42 (mesmo exemplo do contrato e de S3.2).
     app.store.db.exec("INSERT INTO sqlite_sequence (name, seq) VALUES ('tickets', 41)");
 
     const createRes = await app.inject({
       method: 'POST',
       url: '/apirest.php/Ticket',
+      headers,
       payload: {
         input: {
           name: 'Impressora do 3º andar não imprime',
@@ -71,6 +101,7 @@ test('respostas de POST, GET, PUT e listagem respeitam o schema Ticket de contra
     const updateRes = await app.inject({
       method: 'PUT',
       url: '/apirest.php/Ticket/42',
+      headers,
       payload: {
         input: {
           status: 2,
@@ -91,6 +122,7 @@ test('respostas de POST, GET, PUT e listagem respeitam o schema Ticket de contra
     const getRes = await app.inject({
       method: 'GET',
       url: '/apirest.php/Ticket/42',
+      headers,
     });
     assert.equal(getRes.statusCode, 200);
     const fetched = getRes.json();
@@ -103,6 +135,7 @@ test('respostas de POST, GET, PUT e listagem respeitam o schema Ticket de contra
     const listRes = await app.inject({
       method: 'GET',
       url: '/apirest.php/Ticket?range=0-49',
+      headers,
     });
     assert.equal(listRes.statusCode, 200);
     const listItems = listRes.json();
@@ -115,13 +148,38 @@ test('respostas de POST, GET, PUT e listagem respeitam o schema Ticket de contra
       );
     }
 
-    const errRes = await app.inject({
+    const err401Res = await app.inject({
+      method: 'GET',
+      url: '/apirest.php/Ticket/42',
+    });
+    assert.equal(err401Res.statusCode, 401);
+    assert.equal(
+      validateGlpiError(err401Res.json()),
+      true,
+      `Erro 401 divergiu de GlpiError: ${ajv.errorsText(validateGlpiError.errors)}`,
+    );
+
+    const err403Res = await app.inject({
+      method: 'PUT',
+      url: '/apirest.php/Ticket/42',
+      headers: estagiarioHeaders,
+      payload: { input: { status: 3 } },
+    });
+    assert.equal(err403Res.statusCode, 403);
+    assert.equal(
+      validateGlpiError(err403Res.json()),
+      true,
+      `Erro 403 divergiu de GlpiError: ${ajv.errorsText(validateGlpiError.errors)}`,
+    );
+
+    const err404Res = await app.inject({
       method: 'GET',
       url: '/apirest.php/Ticket/999',
+      headers,
     });
-    assert.equal(errRes.statusCode, 404);
+    assert.equal(err404Res.statusCode, 404);
     assert.equal(
-      validateGlpiError(errRes.json()),
+      validateGlpiError(err404Res.json()),
       true,
       `Erro 404 divergiu de GlpiError: ${ajv.errorsText(validateGlpiError.errors)}`,
     );
