@@ -61,6 +61,17 @@ export function serialize(event, { secret, now = Date.now } = {}) {
   };
 }
 
+export function shouldDrop(dropRate, random = Math.random) {
+  const rate = Number(dropRate);
+  if (rate <= 0) {
+    return false;
+  }
+  if (rate >= 100) {
+    return true;
+  }
+  return random() * 100 < rate;
+}
+
 function parseEnabled(rawEnabled) {
   if (typeof rawEnabled === 'boolean') {
     return rawEnabled;
@@ -165,6 +176,7 @@ export function createWebhookDispatcher(
   {
     fetch: fetchImpl = globalThis.fetch,
     now = Date.now,
+    random = Math.random,
     uuid = crypto.randomUUID,
     log = NOOP_LOG,
   } = {},
@@ -242,6 +254,19 @@ export function createWebhookDispatcher(
         },
         { now, uuid },
       );
+
+      if (shouldDrop(config.dropRate, random)) {
+        log.info(
+          {
+            event_id: event.event_id,
+            ticket_id: event.ticket_id,
+            action: event.action,
+            drop_rate: config.dropRate,
+          },
+          'webhook descartado (A_WEBHOOK_DROP_RATE)',
+        );
+        return;
+      }
 
       const { rawBody, headers } = serialize(event, { secret: config.secret, now });
       const task = send(event, headers, rawBody).finally(() => {
