@@ -191,3 +191,40 @@ export function validateTicketInput(input, { partial = false } = {}) {
 
   return normalized;
 }
+
+export function extractInputEnvelope(body) {
+  if (!isPlainObject(body) || !Object.hasOwn(body, 'input')) {
+    throw new TicketValidationError('O corpo da requisição deve ser um objeto contendo "input".');
+  }
+  for (const key of Object.keys(body)) {
+    if (key !== 'input') {
+      throw new TicketValidationError(`Campo não permitido fora de input: ${key}.`);
+    }
+  }
+  return body.input;
+}
+
+export function prepareNewTicket(body, { now = Date.now, timeZone = DEFAULT_TIMEZONE } = {}) {
+  const rawInput = extractInputEnvelope(body);
+  const validated = validateTicketInput(rawInput, { partial: false });
+  const instant = typeof now === 'function' ? now() : now;
+  const formatted = formatLocalDateTime(instant, timeZone);
+
+  return {
+    ...validated,
+    date: formatted,
+    date_mod: formatted,
+  };
+}
+
+export function parseTicketId(rawId) {
+  const str = String(rawId ?? '');
+  if (!/^[1-9]\d*$/.test(str)) {
+    throw new TicketValidationError('O parâmetro id deve ser um inteiro >= 1.');
+  }
+  const id = Number(str);
+  if (!Number.isSafeInteger(id) || id < 1) {
+    throw new TicketValidationError('O parâmetro id deve ser um inteiro >= 1.');
+  }
+  return id;
+}

@@ -1,7 +1,13 @@
 import { pathToFileURL } from 'node:url';
 import Fastify from 'fastify';
 import { DEFAULT_DB_PATH, TicketStore } from './store.js';
-import { DEFAULT_TIMEZONE, glpiError } from './tickets.js';
+import {
+  DEFAULT_TIMEZONE,
+  TicketNotFoundError,
+  glpiError,
+  parseTicketId,
+  prepareNewTicket,
+} from './tickets.js';
 
 export function buildServer({
   dbPath = process.env.A_DB_PATH || DEFAULT_DB_PATH,
@@ -41,6 +47,26 @@ export function buildServer({
       .code(error.statusCode || 500)
       .send(glpiError('ERROR_INTERNAL', error.message || 'Erro interno no Sistema A.'));
   });
+
+  app.register(
+    async (api) => {
+      api.post('/Ticket', async (request, reply) => {
+        const ticketData = prepareNewTicket(request.body, { now, timeZone });
+        const created = store.insert(ticketData);
+        return reply.code(201).send(created);
+      });
+
+      api.get('/Ticket/:id', async (request) => {
+        const id = parseTicketId(request.params.id);
+        const ticket = store.getById(id);
+        if (!ticket) {
+          throw new TicketNotFoundError(`Chamado ${id} não encontrado.`);
+        }
+        return ticket;
+      });
+    },
+    { prefix: '/apirest.php' },
+  );
 
   return app;
 }
