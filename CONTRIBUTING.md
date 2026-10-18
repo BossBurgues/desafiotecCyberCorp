@@ -16,24 +16,13 @@ Branches de milestone: `milestone/M0-fundacao`, `milestone/M1-nucleo-a-b`, `mile
 2. Na branch do milestone, faça **commits pequenos**, um conceito por commit, com `Refs #<nº>`.
 3. **Push** da branch.
 4. **Abra um PR para a `Dev`** com `Closes #<nº>` e preencha o template. Um PR aberto por vez em cada branch.
-5. **Rodada de QA** (ver abaixo), registrada na seção QA do PR, com o comentário final `QA ✅`.
-6. **Merge (merge commit, sem squash) só com a CI verde e o QA ✅** → deploy automático em homologação. Issues de runtime têm QA pós-merge em `dev.<host>`.
-7. `git pull origin Dev` na branch do milestone e siga para a próxima issue.
-8. Milestone concluído → QA de release → **PR de release `Dev` → `Prod`** (`release: M<n> …`) → aprovação → deploy em produção.
+5. **Merge (merge commit, sem squash) só com a CI verde** → deploy automático em homologação.
+6. `git pull origin Dev` na branch do milestone e siga para a próxima issue.
+7. Milestone concluído → **PR de release `Dev` → `Prod`** (`release: M<n> …`) → aprovação → deploy em produção.
 
-## Rodada de QA
+## Verificação de cada issue
 
-Toda issue passa por QA antes do merge (detalhes na seção 14.3 do [plano](docs/PLANO_DE_ACAO.md)):
-
-1. **Critérios de aceite**, um a um, com evidência (comando + saída, run da CI ou captura).
-2. **Caminho feliz** do "Como testar".
-3. **Testes negativos**: o que deve ser bloqueado ou rejeitado de fato é.
-4. **Validações temporárias** quando o comportamento só aparece no GitHub/CI: PR rascunho de `test/qa-<nº>-<slug>`, título `test(qa): …`, fechado sem merge e com a branch apagada.
-5. **Regressão**: CI verde e cenários do catálogo ligados à issue.
-6. **Prova de que o teste testa**: desligar o mecanismo e ver o teste falhar (issues que protegem uma garantia).
-7. **QA pós-merge** na homologação (issues de runtime).
-
-Se falhar: corrigir no mesmo PR e repetir, ou abrir uma issue `[bug]`. O tamanho da rodada acompanha a issue (docs < infra < código).
+Fluxo enxuto por causa do prazo (seção 14.3 do [plano](docs/PLANO_DE_ACAO.md)): testes da própria issue passando, CI verde e "Como testar" preenchido no PR. Sem rodada de QA formal, PRs temporários de validação ou testes de CI quebrada.
 
 ## CI
 
@@ -64,7 +53,6 @@ Exemplo: `feat(sync): grava marcador ⟦s:glpi-id⟧ ao criar registro no B`
 
 ## Definition of Done
 
-- [ ] Rodada de QA registrada no PR (`QA ✅`)
 - [ ] Testes passando
 - [ ] CI verde
 - [ ] `docs/how-it-works.md` atualizado se o fluxo mudou
