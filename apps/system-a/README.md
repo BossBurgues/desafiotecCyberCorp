@@ -9,3 +9,5 @@ A **fonte da verdade** dos chamados. Imita o comportamento do GLPI que importa p
 - webhook `ticket.changed` assinado com HMAC, que pode "perder" eventos de propósito (`A_WEBHOOK_DROP_RATE`).
 
 Contrato: [`contracts/system-a.openapi.yaml`](../../contracts). Issues: épico **E1**.
+
+<!-- test-ci-system-a -->
