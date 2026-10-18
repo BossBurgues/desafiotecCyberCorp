@@ -1,2 +1,143 @@
 <!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8"><title>Sistema A</title></head><body></body></html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sistema A · Chamados</title>
+    <link rel="stylesheet" href="/ui/styles.css" />
+    <script type="module" src="/ui/app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#/tickets">Sistema A <span>· chamados (mock GLPI)</span></a>
+      <div class="who" id="who" hidden>
+        <span id="who-label"></span>
+        <button type="button" class="ghost" id="logout">Sair</button>
+      </div>
+    </header>
+
+    <div class="banner error" id="global-error" role="alert" hidden></div>
+
+    <main>
+      <section id="screen-login" class="screen card narrow" hidden>
+        <h1>Entrar</h1>
+        <form id="login-form" autocomplete="on">
+          <label>
+            Usuário
+            <select name="login" required>
+              <option value="tecnico">tecnico (Técnico)</option>
+              <option value="estagiario">estagiario (Estagiário)</option>
+            </select>
+          </label>
+          <label>
+            Senha
+            <input type="password" name="password" required autocomplete="current-password" />
+          </label>
+          <div class="banner error" id="login-error" role="alert" hidden></div>
+          <button type="submit">Entrar</button>
+        </form>
+        <p class="hint">O <code>sync-bot</code> é conta técnica e não entra pela interface.</p>
+      </section>
+
+      <section id="screen-tickets" class="screen" hidden>
+        <div class="row-between">
+          <h1>Chamados</h1>
+          <button type="button" id="new-ticket-toggle">Novo chamado</button>
+        </div>
+
+        <form id="new-ticket-form" class="card" hidden>
+          <h2>Novo chamado</h2>
+          <label>
+            Título
+            <input name="name" required maxlength="255" />
+          </label>
+          <label>
+            Descrição
+            <textarea name="content" rows="4"></textarea>
+          </label>
+          <label>
+            Prioridade
+            <select name="priority" id="new-ticket-priority"></select>
+          </label>
+          <div class="banner error" id="new-ticket-error" role="alert" hidden></div>
+          <div class="actions">
+            <button type="submit">Criar</button>
+            <button type="button" class="ghost" id="new-ticket-cancel">Cancelar</button>
+          </div>
+        </form>
+
+        <div class="table-wrap card">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Título</th>
+                <th>Status</th>
+                <th>Prioridade</th>
+                <th>Última alteração</th>
+              </tr>
+            </thead>
+            <tbody id="tickets-body"></tbody>
+          </table>
+          <p class="hint" id="tickets-empty" hidden>Nenhum chamado ainda.</p>
+        </div>
+        <p class="hint" id="tickets-updated"></p>
+      </section>
+
+      <section id="screen-detail" class="screen" hidden>
+        <p><a href="#/tickets">← Voltar para a lista</a></p>
+        <div id="detail-pending"></div>
+        <article class="card" id="detail-card">
+          <div class="row-between">
+            <h1 id="detail-title"></h1>
+            <button type="button" id="edit-toggle">Editar</button>
+          </div>
+          <p class="meta" id="detail-meta"></p>
+          <p class="content" id="detail-content"></p>
+        </article>
+
+        <form id="edit-form" class="card" hidden>
+          <h2>Editar chamado</h2>
+          <div class="banner error" id="edit-error" role="alert" hidden></div>
+          <label>
+            Título
+            <input name="name" required maxlength="255" />
+          </label>
+          <label>
+            Descrição
+            <textarea name="content" rows="4"></textarea>
+          </label>
+          <div class="grid-2">
+            <label>
+              Status
+              <select name="status" id="edit-status"></select>
+            </label>
+            <label>
+              Prioridade
+              <select name="priority" id="edit-priority"></select>
+            </label>
+          </div>
+          <p class="hint">Solucionado e Fechado só chegam pelo fluxo de aprovação.</p>
+          <div class="actions">
+            <button type="submit">Salvar</button>
+            <button type="button" class="ghost" id="edit-cancel">Cancelar</button>
+          </div>
+        </form>
+
+        <section class="card" id="conversation">
+          <h2>Conversa</h2>
+          <p class="notice" id="conversation-off" hidden>Conversa disponível quando a S1.4 (#19) entrar.</p>
+          <ol class="timeline" id="timeline"></ol>
+          <form id="note-form" hidden>
+            <label>
+              Adicionar nota
+              <textarea name="content" rows="3" required></textarea>
+            </label>
+            <div class="banner error" id="note-error" role="alert" hidden></div>
+            <button type="submit">Enviar nota</button>
+          </form>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
