@@ -8,6 +8,7 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 16/10 | Backlog no GitHub: 133 issues, milestones, dependências, Project | — | _a preencher_ | |
 | 16/10 | Resposta do avaliador: B→A opcional, anti-eco e concorrência | — | _a preencher_ | Seções 5.1 e 5.2 do plano |
 | 18/10 | #12 [S0.1] Estrutura do monorepo | 2 | _a preencher_ | |
+| 18/10 | #13 [S0.2] CI esqueleto + proteções | 1.5 | 0.5 | |
 
 ## Totais por milestone
 
