@@ -92,6 +92,19 @@ jobs:
     needs: changes
     if: needs.changes.outputs.sync-service == 'true'
     runs-on: ubuntu-latest
+    # Postgres de verdade para migrations e /ready (testes de integração); credenciais descartáveis da própria CI
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sync
+          POSTGRES_PASSWORD: sync-ci
+          POSTGRES_DB: sync_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U sync" --health-interval 2s --health-timeout 5s --health-retries 15
+    env:
+      TEST_DATABASE_URL: postgres://sync:sync-ci@localhost:5432/sync_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -101,7 +114,8 @@ jobs:
       - run: npm ci
       - run: npm run lint -w apps/sync-service --if-present
       - run: npm run typecheck -w apps/sync-service --if-present
-      - run: npm run test -w apps/sync-service --if-present
+      - run: npm run test -w apps/sync-service
+      - run: npm run build -w apps/sync-service
 
   system-b:
     needs: changes
