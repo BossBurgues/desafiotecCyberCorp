@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [Dev, Prod]
+  push:
+    branches: ['milestone/**']
+
+permissions:
+  contents: read
+  pull-requests: read # o paths-filter lista os arquivos do PR pela API
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      system-a: ${{ steps.filter.outputs.system-a }}
+      system-b: ${{ steps.filter.outputs.system-b }}
+      sync-service: ${{ steps.filter.outputs.sync-service }}
+    steps:
+      # Em push o filtro compara com o ponto em que a branch saiu da Dev, e para isso precisa do checkout
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            system-a:
+              - 'apps/system-a/**'
+              - 'contracts/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/ci.yml'
+            sync-service:
+              - 'apps/sync-service/**'
+              - 'contracts/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/ci.yml'
+            system-b:
+              - 'apps/system-b/**'
+              - 'contracts/**'
+              - '.github/workflows/ci.yml'
+
+  system-a:
+    needs: changes
+    if: needs.changes.outputs.system-a == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # Placeholder: os scripts ainda estão vazios; --if-present deixa passar até a S4.2 preencher
+      - run: npm run lint -w apps/system-a --if-present
+      - run: npm run typecheck -w apps/system-a --if-present
+      - run: npm run test -w apps/system-a --if-present
+
+  sync-service:
+    needs: changes
+    if: needs.changes.outputs.sync-service == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run lint -w apps/sync-service --if-present
+      - run: npm run typecheck -w apps/sync-service --if-present
+      - run: npm run test -w apps/sync-service --if-present
+
+  system-b:
+    needs: changes
+    if: needs.changes.outputs.system-b == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: apps/system-b/global.json
+      # Placeholder: ainda não há projeto .NET; o teste passa a rodar sozinho quando o primeiro .csproj existir
+      - name: dotnet test
+        run: |
+          if find apps/system-b -name '*.sln' -o -name '*.csproj' | grep -q .; then
+            dotnet test apps/system-b
+          else
+            echo "system-b: nenhum projeto .NET ainda (placeholder)"
+          fi
+
+  # Única verificação exigida pelas proteções: resume o resultado de todos os jobs acima
+  ci-ok:
+    needs: [changes, system-a, sync-service, system-b]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Falha se algum job falhou ou foi cancelado
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+      - run: echo "CI verde"
