@@ -393,6 +393,10 @@ export class TicketStore {
     return this.db.prepare('SELECT * FROM access_denials ORDER BY id ASC').all();
   }
 
+  ping() {
+    return this.db.prepare('SELECT 1').get();
+  }
+
   close() {
     this.db.close();
   }
