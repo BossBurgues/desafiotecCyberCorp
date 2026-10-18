@@ -76,6 +76,27 @@ export class TicketStore {
         user_id INTEGER NOT NULL REFERENCES users(id),
         created_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS access_denials (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        occurred_at TEXT NOT NULL,
+        status INTEGER NOT NULL,
+        error_code TEXT NOT NULL,
+        user_id INTEGER,
+        login TEXT,
+        profile TEXT,
+        action TEXT,
+        method TEXT NOT NULL,
+        url TEXT NOT NULL,
+        ticket_id INTEGER,
+        origin_ip TEXT NOT NULL
+      );
+
+      CREATE TRIGGER IF NOT EXISTS access_denials_no_update BEFORE UPDATE ON access_denials
+      BEGIN SELECT RAISE(ABORT, 'access_denials é append-only'); END;
+
+      CREATE TRIGGER IF NOT EXISTS access_denials_no_delete BEFORE DELETE ON access_denials
+      BEGIN SELECT RAISE(ABORT, 'access_denials é append-only'); END;
     `);
   }
 
@@ -320,6 +341,56 @@ export class TicketStore {
     }
     const info = this.db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
     return info.changes > 0;
+  }
+
+  recordDenial(denial) {
+    const stmt = this.db.prepare(`
+      INSERT INTO access_denials (
+        occurred_at,
+        status,
+        error_code,
+        user_id,
+        login,
+        profile,
+        action,
+        method,
+        url,
+        ticket_id,
+        origin_ip
+      ) VALUES (
+        @occurred_at,
+        @status,
+        @error_code,
+        @user_id,
+        @login,
+        @profile,
+        @action,
+        @method,
+        @url,
+        @ticket_id,
+        @origin_ip
+      )
+    `);
+    const info = stmt.run({
+      occurred_at: denial.occurred_at,
+      status: denial.status,
+      error_code: denial.error_code,
+      user_id: denial.user_id ?? null,
+      login: denial.login ?? null,
+      profile: denial.profile ?? null,
+      action: denial.action ?? null,
+      method: denial.method,
+      url: denial.url,
+      ticket_id: denial.ticket_id ?? null,
+      origin_ip: denial.origin_ip,
+    });
+    return this.db
+      .prepare('SELECT * FROM access_denials WHERE id = ?')
+      .get(Number(info.lastInsertRowid));
+  }
+
+  listDenials() {
+    return this.db.prepare('SELECT * FROM access_denials ORDER BY id ASC').all();
   }
 
   close() {

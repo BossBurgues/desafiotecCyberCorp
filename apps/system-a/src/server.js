@@ -27,6 +27,18 @@ import {
 
 const SESSION_ONLY_ROUTES = new Set(['/apirest.php/initSession', '/apirest.php/killSession']);
 
+function parsePositiveIdOrNull(rawId) {
+  if (rawId === undefined || rawId === null) {
+    return null;
+  }
+  const str = String(rawId);
+  if (!/^[1-9]\d*$/.test(str)) {
+    return null;
+  }
+  const num = Number(str);
+  return Number.isSafeInteger(num) ? num : null;
+}
+
 export function buildServer({
   dbPath = process.env.A_DB_PATH || DEFAULT_DB_PATH,
   timeZone = process.env.A_TIMEZONE || DEFAULT_TIMEZONE,
@@ -35,9 +47,10 @@ export function buildServer({
   logger = false,
   env = process.env,
   auth = {},
+  trustProxy = env.A_TRUST_PROXY === 'true' || env.A_TRUST_PROXY === true,
 } = {}) {
   const authConfig = loadAuthConfig(env, auth);
-  const app = Fastify({ logger });
+  const app = Fastify({ logger, trustProxy });
   const store = new TicketStore(dbPath);
   store.seedUsers(authConfig);
 
@@ -68,7 +81,29 @@ export function buildServer({
       .send(glpiError('ERROR_ITEM_NOT_FOUND', 'Recurso não encontrado no Sistema A.'));
   });
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
+    if (error instanceof AuthError) {
+      const instant = typeof now === 'function' ? now() : now;
+      const occurredAt = new Date(instant).toISOString();
+      const action = error.context?.action ?? request.routeOptions?.config?.action ?? null;
+      const denial = store.recordDenial({
+        occurred_at: occurredAt,
+        status: error.statusCode,
+        error_code: error.glpiCode,
+        user_id: request.user?.id ?? error.context?.userId ?? null,
+        login: request.user?.login ?? error.context?.login ?? null,
+        profile: request.user?.profile ?? error.context?.profile ?? null,
+        action,
+        method: request.method,
+        url: request.url,
+        ticket_id: parsePositiveIdOrNull(request.params?.id),
+        origin_ip: request.ip,
+      });
+      // O log de auditoria registra apenas os campos da tabela access_denials, nunca senha, token ou cabeçalho Authorization.
+      request.log.warn({ denial }, 'acesso negado');
+      reply.code(error.statusCode).send(glpiError(error.glpiCode, error.message));
+      return;
+    }
     if (error.glpiCode && error.statusCode) {
       reply.code(error.statusCode).send(glpiError(error.glpiCode, error.message));
       return;
