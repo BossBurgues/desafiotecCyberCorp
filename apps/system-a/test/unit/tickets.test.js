@@ -4,6 +4,7 @@ import {
   TicketValidationError,
   formatLocalDateTime,
   isGlpiDateTime,
+  parseListQuery,
   touch,
   validateTicketInput,
 } from '../../src/tickets.js';
@@ -131,4 +132,45 @@ test('touch atualiza date_mod a partir do relógio injetado', () => {
   touch(ticket, () => Date.parse('2026-10-18T18:30:05Z'), 'America/Sao_Paulo');
 
   assert.equal(ticket.date_mod, '2026-10-18 15:30:05');
+});
+
+test('parseListQuery valida range, sort, order e date_mod_gte', () => {
+  assert.deepEqual(parseListQuery({}), {
+    offset: 0,
+    start: 0,
+    end: 49,
+    limit: 50,
+    sort: 'date_mod',
+    order: 'ASC',
+    dateModGte: null,
+  });
+
+  assert.throws(() => parseListQuery({ range: '50-10' }), TicketValidationError);
+  assert.throws(() => parseListQuery({ range: '0-500' }), TicketValidationError);
+  assert.throws(() => parseListQuery({ sort: 'name' }), TicketValidationError);
+  assert.throws(() => parseListQuery({ order: 'RANDOM' }), TicketValidationError);
+  assert.throws(
+    () => parseListQuery({ date_mod_gte: '2026-10-18T10:00:00Z' }),
+    TicketValidationError,
+  );
+});
+
+test('valida metadados de anexos com sha256 em hex de 64 caracteres', () => {
+  const validSha = 'a'.repeat(64);
+  const res = validateTicketInput({
+    name: 'Com anexo',
+    content: 'Texto',
+    attachments: [{ name: 'log.txt', size: 128, sha256: validSha }],
+  });
+  assert.equal(res.attachments.length, 1);
+
+  assert.throws(
+    () =>
+      validateTicketInput({
+        name: 'Anexo inválido',
+        content: 'Texto',
+        attachments: [{ name: 'log.txt', size: 128, sha256: 'curto' }],
+      }),
+    TicketValidationError,
+  );
 });

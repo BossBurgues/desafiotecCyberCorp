@@ -304,3 +304,163 @@ test('PUT /apirest.php/Ticket/:id atualiza campos parciais, renova date_mod sem 
     await app.close();
   }
 });
+
+test('criar chamado devolve id, date e date_mod no fuso do A', async () => {
+  const app = buildServer({
+    dbPath: ':memory:',
+    timeZone: 'America/Sao_Paulo',
+    now: () => Date.parse('2026-10-18T17:03:22Z'),
+  });
+
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/apirest.php/Ticket',
+      payload: {
+        input: {
+          name: 'Falha de VPN',
+          content: '<p>Erro ao conectar.</p>',
+        },
+      },
+    });
+    assert.equal(res.statusCode, 201);
+    const body = res.json();
+    assert.equal(body.id, 1);
+    assert.equal(body.date, '2026-10-18 14:03:22');
+    assert.equal(body.date_mod, '2026-10-18 14:03:22');
+  } finally {
+    await app.close();
+  }
+});
+
+test('listagem pagina sem repetir nem pular', async () => {
+  const app = buildServer({
+    dbPath: ':memory:',
+    timeZone: 'America/Sao_Paulo',
+    now: () => Date.parse('2026-10-18T17:00:00Z'),
+  });
+
+  try {
+    for (let i = 1; i <= 5; i += 1) {
+      await app.inject({
+        method: 'POST',
+        url: '/apirest.php/Ticket',
+        payload: { input: { name: `T${i}`, content: `C${i}` } },
+      });
+    }
+
+    const p1 = await app.inject({ method: 'GET', url: '/apirest.php/Ticket?range=0-1' });
+    const p2 = await app.inject({ method: 'GET', url: '/apirest.php/Ticket?range=2-3' });
+    const p3 = await app.inject({ method: 'GET', url: '/apirest.php/Ticket?range=4-5' });
+
+    assert.equal(p1.statusCode, 206);
+    assert.equal(p2.statusCode, 206);
+    assert.equal(p3.statusCode, 206);
+    assert.equal(p3.headers['content-range'], '4-4/5');
+
+    const ids = [...p1.json(), ...p2.json(), ...p3.json()].map((t) => t.id);
+    assert.deepEqual(ids, [1, 2, 3, 4, 5]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('PUT sem date_mod não reaproveita o valor antigo', async () => {
+  const instants = [
+    Date.parse('2026-10-18T17:00:00Z'),
+    Date.parse('2026-10-18T17:10:00Z'),
+  ];
+  let idx = 0;
+  const app = buildServer({
+    dbPath: ':memory:',
+    timeZone: 'America/Sao_Paulo',
+    now: () => instants[idx++],
+  });
+
+  try {
+    const c = await app.inject({
+      method: 'POST',
+      url: '/apirest.php/Ticket',
+      payload: { input: { name: 'A', content: 'B' } },
+    });
+    const before = c.json().date_mod;
+
+    const u = await app.inject({
+      method: 'PUT',
+      url: '/apirest.php/Ticket/1',
+      payload: { input: { name: 'A editado' } },
+    });
+    const after = u.json().date_mod;
+
+    assert.equal(before, '2026-10-18 14:00:00');
+    assert.equal(after, '2026-10-18 14:10:00');
+    assert.notEqual(after, before);
+  } finally {
+    await app.close();
+  }
+});
+
+test('rejeita entradas inválidas nas rotas com 400 ERROR_INVALID_INPUT e 404 ERROR_ITEM_NOT_FOUND', async () => {
+  const app = buildServer({ dbPath: ':memory:' });
+
+  try {
+    const cases400 = [
+      {
+        method: 'POST',
+        url: '/apirest.php/Ticket',
+        payload: { input: { name: 'Ok', content: 'Ok', status: 0 } },
+      },
+      {
+        method: 'POST',
+        url: '/apirest.php/Ticket',
+        payload: { input: { name: 'Ok', content: 'Ok', status: 7 } },
+      },
+      {
+        method: 'POST',
+        url: '/apirest.php/Ticket',
+        payload: { input: { name: 'Ok', content: 'Ok', unknown_field: true } },
+      },
+      {
+        method: 'POST',
+        url: '/apirest.php/Ticket',
+        payload: { name: 'Sem envelope input' },
+      },
+      {
+        method: 'GET',
+        url: '/apirest.php/Ticket?range=50-10',
+      },
+      {
+        method: 'GET',
+        url: '/apirest.php/Ticket?range=0-500',
+      },
+      {
+        method: 'GET',
+        url: '/apirest.php/Ticket?date_mod_gte=invalido',
+      },
+      {
+        method: 'GET',
+        url: '/apirest.php/Ticket/0',
+      },
+    ];
+
+    for (const req of cases400) {
+      const res = await app.inject(req);
+      assert.equal(res.statusCode, 400);
+      const err = res.json();
+      assert.ok(Array.isArray(err));
+      assert.equal(err.length, 2);
+      assert.equal(err[0], 'ERROR_INVALID_INPUT');
+      assert.equal(typeof err[1], 'string');
+    }
+
+    const putWithoutId = await app.inject({
+      method: 'PUT',
+      url: '/apirest.php/Ticket',
+      payload: { input: { status: 2 } },
+    });
+    assert.equal(putWithoutId.statusCode, 404);
+    assert.equal(putWithoutId.json()[0], 'ERROR_ITEM_NOT_FOUND');
+  } finally {
+    await app.close();
+  }
+});
