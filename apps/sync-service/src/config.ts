@@ -27,6 +27,22 @@ const schema = z.object({
   QUEUE_BACKOFF_MAX_MS: ms(1_000, 3_600_000).default(300_000),
   QUEUE_TRANSIENT_MAX_AGE_MS: ms(60_000, 7 * 86_400_000).default(86_400_000),
   QUEUE_PERMANENT_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(100).default(3),
+  WORKER_MAX_JOBS_PER_TICK: z.coerce.number().int().min(1).max(1_000).default(20),
+  // Adapter do A (S3.6): o sync entra como sync-bot (só lê e escreve notas, ADR-009)
+  A_APP_TOKEN: z.string().min(1),
+  A_SYNC_BOT_TOKEN: z.string().min(1),
+  A_TIMEZONE: z.string().min(1).default('America/Sao_Paulo'),
+  A_TIMEOUT_MS: ms(100, 60_000).default(5_000),
+  // processJob (S3.6, ADR-004): onde vai o marcador e quantas varreduras sem achá-lo antes de recriar
+  B_MARKER_FIELD: z.enum(['description', 'title']).default('description'),
+  CREATE_UNCERTAIN_SCANS: z.coerce.number().int().min(1).max(20).default(2),
+  B_LIST_PAGE_SIZE: z.coerce.number().int().min(1).max(500).default(100),
+  // Entrada (S3.4): webhook com HMAC e poller com sobreposição
+  HMAC_SECRET: z.string().min(16),
+  WEBHOOK_REPLAY_WINDOW_MS: ms(10_000, 3_600_000).default(300_000),
+  POLL_INTERVAL_MS: ms(500, 3_600_000).default(10_000),
+  POLL_OVERLAP_MS: ms(0, 3_600_000).default(120_000),
+  POLL_PAGE_SIZE: z.coerce.number().int().min(1).max(500).default(100),
 });
 
 export type Config = z.infer<typeof schema>;

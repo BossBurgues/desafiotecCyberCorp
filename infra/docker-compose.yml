@@ -43,8 +43,8 @@ services:
       A_TECNICO_PASSWORD: ${A_TECNICO_PASSWORD:?defina A_TECNICO_PASSWORD}
       A_ESTAGIARIO_PASSWORD: ${A_ESTAGIARIO_PASSWORD:?defina A_ESTAGIARIO_PASSWORD}
       A_SYNC_BOT_TOKEN: ${A_SYNC_BOT_TOKEN:?defina A_SYNC_BOT_TOKEN}
-      # O receptor do webhook no sync entra na S3.4 (#32); até lá o polling é a garantia (Q1)
-      A_WEBHOOK_ENABLED: ${A_WEBHOOK_ENABLED:-false}
+      # Sinal rápido; o poller do sync é a garantia quando o webhook se perde (Q1, cenário B2)
+      A_WEBHOOK_ENABLED: ${A_WEBHOOK_ENABLED:-true}
       A_WEBHOOK_URL: http://sync-service:3000/webhooks/system-a
       A_WEBHOOK_DROP_RATE: ${A_WEBHOOK_DROP_RATE:-0}
       HMAC_SECRET: ${HMAC_SECRET:?defina HMAC_SECRET}
@@ -100,6 +100,14 @@ services:
       B_TIMEOUT_MS: ${B_TIMEOUT_MS:-5000}
       B_BREAKER_THRESHOLD: ${B_BREAKER_THRESHOLD:-5}
       B_BREAKER_OPEN_MS: ${B_BREAKER_OPEN_MS:-30000}
+      A_APP_TOKEN: ${A_APP_TOKEN:?defina A_APP_TOKEN}
+      A_SYNC_BOT_TOKEN: ${A_SYNC_BOT_TOKEN:?defina A_SYNC_BOT_TOKEN}
+      A_TIMEZONE: ${A_TIMEZONE:-America/Sao_Paulo}
+      HMAC_SECRET: ${HMAC_SECRET:?defina HMAC_SECRET}
+      B_MARKER_FIELD: ${B_MARKER_FIELD:-description}
+      CREATE_UNCERTAIN_SCANS: ${CREATE_UNCERTAIN_SCANS:-2}
+      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-10000}
+      POLL_OVERLAP_MS: ${POLL_OVERLAP_MS:-120000}
     # Só o Postgres é pré-requisito: A ou B fora não impedem a subida, o /ready mostra e o worker pausa
     depends_on:
       postgres:

@@ -28,6 +28,9 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 18/10 | #33 [S3.5] Adapter B: timeout, circuit breaker, validação de resposta | 3 | 0.75 | sprint M1 |
 | 18/10 | #31 [S3.3] Fila: um job por chamado, SKIP LOCKED, lease, backoff, DLQ | 4 | 1 | sprint M1; `rerun` para evento que chega durante o processamento |
 | 18/10 | #39 [S4.1] Docker Compose completo (local = produção) + override E2E | 2 | 0.75 | sprint M1; inclui o Dockerfile do sync |
+| 18/10 | #34 [S3.6] processJob: create/update idempotente com marcador | 5 | 1 | sprint M1 (2); cliente do A como sync-bot, migration 003 |
+| 18/10 | #32 [S3.4] Entrada: webhook HMAC + poller com sobreposição | 3 | 0.75 | sprint M1 (2); poller compara pelo hash (B12) |
+| 18/10 | #84 [A6] · #98 [B10] · #121 [G4] cenários de integração | 1 | 0.5 | sprint M1 (2); mutação: sem SKIP LOCKED o A6 falha |
 
 ## Totais por milestone
 

@@ -155,6 +155,9 @@ describe('cliente do B: "B fora" × "B recusou"', () => {
       expect(await failure(client.getRecord('B-981'))).toMatchObject({ reason: 'schema_drift', errorClass: 'permanent' });
     }
     expect(client.breakerState()).toBe('closed');
+    // Num write o 2xx prova que o B gravou: o create com drift é ambíguo (procurar o marcador, nunca reenviar)
+    const { client: writer } = setup([{ status: 201, body: drifted }]);
+    expect(await failure(writer.createRecord(INPUT))).toMatchObject({ reason: 'schema_drift', errorClass: 'permanent', ambiguous: true });
     const log = lines.find((l) => l.msg === 'resposta do B fora do contrato (drift de formato)');
     expect(String(log?.issues)).toMatch(/title|summary/);
   });

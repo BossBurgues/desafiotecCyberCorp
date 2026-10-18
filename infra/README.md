@@ -29,7 +29,7 @@ docker compose -f infra/docker-compose.yml --env-file .env down          # -v ap
 - **Portas dos apps em `127.0.0.1`:** acessíveis na máquina (testes, depuração), nunca expostas na rede. Na VM, só o Caddy publica portas.
 - **Admin do B fora da internet:** o Caddy responde 404 para `/admin` em `b.<DOMAIN>`. Caos e wipe só pela rede interna (o dashboard do sync, S3.10) ou por `127.0.0.1:5002`.
 - **Imagens:** `IMAGE_PREFIX` e `IMAGE_TAG` (padrão `cybercorp/*:local`). Na VM apontam para o GHCR (`ghcr.io/<owner>/…:dev-<sha>`), e o deploy faz `pull` em vez de `build`.
-- O webhook do A fica desligado (`A_WEBHOOK_ENABLED=false`) até o receptor do sync entrar na S3.4 (#32). O polling é a garantia (Q1).
+- O webhook do A vem ligado (`A_WEBHOOK_ENABLED=true`, receptor do sync na S3.4). Ele é só o sinal rápido: o poller do sync é a garantia quando um webhook se perde (Q1).
 
 ## E2E (caos agressivo)
 

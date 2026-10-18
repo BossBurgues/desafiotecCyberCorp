@@ -43,6 +43,8 @@ services:
       READY_CHECK_INTERVAL_MS: 1000
       WORKER_POLL_INTERVAL_MS: 200
       B_BREAKER_OPEN_MS: 5000 # o teste não espera 30 s para ver a meia-abertura
+      POLL_INTERVAL_MS: 1000
+      QUEUE_BACKOFF_MAX_MS: 5000 # retries curtos: a CI não espera 5 min de backoff
 
   # Os testes falam direto com os serviços pelas portas locais; o Caddy (HTTPS) fica de fora
   caddy:
