@@ -13,6 +13,37 @@ security:
   - appToken: []
     sessionToken: []
 paths:
+  /health:
+    servers:
+      - url: http://localhost:3001
+    get:
+      operationId: health
+      summary: Saúde do Sistema A (sem autenticação, fora de /apirest.php)
+      description: Usado pelo HEALTHCHECK do container e pelo smoke do deploy. Confere o acesso ao SQLite.
+      security: []
+      responses:
+        '200':
+          description: Sistema A e banco operacionais
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+        '503':
+          description: Banco indisponível
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [error]
   /initSession:
     get:
       operationId: initSession
