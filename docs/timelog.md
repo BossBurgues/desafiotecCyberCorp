@@ -11,6 +11,7 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 18/10 | #13 [S0.2] CI esqueleto + proteções | 1.5 | 0.5 | |
 | 18/10 | #14 [S0.3] ADRs 001–011 | 2 | 0.5 | 11 ADRs (o 011 entrou após a resposta do avaliador) |
 | 18/10 | #15 [S0.4] Contratos OpenAPI do A e do B + schema do evento | 2 | 0.5 | inclui QA |
+| 18/10 | #16 [S1.1] API de chamados estilo GLPI | 3 | 0.5 | inclui QA |
 
 ## Totais por milestone
 
