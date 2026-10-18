@@ -15,5 +15,6 @@ Um arquivo por decisão: `NNN-titulo.md`, com **Contexto**, **Decisão**, **Cons
 | [009](009-anti-eco.md) | Anti-eco (`last_written_hash`, `sync-bot`) | Aceito (B→A opcional) |
 | [010](010-hospedagem-oracle-compose.md) | Hospedagem Oracle + Compose; plano B Render + Neon | Aceito |
 | [011](011-concorrencia-a-x-b.md) | Concorrência A×B: o A vence, ler antes de escrever, If-Match opcional | Aceito (B→A opcional) |
+| [012](012-sem-mirror-no-gitlab.md) | Repositório e CI só no GitHub, sem mirror no GitLab | Aceito |
 
 Para mudar uma decisão, copie o [modelo](000-modelo.md) e marque o ADR antigo como *Substituído por ADR-XXX*.
