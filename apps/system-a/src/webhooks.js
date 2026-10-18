@@ -34,7 +34,7 @@ export function buildEvent(
 export function sign(secret, timestamp, rawBody) {
   const hex = crypto
     .createHmac('sha256', String(secret))
-    .update(`${timestamp}.${rawBody}`, 'utf8')
+    .update(`${rawBody}`, 'utf8')
     .digest('hex');
   return `sha256=${hex}`;
 }
