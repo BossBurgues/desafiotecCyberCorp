@@ -470,15 +470,20 @@ test('evento ticket.changed leva o ator da sessão', async () => {
     });
     assert.equal(updateRes.statusCode, 200);
 
+    const created = createRes.json();
+    const updated = updateRes.json();
+
     assert.deepEqual(events, [
       {
         ticketId: 1,
         action: 'created',
+        dateMod: created.date_mod,
         actor: { id: 2, login: 'estagiario', profile: 'estagiario' },
       },
       {
         ticketId: 1,
         action: 'updated',
+        dateMod: updated.date_mod,
         actor: { id: 1, login: 'tecnico', profile: 'tecnico' },
       },
     ]);

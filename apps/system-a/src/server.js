@@ -24,6 +24,7 @@ import {
   prepareNewTicket,
   prepareTicketUpdate,
 } from './tickets.js';
+import { createWebhookDispatcher, loadWebhookConfig } from './webhooks.js';
 
 const SESSION_ONLY_ROUTES = new Set(['/apirest.php/initSession', '/apirest.php/killSession']);
 
@@ -47,17 +48,30 @@ export function buildServer({
   logger = false,
   env = process.env,
   auth = {},
+  webhook: webhookOverrides = {},
   trustProxy = env.A_TRUST_PROXY === 'true' || env.A_TRUST_PROXY === true,
 } = {}) {
   const authConfig = loadAuthConfig(env, auth);
+  const webhookConfig = loadWebhookConfig(env, webhookOverrides);
   const app = Fastify({ logger, trustProxy });
   const store = new TicketStore(dbPath);
   store.seedUsers(authConfig);
+
+  const webhook = createWebhookDispatcher(webhookConfig, {
+    fetch: webhookOverrides.fetch,
+    now,
+    random: webhookOverrides.random,
+    uuid: webhookOverrides.uuid,
+    log: app.log,
+  });
+  emitter.on('ticket.changed', webhook.handle);
 
   const registeredRoutes = [];
 
   app.decorate('store', store);
   app.decorate('authConfig', authConfig);
+  app.decorate('webhookConfig', webhookConfig);
+  app.decorate('webhook', webhook);
   app.decorate('timeZone', timeZone);
   app.decorate('now', now);
   app.decorate('emitter', emitter);
@@ -72,6 +86,8 @@ export function buildServer({
   });
 
   app.addHook('onClose', async () => {
+    emitter.off('ticket.changed', webhook.handle);
+    await webhook.close();
     store.close();
   });
 
@@ -230,6 +246,7 @@ export function buildServer({
           emitter.emit('ticket.changed', {
             ticketId: created.id,
             action: 'created',
+            dateMod: created.date_mod,
             actor: {
               id: request.user.id,
               login: request.user.login,
@@ -267,6 +284,7 @@ export function buildServer({
           emitter.emit('ticket.changed', {
             ticketId: updated.id,
             action: 'updated',
+            dateMod: updated.date_mod,
             actor: {
               id: request.user.id,
               login: request.user.login,

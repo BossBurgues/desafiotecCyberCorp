@@ -33,7 +33,11 @@ npm run start -w apps/system-a
 | `A_ESTAGIARIO_PASSWORD` | `dev-estagiario-password` | Senha do usuário `estagiario` (ID `2`, login via `Authorization: Basic`) |
 | `A_SYNC_BOT_TOKEN` | `dev-sync-bot-token` | Token da conta de serviço `sync-bot` (ID `3`, login via `Authorization: user_token`) |
 | `A_TRUST_PROXY` | `false` | Quando `true`, habilita `trustProxy` no Fastify para registrar o IP real atrás do Caddy (`X-Forwarded-For`) |
-| `NODE_ENV` | — | Quando `production`, a ausência de `A_APP_TOKEN`, `A_TECNICO_PASSWORD`, `A_ESTAGIARIO_PASSWORD` ou `A_SYNC_BOT_TOKEN` impede o servidor de subir |
+| `A_WEBHOOK_ENABLED` | `false` | Quando `true`, envia o webhook HTTP `ticket.changed` (exige `A_WEBHOOK_URL` e `HMAC_SECRET`) |
+| `A_WEBHOOK_URL` | — | URL HTTP/HTTPS completa do receptor do webhook (sugestão em dev: `http://localhost:3000/webhooks/system-a`) |
+| `A_WEBHOOK_DROP_RATE` | `0` | Porcentagem (`0`–`100`) de eventos descartados propositalmente antes do envio para exercitar o cenário B2 |
+| `HMAC_SECRET` | — | Segredo compartilhado com o sincronizador para assinar `X-Signature-256` (em `NODE_ENV=production` exige `>= 32` caracteres quando o webhook está ligado) |
+| `NODE_ENV` | — | Quando `production`, a ausência de `A_APP_TOKEN`, `A_TECNICO_PASSWORD`, `A_ESTAGIARIO_PASSWORD` ou `A_SYNC_BOT_TOKEN` (e `HMAC_SECRET` curto com webhook ligado) impede o servidor de subir |
 
 ## Login e perfis (S1.2 · #17)
 
@@ -101,7 +105,20 @@ curl http://localhost:3001/health   # {"status":"ok"}
 - Smoke local: `bash infra/scripts/smoke-system-a.sh system-a`.
 - No Windows o `shutdown.test.js` é pulado (SIGTERM mata o processo sem handler); a CI (Linux) roda.
 
-## Endpoints implementados (S1.1 · #16 e S1.2 · #17)
+## Webhook `ticket.changed` (S1.3 · #18)
+
+Quando `A_WEBHOOK_ENABLED=true`, toda criação (`POST /apirest.php/Ticket`) ou edição (`PUT /apirest.php/Ticket/:id`) concluída com sucesso dispara um `POST` assíncrono para `A_WEBHOOK_URL` (**exceto** mudanças cujo ator na sessão tem perfil `sync-bot`, barreira 2 do anti-eco — ADR-009).
+
+- **Sinal, nunca dado (ADR-005):** o corpo segue [`contracts/events/ticket-changed.schema.json`](../../contracts/events/ticket-changed.schema.json) (`schema_version: 1`, `event_id` UUID por disparo, `type: "ticket.changed"`, `ticket_id`, `action: "created" | "updated"`, `occurred_at` em UTC sem milissegundos e `date_mod` salvo no fuso do A). O sincronizador usa apenas `ticket_id` e relê o estado atual no A.
+- **Assinatura HMAC-SHA256 + timestamp (`X-Timestamp` e `X-Signature-256`):** o corpo JSON é serializado uma única vez (`rawBody`) e assinado sobre `"<X-Timestamp>.<rawBody>"` com `HMAC_SECRET`.
+- **Verificação no receptor (S3.4):** ler o **corpo cru** (sem reserializar), validar a janela anti-replay de 5 min sobre `X-Timestamp` e comparar em tempo constante:
+  ```js
+  const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(`${ts}.${rawBody}`, 'utf8').digest('hex');
+  const ok = sig.length === expected.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+  ```
+- **Fire-and-forget e modo "perder X%":** o handler HTTP responde imediatamente sem esperar o envio; cada disparo tem timeout de `2000 ms` e não faz retry (qualquer falha vira `warn` no log, sem expor o segredo nem a assinatura). Quando `A_WEBHOOK_DROP_RATE` está entre `0` e `100`, `X%` dos eventos são sorteados e descartados após montar o evento (`info` com `event_id`), permitindo provar que o poller recupera chamados sem perder atualização (cenário B2).
+
+## Endpoints implementados (S1.1 · #16, S1.2 · #17 e S1.7 · #22)
 
 | Método | Rota | Descrição |
 |---|---|---|
@@ -111,7 +128,7 @@ curl http://localhost:3001/health   # {"status":"ok"}
 | `GET` | `/apirest.php/Ticket/:id` | Lê chamado por ID (`200`) ou retorna `404` `["ERROR_ITEM_NOT_FOUND", "..."]` |
 | `GET` | `/apirest.php/Ticket` | Lista chamados com `range=<início>-<fim>` (padrão `0-49`, máx. `500`), `sort=date_mod\|id`, `order=ASC\|DESC` e filtro opcional `date_mod_gte=YYYY-MM-DD HH:MM:SS`. Retorna cabeçalho `Content-Range` (`200` ou `206`) |
 | `GET` | `/health` | Saúde do Sistema A, sem autenticação (`200 {"status":"ok"}` ou `503`) |
-| `PUT` | `/apirest.php/Ticket/:id` | Atualiza campos parciais via `{ "input": { ... } }`, recalcula `date_mod` no fuso `A_TIMEZONE` e emite o evento interno `ticket.changed` com `{ ticketId, action, actor }` |
+| `PUT` | `/apirest.php/Ticket/:id` | Atualiza campos parciais via `{ "input": { ... } }`, recalcula `date_mod` no fuso `A_TIMEZONE` e emite o evento interno `ticket.changed` com `{ ticketId, action, dateMod, actor }` |
 
 Erros seguem o formato do GLPI: `["ERROR_CODIGO", "Mensagem legível"]`.
 
@@ -121,12 +138,12 @@ Erros seguem o formato do GLPI: `["ERROR_CODIGO", "Mensagem legível"]`.
 - **Dropdowns como IDs:** `itilcategories_id`, `locations_id`, `users_id_recipient` e `users_id_assign` trafegam como inteiros (`>= 1` ou `null`); o de-para fica no serviço de sincronização.
 - **Defaults de domínio na criação:** `status = 1` (Novo), `priority = 3` (Média) e `users_id_recipient = <id da sessão>` quando omitidos no `POST /Ticket`.
 - **Sessão e segurança do mock:** sessões ficam no SQLite sem expiração automática (encerradas via `/killSession`); não há tela de gestão de usuários (trocar a senha no ambiente e reiniciar atualiza o hash no seed); não há rate-limit/bloqueio de força bruta (risco conhecido de mock de demonstração, mitigado pelo registro de todas as tentativas em `access_denials`); as negações ficam no SQLite e no log do A (a linha do tempo unificada de auditoria entra na M2).
+- **Webhook sem fila nem retry no A:** não há retentativa local no Sistema A porque o polling periódico com sobreposição é a garantia de entrega (ADR-005, cenário B2); o descarte de `A_WEBHOOK_DROP_RATE` é feito por sorteio uniforme em cada disparo.
 
 ## O que entra nas próximas issues do Épico E1
 
 | Capacidade do contrato | Issue |
 |---|---|
-| Disparo HTTP do webhook `ticket.changed` com assinatura HMAC-SHA256 e `A_WEBHOOK_DROP_RATE` | **S1.3 (#18)** |
 | Acompanhamentos (`/Ticket/:id/ITILFollowup` e `POST /ITILFollowup`) | **S1.4 (#19)** |
 | Soluções (`ITILSolution`), preenchimento automático de `solvedate`/`closedate` e congelamento `409 ERROR_TICKET_FROZEN` nos status 5 e 6 | **S1.5 (#20)** |
 | Interface web de operação do Sistema A | **S1.6 (#21)** |
