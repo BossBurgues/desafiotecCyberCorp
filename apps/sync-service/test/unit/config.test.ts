@@ -5,6 +5,9 @@ const valid = {
   DATABASE_URL: 'postgres://sync:segredo-do-banco@localhost:5432/sync',
   A_BASE_URL: 'http://localhost:3001/',
   B_BASE_URL: 'http://localhost:5002',
+  A_APP_TOKEN: 'app-token',
+  A_SYNC_BOT_TOKEN: 'sync-bot-token',
+  HMAC_SECRET: 'segredo-hmac-de-teste-0000',
 };
 
 describe('loadConfig', () => {

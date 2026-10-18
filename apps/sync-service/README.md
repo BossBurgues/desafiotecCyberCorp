@@ -19,10 +19,10 @@
 
 ```bash
 npm run build -w apps/sync-service
-DATABASE_URL=postgres://sync:sync@localhost:5432/sync A_BASE_URL=http://localhost:3001 B_BASE_URL=http://localhost:5002   npm run start -w apps/sync-service        # aplica as migrations e sobe em :3000
+DATABASE_URL=postgres://sync:sync@localhost:5432/sync A_BASE_URL=http://localhost:3001 B_BASE_URL=http://localhost:5002 \n  A_APP_TOKEN=dev-app-token A_SYNC_BOT_TOKEN=dev-sync-bot-token HMAC_SECRET=dev-hmac-secret-troque-em-producao-0000 \n  npm run start -w apps/sync-service        # aplica as migrations e sobe em :3000
 ```
 
-Na subida, em ordem: **valida a config** (zod; qualquer variável inválida lista todos os problemas e sai com código 1, sem imprimir valores) → **aplica as migrations** pendentes → checa as dependências → inicia o worker → abre o HTTP. `SIGTERM` fecha o HTTP, espera o tick em andamento do worker e encerra o pool.
+Na subida, em ordem: **valida a config** (zod; qualquer variável inválida lista todos os problemas e sai com código 1, sem imprimir valores) → **aplica as migrations** pendentes → checa as dependências → inicia o worker e o poller do A → abre o HTTP (com o webhook). `SIGTERM` fecha o HTTP, espera o tick em andamento do worker e encerra o pool.
 
 | Variável | Padrão | Para quê |
 |---|---|---|
@@ -39,6 +39,16 @@ Na subida, em ordem: **valida a config** (zod; qualquer variável inválida list
 | `QUEUE_BACKOFF_BASE_MS` / `QUEUE_BACKOFF_MAX_MS` | `1000` / `300000` | Backoff 1 s·2ⁿ + jitter, teto de 5 min |
 | `QUEUE_TRANSIENT_MAX_AGE_MS` | `86400000` | Erro transitório vai para a DLQ depois de 24 h desde a primeira falha |
 | `QUEUE_PERMANENT_MAX_ATTEMPTS` | `3` | Erro permanente vai para a DLQ nesta tentativa |
+| `WORKER_MAX_JOBS_PER_TICK` | `20` | Jobs processados por tick do worker |
+| `A_APP_TOKEN` / `A_SYNC_BOT_TOKEN` | **obrigatórias** | Credenciais do sync no A (App-Token + `user_token` do sync-bot) |
+| `A_TIMEZONE` | `America/Sao_Paulo` | Fuso do `date_mod` do A (conversão para UTC e limite do poll) |
+| `A_TIMEOUT_MS` | `5000` | Timeout de cada requisição ao A |
+| `HMAC_SECRET` | **obrigatória** (≥ 16) | Segredo do webhook do A |
+| `WEBHOOK_REPLAY_WINDOW_MS` | `300000` | Janela anti-replay do `X-Timestamp` (5 min) |
+| `POLL_INTERVAL_MS` / `POLL_OVERLAP_MS` / `POLL_PAGE_SIZE` | `10000` / `120000` / `100` | Poller do A: intervalo, sobreposição e tamanho da página |
+| `B_MARKER_FIELD` | `description` | Campo do B que carrega o marcador `⟦s:glpi-id⟧` (`description` ou `title`) |
+| `CREATE_UNCERTAIN_SCANS` | `2` | Varreduras da listagem do B sem achar o marcador antes de recriar um create ambíguo |
+| `B_LIST_PAGE_SIZE` | `100` | Página usada na varredura do B |
 
 ### HTTP
 
@@ -46,6 +56,7 @@ Na subida, em ordem: **valida a config** (zod; qualquer variável inválida list
 |---|---|
 | `GET /health` | 200 `{ "status": "ok" }` sempre que o processo responde (liveness; não olha dependências, para o B instável não fazer o orquestrador reiniciar o sync) |
 | `GET /ready` | 200 ou **503** com `checks.postgres`, `checks.system_a`, `checks.system_b` (`ok`, `latency_ms`, `error`). Cenário **H5**: sem Postgres → 503 |
+| `POST /webhooks/system-a` | Webhook `ticket.changed` do A. **401** sem assinatura válida ou fora da janela; **400** fora do contrato; **200** `{ accepted, duplicate }` depois de gravar evento + job |
 
 ### Logs e `correlation_id`
 
@@ -53,7 +64,7 @@ Logs JSON do pino. Cada requisição recebe um `correlation_id`: reaproveita o `
 
 ### Worker
 
-O laço (`src/infra/queue/worker-loop.ts`) **pausa enquanto `/ready` falha**: sem Postgres, A ou B, pegar job só gastaria tentativas. Loga uma vez ao pausar e uma ao retomar. O tick passa a chamar `drain` com o `processJob` na S3.6 (#34).
+O laço (`src/infra/queue/worker-loop.ts`) **pausa enquanto `/ready` falha**: sem Postgres, A ou B, pegar job só gastaria tentativas. Loga uma vez ao pausar e uma ao retomar. Cada tick chama `drain` com o `processJob` (S3.6, ver [`docs/how-it-works.md`](../../docs/how-it-works.md)).
 
 ### Fila (S3.3, ADR-002 e ADR-008)
 

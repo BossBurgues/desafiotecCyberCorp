@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import Fastify, { LogController } from 'fastify';
+import Fastify, { LogController, type FastifyPluginAsync } from 'fastify';
 import type { Logger } from 'pino';
 import type { Readiness } from './readiness.js';
 
@@ -13,7 +13,12 @@ export function correlationIdFrom(header: string | string[] | undefined): string
   return value && SAFE_CORRELATION_ID.test(value) ? value : randomUUID();
 }
 
-export function buildServer(options: { logger: Logger; readiness: Readiness }) {
+export function buildServer(options: {
+  logger: Logger;
+  readiness: Readiness;
+  /** Rotas extras (webhook, dashboard), registradas como plugins depois das de saúde. */
+  plugins?: FastifyPluginAsync[];
+}) {
   const app = Fastify({
     loggerInstance: options.logger,
     genReqId: (req) => correlationIdFrom(req.headers[CORRELATION_HEADER]),
@@ -32,6 +37,8 @@ export function buildServer(options: { logger: Logger; readiness: Readiness }) {
     const report = await options.readiness.refresh();
     return reply.code(report.ready ? 200 : 503).send(report);
   });
+
+  for (const plugin of options.plugins ?? []) app.register(plugin);
 
   return app;
 }
