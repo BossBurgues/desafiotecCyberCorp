@@ -1,4 +1,5 @@
 using System.Text.Json;
+using SystemB.Api.Chaos;
 using SystemB.Api.Endpoints;
 using SystemB.Api.Models;
 using SystemB.Api.Storage;
@@ -35,6 +36,8 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IRecordStore>(_ =>
     new SqliteRecordStore(builder.Configuration["B_DB_PATH"] ?? "./data/system-b.db"));
+// Criado quando o pipeline monta o middleware, na subida: B_CHAOS_* inválido derruba o processo antes de atender
+builder.Services.AddSingleton(sp => new ChaosEngine(ChaosOptions.FromConfiguration(sp.GetRequiredService<IConfiguration>())));
 
 var app = builder.Build();
 
@@ -44,9 +47,12 @@ app.UseExceptionHandler(errorApp => errorApp.Run(async ctx =>
     await ctx.Response.WriteAsJsonAsync(new ApiError(ApiError.Internal, "Erro interno do Sistema B"));
 }));
 
+app.UseMiddleware<ChaosMiddleware>();
+
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapRecords();
 app.MapOperator();
+app.MapAdmin();
 
 app.MapFallback(() => Results.Json(new ApiError(ApiError.NotFound, "Rota não encontrada"), statusCode: 404));
 
