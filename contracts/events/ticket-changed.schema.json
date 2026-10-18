@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ticket.changed",
+  "description": "Evento do webhook do Sistema A. É só um SINAL (ADR-005): o sync usa ticket_id e lê o estado atual do A. Nunca aplicar o payload como dado.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "type", "ticket_id", "action", "occurred_at"],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Único por disparo. Repetições do mesmo evento chegam com o mesmo event_id"
+    },
+    "type": {
+      "const": "ticket.changed"
+    },
+    "ticket_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "action": {
+      "enum": ["created", "updated"]
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC (com Z). Informativo: a ordem dos eventos não é garantida"
+    },
+    "date_mod": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$",
+      "description": "date_mod do chamado no fuso do A. Informativo"
+    }
+  }
+}

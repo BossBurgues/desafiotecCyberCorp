@@ -7,7 +7,8 @@
 
 > **Como usar este plano (pessoa ou LLM executora)**
 > 1. Trabalhe **issue por issue** no GitHub, respeitando as dependências *blocked by*. Uma issue só começa quando todas as que a bloqueiam estão fechadas.
-> 2. Uma issue corresponde a uma branch e a um PR (`Closes #n`). Os commits são pequenos e seguem Conventional Commits.
+> 2. **Uma branch por milestone** (`milestone/M0-fundacao`, …). Cada atualização = commit pequeno (Conventional Commits) + push + PR para a `Dev` que fecha a issue (`Closes #n`). A `Dev` faz deploy em homologação; a `Prod` recebe um PR de release por milestone e faz deploy em produção. Ver seções 14.1 e 14.2.
+> 2.1. **Antes de cada merge: rodada de QA** registrada no PR (critérios, negativos, validações temporárias, regressão). Ver seção 14.3.
 > 3. Ao terminar cada issue: CI verde, `docs/how-it-works.md` atualizado e uma **explicação em linguagem simples** no PR (o que foi feito, por quê, como testar e qual garantia protege).
 > 4. Ao terminar cada milestone, **pare e explique** antes de seguir.
 > 5. Toda decisão abaixo foi tomada de propósito (sessão de *grilling*). Não mude nada sem registrar um ADR novo.
@@ -59,7 +60,7 @@ Toda criação ou atualização de chamado no **Sistema A** (estilo GLPI) precis
 | Q32 | Segurança | HMAC + timestamp no webhook, segredos só em GitHub Secrets/`.env`, dashboard e caos atrás de login, scans na CI |
 | Q38 | Mocks extras | Caixa de saída de alertas, anexos (só metadados), tabela de-para de usuários/grupos/categorias, SLA (TTR/TTO) no A |
 | Hosp. | Infra | VM **Oracle Always Free** + Docker Compose + Caddy (HTTPS). Imagens no GHCR. Plano B: Render + Neon |
-| CI/CD | Pipeline | **GitHub Actions** (principal). GitLab como **mirror** |
+| CI/CD | Pipeline | **GitHub Actions** (principal). GitLab como **mirror**. `milestone/*` → `Dev` (homologação) → `Prod` (produção), com promoção da mesma imagem (seção 14.2) |
 | Q16/Q24 | Gestão | Milestones = camadas, épicos com sub-issues, stories com critérios de aceite, dependências *blocked by*, Roadmap no Project |
 
 ---
@@ -353,9 +354,113 @@ Nível: **U** unitário · **I** integração · **E** E2E (CI) · **D** demo/ma
 - **Dependências nativas *blocked by*:** fechar uma issue libera as próximas.
 - **Labels:** `type:*` (epic/story/test/docs) · `app:*` (system-a/system-b/sync/infra/docs) · `guarantee:*` (no-dup/no-loss/no-stale) · `area:*` (approval/blackbox/echo/data/security/audit).
 - **Story:** "Como [papel], quero [ação], para [valor]" + critérios de aceite + Definition of Done.
-- **Definition of Done:** testes passando · CI verde · documentação/`how-it-works` atualizados · PR explicando o que foi feito, por quê, como testar e qual garantia protege · horas registradas no `timelog.md`.
-- **Branches:** `feat/<nº>-slug`, `fix/…`, `test/…`, `docs/…`. Trunk-based, `main` protegida.
+- **Definition of Done:** **rodada de QA registrada (14.3)** · testes passando · CI verde · documentação/`how-it-works` atualizados · PR explicando o que foi feito, por quê, como testar e qual garantia protege · horas registradas no `timelog.md`.
+- **Branches:** uma por milestone (ver 14.1). A `main` fica protegida e sempre pronta para deploy.
 - **Project:** Status · Milestone · Priority · Size · Estimate · Start/Target date → views **Board** e **Roadmap**.
+
+### 14.1 Fluxo de branches, PRs e ambientes (definido em 18/10)
+
+```mermaid
+flowchart LR
+  M0[milestone/M0-fundacao] -- PR por issue --> DEV[Dev]
+  M1[milestone/M1-nucleo-a-b] -- PR por issue --> DEV
+  MX[milestone/...] -- PR por issue --> DEV
+  DEV -- CI + deploy automático --> STG[(Homologação<br/>dev.&lt;host&gt;)]
+  DEV -- PR de release ao fechar o milestone --> PROD[Prod]
+  PROD -- CI + aprovação + deploy --> PRD[(Produção<br/>&lt;host&gt; — URL entregue)]
+```
+
+**Branches de ambiente (protegidas, nunca recebem commit direto):**
+
+| Branch | Papel | Recebe PR de | Ao receber merge |
+|---|---|---|---|
+| `Dev` | Integração e homologação. **Deve ser a branch padrão do repositório** (o `Closes #n` só fecha issues em PRs mergeados na branch padrão) | branches `milestone/*` | CI completo + **deploy automático em homologação** |
+| `Prod` | Produção: é a URL entregue à banca | somente `Dev` (PR de release) | CI completo + **aprovação manual** (GitHub Environment `production`) + deploy em produção + smoke test |
+| `main` | Legado da criação do repositório | — | Sugestão: depois de definir a `Dev` como branch padrão, manter a `main` congelada ou apagá-la, para não haver três linhas de integração |
+
+**Uma branch de longa duração por milestone**, criada a partir da `Dev`:
+
+| Milestone | Branch |
+|---|---|
+| M0 · Fundação | `milestone/M0-fundacao` |
+| M1 · Núcleo A→B | `milestone/M1-nucleo-a-b` |
+| M2 · Auditoria & Segurança | `milestone/M2-auditoria-seguranca` |
+| M3 · B→A Propostas (opcional) | `milestone/M3-b-a-propostas` |
+| M4 · Notas & Mocks (opcional) | `milestone/M4-notas-mocks` |
+| M5 · Entrega | `milestone/M5-entrega` |
+
+**Ciclo de cada atualização (uma issue por vez em cada branch):**
+1. Pegar a próxima issue desbloqueada do milestone, na ordem de prioridade do backlog (Priority → dependências).
+2. **Commits pequenos**, um conceito por commit, com `Refs #n` na mensagem.
+3. **Push** da branch do milestone.
+4. **PR da branch do milestone → `Dev`** com `Closes #n` e o template preenchido.
+5. CI verde → merge na `Dev` → deploy automático em homologação → conferir em `dev.<host>`.
+6. Atualizar a branch do milestone com a `Dev` (`git pull origin Dev`) e seguir para a próxima issue do mesmo milestone.
+7. **Milestone fechado** → PR de release `Dev → Prod` (título `release: M<n> …`, listando as issues entregues) → aprovação → deploy em produção.
+
+**Merge:** preferir **merge commit** (sem squash) nos PRs para a `Dev`, para preservar os commits pequenos no histórico, que é um entregável. O PR #135 foi mergeado com squash. É aceitável, mas os próximos devem seguir o padrão.
+
+**Regras:**
+- No máximo **3 branches de milestone ativas ao mesmo tempo** (o atual e os próximos desbloqueados pela prioridade).
+- Um PR aberto por vez em cada branch. A próxima issue só começa depois do merge da anterior.
+- A branch do milestone é apagada quando todas as issues dele estiverem fechadas.
+- Os cenários de teste (épico E8) entram na branch do **milestone de cada cenário**.
+- Exceção histórica: a S0.1 (#12) foi entregue no PR #135 (`feat/12-estrutura-monorepo` → `main`) antes desta regra. A `Dev` e a `Prod` nasceram desse merge, e a `milestone/M0-fundacao` nasce da `Dev`.
+
+### 14.2 CI/CD por branch
+
+| Workflow | Gatilho | O que faz |
+|---|---|---|
+| `ci.yml` | PR para `Dev` ou `Prod`; push em `milestone/*` | Detecção de mudanças por app (paths-filter) → lint/typecheck/testes de cada app alterado → integração com Postgres → E2E com o compose (caos ligado) → build das imagens |
+| `deploy-dev.yml` | push na `Dev` (merge de PR) | Build + push no GHCR com tags `dev-<sha>` e `dev` → SSH na VM → `docker compose -p cybercorp-dev` com `.env.dev` → migrations → smoke test em `https://dev.<host>/health` |
+| `deploy-prod.yml` | push na `Prod` (merge do PR de release) | Exige o Environment `production` (aprovação manual) → **promove a mesma imagem já testada em homologação** (retag `dev-<sha>` → `prod-<sha>` e `prod`, sem rebuild) → SSH → `docker compose -p cybercorp-prod` com `.env.prod` → migrations → smoke test em `https://<host>/health` |
+
+**Dois ambientes na mesma VM Oracle** (cabem folgados no Always Free ARM):
+- Projetos compose separados (`cybercorp-dev` e `cybercorp-prod`), cada um com **o seu Postgres, volumes e segredos**: homologação nunca toca dados de produção.
+- Um único Caddy na frente roteia `dev.<host>` e `<host>` (HTTPS automático nos dois).
+- Segredos por ambiente em **GitHub Environments** (`development`, `production`): `SSH_*`, `HMAC_SECRET`, credenciais do dashboard, `B_ADMIN_TOKEN`.
+- Na homologação o caos do B pode ficar ligado o tempo todo. Na produção ele começa desligado e é ligado ao vivo na demo, pelo dashboard protegido.
+
+**Proteções:**
+- `Dev`: PR obrigatório + CI verde + branch atualizada.
+- `Prod`: PR obrigatório **só a partir da `Dev`** + CI verde + aprovação no Environment `production`.
+- Rollback: o `deploy-prod.yml` aceita `workflow_dispatch` com uma tag `prod-<sha>` anterior.
+
+Issues afetadas: **S0.2** (CI esqueleto + proteções da `Dev`/`Prod`), **S4.2** (CI completo), **S4.3** (VM com dois ambientes) e **S4.4** (deploy dev/prod).
+
+### 14.3 Rodada de QA ao fim de cada issue (definido em 18/10)
+
+Nenhuma issue é mergeada sem uma **rodada de QA registrada**. O padrão nasceu na M0 (PRs #136 e #140, com as validações temporárias #137–#139) e vale para todas as issues daqui em diante.
+
+**Quando:** depois da implementação e antes do merge na `Dev`. Para issues com comportamento em runtime, há também um **QA pós-merge** na homologação.
+
+**Passos:**
+
+| # | Etapa | O que fazer | Evidência |
+|---|---|---|---|
+| 1 | **Critérios de aceite** | Verificar **cada** critério da issue, um a um | Comando + saída, link do run da CI ou captura de tela |
+| 2 | **Caminho feliz** | Executar o fluxo principal como está em "Como testar" | Saída dos comandos / testes verdes |
+| 3 | **Testes negativos** | Provar que o que deve ser **bloqueado ou rejeitado** de fato é (ex.: PR para a `Prod` fora da `Dev`, push direto, 403/409, HMAC inválido, B com caos) | Saída mostrando a falha esperada |
+| 4 | **Validações temporárias** | Quando o comportamento só aparece no GitHub/CI: abrir PRs **rascunho** de uma branch `test/qa-<nº>-<slug>` com título `test(qa): …`, observar o resultado, **fechar sem merge e apagar a branch** | Links dos PRs fechados, listados no PR da issue |
+| 5 | **Regressão** | CI completa verde. Em issues de código, rodar os **cenários do catálogo** ligados à issue (mesmos rótulos `guarantee:*` / `area:*`) | Run da CI + lista de cenários executados |
+| 6 | **Prova de que o teste testa** | Em issues que protegem uma garantia: remover/desligar o mecanismo localmente e ver o teste falhar (ver "exercícios de quebra", seção 18) | Saída do teste falhando |
+| 7 | **QA pós-merge** (só issues de runtime) | Depois do deploy em `dev.<host>`: smoke + fluxo principal na homologação | Saída do smoke / captura |
+
+**Registro:** a seção **QA** do PR traz a tabela *critério → como verifiquei → resultado (✅/❌) → evidência* e os links das validações temporárias. O comentário final no PR é **"QA ✅"** ou **"QA ❌"**, com o que falhou.
+
+**Se o QA falhar:**
+- defeito da própria issue → corrigir no mesmo PR (`fix(...)`, `Refs #n`) e repetir a rodada;
+- defeito de outra coisa → abrir issue `[bug]` (template de bug), ligada como *blocked by* se impedir o merge.
+
+**Proporcionalidade:** o tamanho da rodada acompanha a issue. Documentação = critérios + checagem por script (ex.: seções obrigatórias dos ADRs) + CI. Infra/CI = critérios + testes negativos + validações temporárias. Código = todas as etapas.
+
+**QA de release (fim do milestone, antes do PR `Dev` → `Prod`):**
+- todos os cenários E2E do milestone verdes na `Dev`;
+- smoke completo na homologação;
+- o trecho da demo (seção 17) referente ao milestone executado de ponta a ponta;
+- o resultado vai na descrição do PR de release.
+
+**Tempo:** as horas de QA entram na mesma linha da issue no `timelog.md` (coluna Observações: "inclui QA").
 
 ---
 
