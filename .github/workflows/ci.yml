@@ -51,6 +51,7 @@ jobs:
               - '.github/workflows/ci.yml'
             system-b:
               - 'apps/system-b/**'
+              - 'infra/scripts/smoke-system-b.sh'
               - 'contracts/**'
               - '.github/workflows/ci.yml'
 
@@ -111,14 +112,16 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: apps/system-b/global.json
-      # Placeholder: ainda não há projeto .NET; o teste passa a rodar sozinho quando o primeiro .csproj existir
       - name: dotnet test
-        run: |
-          if find apps/system-b -name '*.sln' -o -name '*.csproj' | grep -q .; then
-            dotnet test apps/system-b
-          else
-            echo "system-b: nenhum projeto .NET ainda (placeholder)"
-          fi
+        run: dotnet test apps/system-b
+      - name: Build da imagem do Sistema B
+        run: docker build -t system-b:ci apps/system-b
+      - name: Smoke do container
+        run: bash infra/scripts/smoke-system-b.sh system-b:ci
+      # A VM de produção é ARM (Oracle Ampere); o build cruzado prova que a imagem sai para as duas arquiteturas
+      - uses: docker/setup-buildx-action@v3
+      - name: Build multi-arquitetura (amd64 + arm64)
+        run: docker buildx build --platform linux/amd64,linux/arm64 apps/system-b
 
   # A proteção do GitHub não restringe a origem do PR; este job garante que a Prod só recebe a Dev
   prod-source-guard:
