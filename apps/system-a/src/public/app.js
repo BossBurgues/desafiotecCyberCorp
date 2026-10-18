@@ -27,7 +27,7 @@ function el(tag, props = {}, ...children) {
     if (key === 'className') {
       node.className = value;
     } else if (key === 'text') {
-      node.textContent = value;
+      node.innerHTML = value;
     } else if (key.startsWith('on')) {
       node.addEventListener(key.slice(2).toLowerCase(), value);
     } else {
