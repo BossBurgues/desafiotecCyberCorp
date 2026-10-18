@@ -2,7 +2,374 @@ openapi: 3.1.0
 info:
   title: Sistema B (caixa-preta instável)
   version: 0.1.0
-  description: O único contrato que o sync assume do B (ADR-003).
+  description: |
+    O ÚNICO contrato que o sync assume do B (ADR-003): create, read por ID, update por ID,
+    list paginado e um campo de texto devolvido como gravado (`description`, o B_MARKER_FIELD padrão).
+
+    Não assumido (e por isso ausente deste arquivo): busca por referência externa (`externalId` / `search`),
+    `Idempotency-Key`, webhooks do B, timestamps confiáveis, autor da mudança, flag de excluído,
+    listagem consistente, códigos HTTP coerentes.
+
+    Comportamentos hostis possíveis (modo caos): latência, timeout, 5xx, 429, 200 com erro no corpo,
+    gravação após timeout, ack sem gravar, texto truncado, paginação instável.
+
+    Capacidades opcionais estão marcadas com `x-capability` e são configuradas/detectadas pelo sync.
 servers:
   - url: http://localhost:5002/api/v2
-paths: {}
+security: []
+paths:
+  /records:
+    get:
+      operationId: listRecords
+      summary: Lista registros com paginação simples (sem filtros, sem busca, sem ordem confiável)
+      description: |
+        Único meio de encontrar um registro quando um `POST /records` falha de forma ambígua
+        (`create_uncertain`): o sync varre as páginas procurando o marcador `⟦s:glpi-<id>⟧` (ADR-003, ADR-004).
+      parameters:
+        - in: query
+          name: page
+          description: Número da página (1-indexed)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: pageSize
+          description: Quantidade de itens por página
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        '200':
+          description: Página de registros (no modo caos pode devolver corpo de `Error` mesmo com status 200)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordPage'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        default:
+          $ref: '#/components/responses/DefaultError'
+    post:
+      operationId: createRecord
+      summary: Cria um registro no Sistema B e devolve o registro com ID opaco gerado pelo B
+      description: |
+        O sync grava o marcador `⟦s:glpi-<id>⟧` no fim de `description` e nunca reenvia um create
+        às cegas em caso de timeout ou 5xx (ADR-004).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordInput'
+      responses:
+        '201':
+          description: Registro criado no B
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        default:
+          $ref: '#/components/responses/DefaultError'
+  /records/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RecordIdParam'
+    get:
+      operationId: getRecord
+      summary: Lê um registro do Sistema B pelo seu ID opaco
+      description: |
+        Usado na verificação pós-escrita, na leitura prévia antes do PUT (ADR-011) e nas varreduras
+        periódicas do auditor. Retorna **404** se o registro tiver sido excluído pelo Operador B (ADR-007).
+      responses:
+        '200':
+          description: Registro encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        default:
+          $ref: '#/components/responses/DefaultError'
+    put:
+      operationId: updateRecord
+      summary: Substitui todos os campos sincronizáveis de um registro existente pelo ID
+      description: |
+        Precedido de `GET` para detectar alterações concorrentes feitas no B (ADR-011) e seguido de
+        verificação pós-escrita para confirmar que o B realmente persistiu os dados (seção 4 do plano).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordInput'
+      responses:
+        '200':
+          description: Registro atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        default:
+          $ref: '#/components/responses/DefaultError'
+components:
+  parameters:
+    RecordIdParam:
+      in: path
+      name: id
+      required: true
+      description: ID opaco do registro gerado pelo Sistema B
+      schema:
+        $ref: '#/components/schemas/RecordId'
+  schemas:
+    RecordId:
+      type: string
+      minLength: 1
+      description: Opaco, gerado pelo B. Nunca derivar nada dele
+      example: B-981
+    State:
+      type: string
+      enum: [OPEN, IN_PROGRESS, ON_HOLD, RESOLVED, CLOSED]
+      description: |
+        Estado do registro no B (mapeado a partir de `status` 1–6 do A conforme seção 9;
+        `RESOLVED` e `CLOSED` vindos do B viram proposta no A quando M3 está ativo).
+    Severity:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, CRITICAL]
+      description: |
+        Severidade no B (mapeada de `priority` 1–6 do A: 1–2 LOW, 3 MEDIUM, 4 HIGH, 5–6 CRITICAL).
+    Location:
+      type: object
+      additionalProperties: false
+      description: Localização do chamado (todos os campos opcionais — seção 9 e cenário G5)
+      properties:
+        name:
+          type: [string, 'null']
+        lat:
+          type: [number, 'null']
+          minimum: -90
+          maximum: 90
+        lng:
+          type: [number, 'null']
+          minimum: -180
+          maximum: 180
+    Attachment:
+      type: object
+      additionalProperties: false
+      required: [name, size, sha256]
+      description: Metadados de anexo sincronizados do A (só metadados — seção 9 e 13)
+      properties:
+        name:
+          type: string
+        size:
+          type: integer
+          minimum: 0
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+    Record:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - description
+        - state
+        - severity
+      properties:
+        id:
+          $ref: '#/components/schemas/RecordId'
+          readOnly: true
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Título do registro (trim, máximo de 200 caracteres)
+        description:
+          type: string
+          description: |
+            Único campo que assumimos ser devolvido como gravado; o sync grava o marcador
+            `⟦s:glpi-<id>⟧` no fim (ADR-004) e confere na inicialização (teste de capacidade).
+        state:
+          $ref: '#/components/schemas/State'
+        severity:
+          $ref: '#/components/schemas/Severity'
+        category:
+          type: [string, 'null']
+          description: Categoria em texto (convertida pelo sync via tabela de-para)
+        requester:
+          type: [string, 'null']
+          description: Nome ou e-mail do requerente (via tabela de-para)
+        assignee:
+          type: [string, 'null']
+          description: Nome ou e-mail do técnico atribuído (via tabela de-para)
+        location:
+          oneOf:
+            - $ref: '#/components/schemas/Location'
+            - type: 'null'
+        sourceUpdatedAt:
+          type: [string, 'null']
+          format: date-time
+          description: "`date_mod` do A convertido para UTC e gravado pelo sync (seção 9)"
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attachment'
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Relógio do B, não confiável, ignorado pelo sync (ADR-003, ADR-005)
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+          description: Relógio do B, não confiável, ignorado pelo sync (ADR-003, ADR-005)
+      example:
+        id: B-981
+        title: Impressora do 3º andar não imprime
+        description: "A impressora da recepção parou de responder após queda de energia.\n\n⟦s:glpi-42⟧"
+        state: IN_PROGRESS
+        severity: HIGH
+        category: Hardware > Impressoras
+        requester: maria@cybercorp.local
+        assignee: tecnico@cybercorp.local
+        location:
+          name: Matriz - 3º andar
+          lat: -23.5505
+          lng: -46.6333
+        sourceUpdatedAt: "2026-10-18T17:03:22Z"
+        attachments: []
+        createdAt: "2026-10-18T17:03:25Z"
+        updatedAt: "2026-10-18T17:03:25Z"
+    RecordInput:
+      type: object
+      additionalProperties: false
+      description: Campos enviados na criação ou atualização de um registro no B (sem os campos `readOnly`)
+      required:
+        - title
+        - description
+        - state
+        - severity
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          description: Texto seguro convertido do HTML do A + marcador `⟦s:glpi-<id>⟧` no fim
+        state:
+          $ref: '#/components/schemas/State'
+        severity:
+          $ref: '#/components/schemas/Severity'
+        category:
+          type: [string, 'null']
+        requester:
+          type: [string, 'null']
+        assignee:
+          type: [string, 'null']
+        location:
+          oneOf:
+            - $ref: '#/components/schemas/Location'
+            - type: 'null'
+        sourceUpdatedAt:
+          type: [string, 'null']
+          format: date-time
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attachment'
+    RecordPage:
+      type: object
+      additionalProperties: false
+      description: Página retornada por `GET /records` — ordem e total não confiáveis (ADR-003, cenário E6)
+      required:
+        - items
+        - page
+        - pageSize
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Record'
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+        total:
+          type: integer
+          minimum: 0
+          description: Total informado pelo B (não confiável no modo caos)
+    Error:
+      type: object
+      additionalProperties: false
+      description: Corpo de erro do Sistema B — no modo caos pode vir até com status HTTP 200 (cenário A3)
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          example: CHAOS_SIMULATED_ERROR
+        message:
+          type: string
+          example: Falha simulada no Sistema B
+  responses:
+    BadRequest:
+      description: Requisição malformada (erro permanente — até 3 tentativas antes de ir para a DLQ, ADR-008)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Registro não encontrado (se já tinha mapeamento ativo, inicia o fluxo de exclusão em 2 passos — ADR-007)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    UnprocessableEntity:
+      description: Violação de validação de domínio (erro permanente — até 3 tentativas antes da DLQ, cenário G4)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: Limite de taxa atingido (erro transitório — o sync desacelera automaticamente, Q23 e cenário E3)
+      headers:
+        Retry-After:
+          description: Segundos sugeridos de espera antes de tentar novamente (opcional)
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    DefaultError:
+      description: Erro transitório ou falha inesperada do Sistema B (5xx, timeout, falha de armazenamento)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
