@@ -28,6 +28,8 @@ const TRANSIENT: ReadonlySet<BErrorReason> = new Set([
 /**
  * Falhas em que o B pode ter gravado mesmo assim (timeout com gravação tardia, grava e devolve 500, 200 com erro).
  * Num create, o resultado é ambíguo: nunca reenviar às cegas, procurar o marcador (ADR-004).
+ * O drift também: o 2xx diz que o B aceitou a escrita, só o corpo da resposta mudou de formato. Reenviar o create
+ * a cada tentativa criaria um registro novo por tentativa.
  */
 const MAYBE_WRITTEN: ReadonlySet<BErrorReason> = new Set([
   'timeout',
@@ -35,6 +37,7 @@ const MAYBE_WRITTEN: ReadonlySet<BErrorReason> = new Set([
   'server_error',
   'error_body',
   'invalid_body',
+  'schema_drift',
 ]);
 
 export class BError extends Error {
