@@ -403,7 +403,7 @@ flowchart LR
 **Regras:**
 - No máximo **3 branches de milestone ativas ao mesmo tempo** (o atual e os próximos desbloqueados pela prioridade).
 - Um PR aberto por vez em cada branch. A próxima issue só começa depois do merge da anterior.
-- A branch do milestone é apagada quando todas as issues dele estiverem fechadas.
+- A branch do milestone **não é apagada** ao concluir: ela fica congelada como histórico do milestone, para mostrar na apresentação a evolução e os commits de cada etapa. Não recebe mais commits depois do PR de release.
 - Os cenários de teste (épico E8) entram na branch do **milestone de cada cenário**.
 - Exceção histórica: a S0.1 (#12) foi entregue no PR #135 (`feat/12-estrutura-monorepo` → `main`) antes desta regra. A `Dev` e a `Prod` nasceram desse merge, e a `milestone/M0-fundacao` nasce da `Dev`.
 
@@ -468,7 +468,7 @@ Nenhuma issue é mergeada sem uma **rodada de QA registrada**. O padrão nasceu 
 
 | Dia | Foco | Milestone |
 |---|---|---|
-| 16/10 (sex) | Planejamento ✅ · estrutura do repo · CI esqueleto · ADRs · contratos | M0 |
+| 16/10 (sex) | Planejamento ✅ · estrutura do repo · CI esqueleto · ADRs · contratos | M0 ✅ concluído em 18/10 (release #144) |
 | 17/10 (sáb) | Sistema A (JS) + Sistema B (C#) com caos, perfis e UIs | M1 |
 | 18/10 (dom) | Núcleo do sync: banco, fila, worker, adapter B, processJob, marcador | M1 |
 | 19/10 (seg) | Poller, auditor, verificação pós-escrita, cenários A/B/C/E/G na CI, **deploy publicado** | M1 ✅ |
@@ -476,6 +476,8 @@ Nenhuma issue é mergeada sem uma **rodada de QA registrada**. O padrão nasceu 
 | 21/10 (qua) | Propostas, congelamento, exclusão em 2 passos, notas, mocks extras | M3 + M4 |
 | 22/10 (qui) | Docs, out-of-scope, timelog, roteiro + vídeo da demo, **entrega** | M5 |
 | 23/10 (sex) | Reserva | — |
+
+**Status em 18/10:** a M0 terminou 2 dias depois do previsto (release #144). Na M1, o Sistema A avançou (S1.1, S1.2, S1.3 e S1.7 fechadas), mas o **Sync (S3.2 → S3.1) e o Sistema B (S2.1) ainda não começaram** e são o caminho crítico: juntos, destravam o adapter do B (S3.5) e o processJob (S3.6). A UI do A (S1.6) pode esperar sem atrasar nada.
 
 **Regra de corte:** se a M1 não estiver verde e publicada no fim de 20/10, M3/M4 viram "desenho documentado + mock mínimo".
 

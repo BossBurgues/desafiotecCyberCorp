@@ -15,6 +15,7 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 18/10 | #17 [S1.2] Usuários e perfis: Técnico, Estagiário, sync-bot | 2 | 0.5 | inclui QA |
 | 18/10 | #22 [S1.7] Testes e Dockerfile do Sistema A | 1.5 | 1 | inclui QA |
 | 18/10 | #18 [S1.3] Webhook ticket.changed com HMAC e modo "perder X%" | 2 | 0.5 | inclui QA |
+| 18/10 | #30 [S3.2] Domínio puro: mapper A→B, hash, fuso | 3 | 0.5 | inclui QA |
 
 ## Totais por milestone
 
