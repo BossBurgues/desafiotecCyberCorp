@@ -168,15 +168,24 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     log: Logger,
   ): Promise<void> {
     signal.throwIfAborted();
+    // Intenção gravada ANTES de chamar o B: se o processo morrer entre o create e o mapeamento (B3), o retry
+    // encontra create_uncertain e procura o marcador em vez de criar de novo
+    await recordIntent(ticket.id);
     const started = Date.now();
     let record: BRecordResponse;
     try {
       record = await b.createRecord(input, { correlationId });
     } catch (err) {
-      if (err instanceof BError && err.ambiguous) {
-        // O B pode ter gravado: daqui em diante só a busca pelo marcador decide se recria
-        await markUncertain(ticket.id, err, correlationId);
-        log.warn({ reason: err.reason }, 'create ambíguo: chamado em create_uncertain, o próximo ciclo procura o marcador');
+      if (err instanceof BError && !err.ambiguous) {
+        // O B recusou ou nem recebeu (429, 4xx, disjuntor): com certeza não gravou, a intenção sai
+        await clearIntent(ticket.id);
+      } else {
+        // O B pode ter gravado (timeout, 5xx, 200 com erro, drift, erro desconhecido): só a busca pelo marcador decide
+        await auditAmbiguous(ticket.id, err, correlationId);
+        log.warn(
+          { reason: err instanceof BError ? err.reason : 'unknown' },
+          'create ambíguo: chamado em create_uncertain, o próximo ciclo procura o marcador',
+        );
       }
       throw err;
     }
@@ -188,33 +197,35 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     log.info({ b_record_id: record.id }, 'chamado criado no B');
   }
 
-  async function markUncertain(ticketId: number, err: BError, correlationId: string): Promise<void> {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query(
-        `INSERT INTO ticket_mapping (a_ticket_id, state, uncertain_scans, uncertain_since)
-         VALUES ($1, 'create_uncertain', 0, now())
-         ON CONFLICT (a_ticket_id) DO UPDATE SET
-           state = 'create_uncertain', b_record_id = NULL, uncertain_scans = 0, uncertain_since = now(), updated_at = now()`,
-        [ticketId],
-      );
-      await recordAudit(client, {
-        ticketId,
-        direction: 'a_to_b',
-        action: 'create',
-        actor: ACTOR,
-        correlationId,
-        response: { reason: err.reason, status: err.status ?? null },
-        outcome: 'ambiguous',
-      });
-      await client.query('COMMIT');
-    } catch (e) {
-      await client.query('ROLLBACK').catch(() => undefined);
-      throw e;
-    } finally {
-      client.release();
-    }
+  async function recordIntent(ticketId: number): Promise<void> {
+    await pool.query(
+      `INSERT INTO ticket_mapping (a_ticket_id, state, uncertain_scans, uncertain_since)
+       VALUES ($1, 'create_uncertain', 0, now())
+       ON CONFLICT (a_ticket_id) DO UPDATE SET
+         state = 'create_uncertain', b_record_id = NULL, uncertain_scans = 0, uncertain_since = now(), updated_at = now()`,
+      [ticketId],
+    );
+  }
+
+  async function clearIntent(ticketId: number): Promise<void> {
+    await pool.query(`DELETE FROM ticket_mapping WHERE a_ticket_id = $1 AND state = 'create_uncertain' AND b_record_id IS NULL`, [
+      ticketId,
+    ]);
+  }
+
+  async function auditAmbiguous(ticketId: number, err: unknown, correlationId: string): Promise<void> {
+    await recordAudit(pool, {
+      ticketId,
+      direction: 'a_to_b',
+      action: 'create',
+      actor: ACTOR,
+      correlationId,
+      response:
+        err instanceof BError
+          ? { reason: err.reason, status: err.status ?? null }
+          : { reason: 'unknown', error: err instanceof Error ? err.name : 'Error' },
+      outcome: 'ambiguous',
+    });
   }
 
   /** Procura o marcador do chamado em todas as páginas da listagem do B. */
