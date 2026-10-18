@@ -24,6 +24,13 @@ public static class RecordsEndpoints
         }
     }
 
+    private static bool TryInt(string? raw, int fallback, int min, int max, out int value)
+    {
+        if (string.IsNullOrEmpty(raw)) { value = fallback; return true; }
+        return int.TryParse(raw, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out value)
+               && value >= min && value <= max;
+    }
+
     public static void MapRecords(this WebApplication app)
     {
         var g = app.MapGroup("/api/v2/records");
@@ -37,6 +44,19 @@ public static class RecordsEndpoints
 
             var created = store.Create(input, Now(clock));
             return new CreatedJson(Results.Json(created, JsonDefaults.Options, statusCode: 201), $"/api/v2/records/{created.Id}");
+        });
+
+        g.MapGet("/", (HttpRequest req, IRecordStore store) =>
+        {
+            // Parâmetros desconhecidos (externalId, search, ref, q...) são ignorados de propósito: o B não filtra.
+            if (!TryInt(req.Query["page"], 1, 1, int.MaxValue, out var page))
+                return ErrorResults.BadRequest("page deve ser um inteiro >= 1");
+            if (!TryInt(req.Query["pageSize"], 50, 1, 200, out var pageSize))
+                return ErrorResults.BadRequest("pageSize deve ser um inteiro entre 1 e 200");
+
+            var offset = (long)(page - 1) * pageSize;
+            var items = offset > int.MaxValue ? [] : store.List((int)offset, pageSize);
+            return Results.Json(new RecordPage(items, page, pageSize, store.Count()), JsonDefaults.Options);
         });
 
         g.MapGet("/{id}", (string id, IRecordStore store) =>

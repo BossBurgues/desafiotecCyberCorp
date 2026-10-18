@@ -159,3 +159,55 @@ public class RecordsApiTests : IClassFixture<SystemBFactory>
         Assert.False(res.Headers.Contains("ETag"));
     }
 }
+
+public class ListingTests : IClassFixture<SystemBFactory>
+{
+    private readonly HttpClient _c;
+
+    public ListingTests(SystemBFactory f) => _c = f.CreateClient();
+
+    [Theory]
+    [InlineData("page=0")]
+    [InlineData("pageSize=0")]
+    [InlineData("pageSize=201")]
+    [InlineData("page=abc")]
+    [InlineData("pageSize=-1")]
+    public async Task Paginacao_fora_da_faixa_responde_400(string query)
+    {
+        var res = await _c.GetAsync($"/api/v2/records?{query}");
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Pagina_vazia_e_padrao_sao_validos()
+    {
+        var page = await (await _c.GetAsync("/api/v2/records")).Obj();
+        Assert.Equal(1, (int)page["page"]!);
+        Assert.Equal(50, (int)page["pageSize"]!);
+        Assert.Equal(0, (int)page["total"]!);
+        Assert.Empty(page["items"]!.AsArray());
+    }
+
+    [Fact]
+    public async Task Cento_e_vinte_registros_em_paginas_de_50_nao_repetem_nem_pulam()
+    {
+        for (var i = 1; i <= 120; i++) await _c.CreateId(Api.Body(title: $"r{i}"));
+
+        var seen = new List<string>();
+        var sizes = new List<int>();
+        for (var p = 1; p <= 3; p++)
+        {
+            var page = await (await _c.GetAsync($"/api/v2/records?page={p}&pageSize=50")).Obj();
+            var items = page["items"]!.AsArray();
+            sizes.Add(items.Count);
+            seen.AddRange(items.Select(x => (string)x!["title"]!));
+            Assert.Equal(120, (int)page["total"]!);
+        }
+        Assert.Equal([50, 50, 20], sizes);
+        Assert.Equal(Enumerable.Range(1, 120).Select(i => $"r{i}"), seen);
+
+        var beyond = await (await _c.GetAsync("/api/v2/records?page=4&pageSize=50")).Obj();
+        Assert.Empty(beyond["items"]!.AsArray());
+        Assert.Equal(120, (int)beyond["total"]!);
+    }
+}
