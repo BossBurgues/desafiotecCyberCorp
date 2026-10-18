@@ -1,9 +1,13 @@
 import pg from 'pg';
+import { createSystemAClient } from './adapters/system-a/client.js';
+import { createSystemBClient } from './adapters/system-b/client.js';
+import { createProcessJob } from './application/process-job.js';
 import { ConfigError, loadConfig } from './config.js';
 import { migrate } from './infra/db/migrate.js';
 import { buildServer } from './infra/http/server.js';
 import { createReadiness, httpHealthCheck, postgresCheck } from './infra/http/readiness.js';
 import { createLogger } from './infra/logger.js';
+import { drain } from './infra/queue/runner.js';
 import { startWorkerLoop } from './infra/queue/worker-loop.js';
 
 async function main(): Promise<void> {
@@ -36,16 +40,50 @@ async function main(): Promise<void> {
   await readiness.refresh();
   const readinessTimer = setInterval(() => void readiness.refresh(), config.READY_CHECK_INTERVAL_MS);
 
+  const a = createSystemAClient({
+    baseUrl: config.A_BASE_URL,
+    appToken: config.A_APP_TOKEN,
+    userToken: config.A_SYNC_BOT_TOKEN,
+    timeoutMs: config.A_TIMEOUT_MS,
+    logger,
+  });
+  const b = createSystemBClient({
+    baseUrl: config.B_BASE_URL,
+    timeoutMs: config.B_TIMEOUT_MS,
+    breakerThreshold: config.B_BREAKER_THRESHOLD,
+    breakerOpenMs: config.B_BREAKER_OPEN_MS,
+    logger,
+  });
+  const processor = createProcessJob({
+    pool,
+    a,
+    b,
+    logger,
+    timeZone: config.A_TIMEZONE,
+    markerField: config.B_MARKER_FIELD,
+    uncertainScans: config.CREATE_UNCERTAIN_SCANS,
+    listPageSize: config.B_LIST_PAGE_SIZE,
+  });
+  const policy = {
+    baseMs: config.QUEUE_BACKOFF_BASE_MS,
+    maxDelayMs: config.QUEUE_BACKOFF_MAX_MS,
+    transientMaxAgeMs: config.QUEUE_TRANSIENT_MAX_AGE_MS,
+    permanentMaxAttempts: config.QUEUE_PERMANENT_MAX_ATTEMPTS,
+  };
+
   const worker = startWorkerLoop({
     isReady: readiness.isReady,
-    // A fila (infra/queue: claim com SKIP LOCKED, lease, backoff, DLQ) está pronta; o tick passa a ser
-    // drain({ pool, processor: processJob, ... }) quando o processJob entrar na S3.6 (#34)
-    tick: async () => {},
+    tick: async () => {
+      await drain({ pool, processor, logger, leaseMs: config.QUEUE_LEASE_MS, policy, maxJobs: config.WORKER_MAX_JOBS_PER_TICK });
+    },
     intervalMs: config.WORKER_POLL_INTERVAL_MS,
     logger,
   });
 
-  const app = buildServer({ logger, readiness });
+  const app = buildServer({
+    logger,
+    readiness,
+  });
   await app.listen({ host: config.HOST, port: config.PORT });
 
   let stopping = false;

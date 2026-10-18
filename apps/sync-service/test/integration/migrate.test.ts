@@ -36,7 +36,7 @@ describe.skipIf(!TEST_DATABASE_URL)('migrations (Postgres de verdade)', () => {
     ).rows.map((r) => r.table_name);
 
   it('cria todas as tabelas da seção 8 do plano', async () => {
-    expect(await migrate(pool, logger)).toEqual(['001_initial.sql', '002_queue_lease_rerun.sql']);
+    expect(await migrate(pool, logger)).toEqual(['001_initial.sql', '002_queue_lease_rerun.sql', '003_process_job.sql']);
     expect(await tables()).toEqual([...SECTION_8_TABLES, 'schema_migrations'].sort());
   });
 
@@ -47,7 +47,7 @@ describe.skipIf(!TEST_DATABASE_URL)('migrations (Postgres de verdade)', () => {
 
   it('duas instâncias subindo juntas aplicam cada migration uma vez só', async () => {
     const [a, b] = await Promise.all([migrate(pool, logger), migrate(pool, logger)]);
-    expect([...a, ...b].sort()).toEqual(['001_initial.sql', '002_queue_lease_rerun.sql']);
+    expect([...a, ...b].sort()).toEqual(['001_initial.sql', '002_queue_lease_rerun.sql', '003_process_job.sql']);
   });
 
   it('só um job ativo por chamado; depois de done, outro pode entrar (ADR-002)', async () => {
