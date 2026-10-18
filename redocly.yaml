@@ -1,0 +1,10 @@
+extends:
+  - recommended
+apis:
+  system-a:
+    root: contracts/system-a.openapi.yaml
+  system-b:
+    root: contracts/system-b.openapi.yaml
+rules:
+  info-license: off          # repositório privado do desafio
+  no-server-example.com: off # servidores locais/compose

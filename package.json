@@ -17,6 +17,14 @@
     "test": "npm run test -w apps/system-a -w apps/sync-service --if-present",
     "build": "npm run build -w apps/system-a -w apps/sync-service --if-present",
     "test:b": "dotnet test apps/system-b",
-    "e2e": "npm run test -w tests/e2e --if-present"
+    "e2e": "npm run test -w tests/e2e --if-present",
+    "lint:contracts": "npm run lint:openapi && npm run lint:events",
+    "lint:openapi": "redocly lint",
+    "lint:events": "ajv compile --spec=draft2020 -c ajv-formats -s contracts/events/ticket-changed.schema.json && ajv test --spec=draft2020 -c ajv-formats -s contracts/events/ticket-changed.schema.json -d \"contracts/events/examples/valid/*.json\" --valid && ajv test --spec=draft2020 -c ajv-formats -s contracts/events/ticket-changed.schema.json -d \"contracts/events/examples/invalid/*.json\" --invalid"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.64.1",
+    "ajv-cli": "5.0.0",
+    "ajv-formats": "3.0.1"
   }
 }

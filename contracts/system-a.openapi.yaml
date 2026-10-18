@@ -1,0 +1,776 @@
+openapi: 3.1.0
+info:
+  title: Sistema A (mock GLPI)
+  version: 0.1.0
+  description: |
+    Fonte da verdade dos chamados (ADR-001, ADR-005). Imita a API REST do GLPI 10.
+    Simplificações em relação ao GLPI real: filtro `date_mod_gte` no lugar de `/search/Ticket`;
+    sem dropdowns expandidos (categoria/local/usuários vêm como IDs, de-para é mock à parte).
+    `date_mod` não tem fuso: está no fuso do servidor (`A_TIMEZONE`). Quem consome converte para UTC.
+servers:
+  - url: http://localhost:3001/apirest.php
+security:
+  - appToken: []
+    sessionToken: []
+paths:
+  /initSession:
+    get:
+      operationId: initSession
+      summary: Abre uma sessão no Sistema A e devolve o Session-Token
+      description: |
+        Autentica um usuário (`tecnico`, `estagiario` ou `sync-bot`) via cabeçalho `Authorization`
+        (`Basic <base64>` ou `user_token <token>`) junto com o `App-Token`.
+      security:
+        - {}
+        - appToken: []
+      parameters:
+        - in: header
+          name: Authorization
+          required: true
+          description: "`Basic <base64(login:senha)>` ou `user_token <token>`"
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sessão iniciada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session_token]
+                properties:
+                  session_token:
+                    type: string
+                    description: Token de sessão a ser enviado no cabeçalho `Session-Token`
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /killSession:
+    get:
+      operationId: killSession
+      summary: Encerra a sessão atual no Sistema A
+      responses:
+        '200':
+          description: Sessão encerrada
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /Ticket:
+    get:
+      operationId: listTickets
+      summary: Lista chamados com paginação por range e filtro por date_mod
+      description: |
+        Retorna chamados ordenados por `date_mod` ou `id`. Quando paginado, devolve cabeçalho
+        `Content-Range: <início>-<fim>/<total>` (status 200 ou 206 quando parcial, como o GLPI).
+      parameters:
+        - $ref: '#/components/parameters/Range'
+        - in: query
+          name: sort
+          description: Campo de ordenação
+          schema:
+            type: string
+            enum: [date_mod, id]
+            default: date_mod
+        - in: query
+          name: order
+          description: Direção da ordenação
+          schema:
+            type: string
+            enum: [ASC, DESC]
+            default: ASC
+        - $ref: '#/components/parameters/DateModGte'
+      responses:
+        '200':
+          description: Lista completa de chamados no intervalo solicitado
+          headers:
+            Content-Range:
+              description: "Intervalo retornado e total de chamados (ex.: `0-49/123`)"
+              schema:
+                type: string
+                example: 0-49/123
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Ticket'
+        '206':
+          description: Lista parcial de chamados (paginada via range)
+          headers:
+            Content-Range:
+              description: "Intervalo retornado e total de chamados (ex.: `0-49/123`)"
+              schema:
+                type: string
+                example: 0-49/123
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Ticket'
+        '400':
+          description: Parâmetros de filtro ou range inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlpiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      operationId: createTicket
+      summary: Abre um novo chamado no Sistema A
+      description: Permitido para os perfis Técnico e Estagiário (seção 6 do plano).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input:
+                  $ref: '#/components/schemas/TicketInput'
+      responses:
+        '201':
+          description: Chamado criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '400':
+          description: Dados de entrada inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlpiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /Ticket/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TicketId'
+    get:
+      operationId: getTicket
+      summary: Lê o estado atual de um chamado por ID
+      description: |
+        Usado pelo worker do sync antes de qualquer escrita no B (ADR-005: o evento é apenas sinal;
+        o worker sempre lê o estado atual do A).
+      responses:
+        '200':
+          description: Chamado encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      operationId: updateTicket
+      summary: Atualiza campos de um chamado existente
+      description: |
+        Negado com **403** para perfil Estagiário e com **409** quando o chamado está congelado
+        nos status 5 (Solucionado) ou 6 (Fechado) (Q17/Q27, ADR-006).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input:
+                  $ref: '#/components/schemas/TicketInput'
+      responses:
+        '200':
+          description: Chamado atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ticket'
+        '400':
+          description: Dados de entrada inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlpiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Frozen'
+  /Ticket/{id}/ITILFollowup:
+    parameters:
+      - $ref: '#/components/parameters/TicketId'
+    get:
+      operationId: listTicketFollowups
+      summary: Lista os acompanhamentos (notas da conversa) de um chamado
+      responses:
+        '200':
+          description: Lista de acompanhamentos do chamado em ordem cronológica
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ITILFollowup'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ITILFollowup:
+    post:
+      operationId: createFollowup
+      summary: Adiciona um acompanhamento (nota) a um chamado
+      description: |
+        Nota é aceita em qualquer status, inclusive 5 (Solucionado) e 6 (Fechado) (S1.4, Q17/Q29).
+        Negado com **403** para perfil Estagiário (seção 6 do plano).
+        Notas gravadas pelo `sync-bot` não disparam sync A → B (anti-eco, ADR-009).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input:
+                  $ref: '#/components/schemas/ITILFollowupInput'
+      responses:
+        '201':
+          description: Acompanhamento criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITILFollowup'
+        '400':
+          description: Dados de entrada inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlpiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /Ticket/{id}/ITILSolution:
+    parameters:
+      - $ref: '#/components/parameters/TicketId'
+    get:
+      operationId: listTicketSolutions
+      summary: Lista as soluções (pendentes, aceitas ou recusadas) de um chamado
+      responses:
+        '200':
+          description: Lista de soluções registradas para o chamado
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ITILSolution'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ITILSolution:
+    post:
+      operationId: createSolution
+      summary: Propõe uma solução para um chamado (muda o chamado para status 5, Solucionado)
+      description: |
+        No fluxo B → A (M3, opcional), quando o B resolve um registro, o `sync-bot` cria uma
+        `ITILSolution` com `status: 2` (pendente), coloca o chamado no status 5 (congelado) e
+        preenche `solvedate` com o instante UTC da detecção (Q26, ADR-006).
+      x-optional: "B→A (M3)"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input:
+                  $ref: '#/components/schemas/ITILSolutionInput'
+      responses:
+        '201':
+          description: Solução proposta criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITILSolution'
+        '400':
+          description: Dados de entrada inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlpiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ITILSolution/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        description: ID numérico da solução (`ITILSolution`)
+        schema:
+          type: integer
+          minimum: 1
+    put:
+      operationId: updateSolution
+      summary: Aprova (status 3) ou recusa (status 4) uma solução pendente
+      description: |
+        Exclusivo do perfil Técnico (Estagiário e `sync-bot` recebem **403**).
+        - `status: 3` (aceita) → chamado vai para **6 (Fechado)**.
+        - `status: 4` (recusada) → chamado volta para **2 (Em atendimento)** e o B é revertido (Q26, ADR-006).
+      x-optional: "B→A (M3)"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input:
+                  $ref: '#/components/schemas/ITILSolutionDecisionInput'
+      responses:
+        '200':
+          description: Decisão aplicada à solução
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITILSolution'
+        '400':
+          description: Transição ou dados inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlpiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+webhooks:
+  ticket.changed:
+    post:
+      operationId: ticketChanged
+      summary: Avisa o sync que um chamado mudou (fire-and-forget, pode se perder)
+      description: |
+        Disparado em create/update, exceto mudanças do sync-bot (anti-eco, ADR-009).
+        Pode ser desligado (A_WEBHOOK_ENABLED) e pode perder X% (A_WEBHOOK_DROP_RATE): o poller é a garantia.
+        Assinatura: HMAC-SHA256 com HMAC_SECRET sobre "<X-Timestamp>.<corpo cru>".
+        O receptor rejeita assinatura inválida e timestamp fora da janela de 5 min (401), e persiste antes do 200.
+      security: []
+      parameters:
+        - in: header
+          name: X-Signature-256
+          required: true
+          description: "Assinatura HMAC-SHA256 sobre `<X-Timestamp>.<corpo cru>` no formato `sha256=<hex>`"
+          schema:
+            type: string
+            pattern: '^sha256=[0-9a-f]{64}$'
+        - in: header
+          name: X-Timestamp
+          required: true
+          description: Timestamp Unix em segundos (janela anti-replay de 5 min)
+          schema:
+            type: string
+            pattern: '^\d{10}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './events/ticket-changed.schema.json'
+      responses:
+        '200':
+          description: Evento persistido em inbound_events
+        '401':
+          description: HMAC inválido ou fora da janela anti-replay
+components:
+  securitySchemes:
+    appToken:
+      type: apiKey
+      in: header
+      name: App-Token
+      description: Token de aplicação exigido pela API REST estilo GLPI
+    sessionToken:
+      type: apiKey
+      in: header
+      name: Session-Token
+      description: Token obtido em `/initSession`
+  parameters:
+    TicketId:
+      in: path
+      name: id
+      required: true
+      description: ID numérico do chamado no Sistema A
+      schema:
+        type: integer
+        minimum: 1
+    Range:
+      in: query
+      name: range
+      description: "Intervalo de paginação no formato `<início>-<fim>` (padrão GLPI: `0-49`)"
+      schema:
+        type: string
+        pattern: '^\d+-\d+$'
+        default: 0-49
+    DateModGte:
+      in: query
+      name: date_mod_gte
+      description: |
+        Filtra chamados com `date_mod >= valor` (no fuso `A_TIMEZONE`, sem offset).
+        Simplificação explícita da `/search/Ticket` do GLPI (que usa IDs numéricos de campo).
+        O poller aplica sobreposição de 2 min (ADR-005).
+      schema:
+        $ref: '#/components/schemas/GlpiDateTime'
+  schemas:
+    GlpiDateTime:
+      type: string
+      pattern: '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$'
+      description: |
+        Data e hora no formato `YYYY-MM-DD HH:MM:SS` **sem fuso horário** (como no GLPI),
+        interpretada no fuso configurado em `A_TIMEZONE` (ADR-005).
+      example: "2026-10-18 14:03:22"
+    TicketStatus:
+      type: integer
+      enum: [1, 2, 3, 4, 5, 6]
+      description: |
+        Ciclo de vida no A (status GLPI):
+        - `1`: Novo
+        - `2`: Em atendimento
+        - `3`: Planejado
+        - `4`: Pendente
+        - `5`: Solucionado (**congelado**, aguardando aprovação)
+        - `6`: Fechado (**congelado**)
+    TicketPriority:
+      type: integer
+      enum: [1, 2, 3, 4, 5, 6]
+      description: |
+        Prioridade no A (1–6), mapeada para `severity` no B (seção 9 do plano):
+        - `1`–`2`: LOW
+        - `3`: MEDIUM
+        - `4`: HIGH
+        - `5`–`6`: CRITICAL
+    TicketAttachment:
+      type: object
+      additionalProperties: false
+      required: [name, size, sha256]
+      description: Metadados de anexo (simulado, sem binário — seção 9 e 13 do plano)
+      properties:
+        name:
+          type: string
+        size:
+          type: integer
+          minimum: 0
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+    Ticket:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - content
+        - status
+        - priority
+        - date
+        - date_mod
+      properties:
+        id:
+          type: integer
+          minimum: 1
+          readOnly: true
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Título do chamado (no B vira `title` com trim e limite de 200 caracteres)
+        content:
+          type: string
+          description: Descrição em HTML (no B vira texto seguro em `description` + marcador `⟦s:glpi-<id>⟧`)
+        status:
+          $ref: '#/components/schemas/TicketStatus'
+        priority:
+          $ref: '#/components/schemas/TicketPriority'
+        itilcategories_id:
+          type: [integer, 'null']
+          minimum: 1
+          description: ID da categoria no GLPI (convertido via tabela de-para para `category` no B)
+        locations_id:
+          type: [integer, 'null']
+          minimum: 1
+          description: ID da localização no GLPI (convertido para `location {name, lat, lng}` no B)
+        users_id_recipient:
+          type: [integer, 'null']
+          minimum: 1
+          description: ID do usuário requerente (convertido via de-para para `requester` no B)
+        users_id_assign:
+          type: [integer, 'null']
+          minimum: 1
+          description: ID do técnico atribuído (convertido via de-para para `assignee` no B)
+        date:
+          $ref: '#/components/schemas/GlpiDateTime'
+          description: Data de abertura no fuso `A_TIMEZONE`
+        date_mod:
+          $ref: '#/components/schemas/GlpiDateTime'
+          description: Última modificação no fuso `A_TIMEZONE` (convertida para UTC em `sourceUpdatedAt` no B)
+        solvedate:
+          oneOf:
+            - $ref: '#/components/schemas/GlpiDateTime'
+            - type: 'null'
+          description: Preenchida ao entrar no status 5 (Solucionado); pausa o SLA
+        closedate:
+          oneOf:
+            - $ref: '#/components/schemas/GlpiDateTime'
+            - type: 'null'
+          description: Preenchida ao entrar no status 6 (Fechado)
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketAttachment'
+      example:
+        id: 42
+        name: Impressora do 3º andar não imprime
+        content: "<p>A impressora da recepção parou de responder após queda de energia.</p>"
+        status: 2
+        priority: 4
+        itilcategories_id: 3
+        locations_id: 1
+        users_id_recipient: 2
+        users_id_assign: 1
+        date: "2026-10-18 13:50:00"
+        date_mod: "2026-10-18 14:03:22"
+        solvedate: null
+        closedate: null
+    TicketInput:
+      type: object
+      additionalProperties: false
+      description: Campos aceitos na criação ou atualização de chamado (sem `id`, `date` e `date_mod`, que são gerados pelo A)
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        content:
+          type: string
+        status:
+          $ref: '#/components/schemas/TicketStatus'
+        priority:
+          $ref: '#/components/schemas/TicketPriority'
+        itilcategories_id:
+          type: [integer, 'null']
+          minimum: 1
+        locations_id:
+          type: [integer, 'null']
+          minimum: 1
+        users_id_recipient:
+          type: [integer, 'null']
+          minimum: 1
+        users_id_assign:
+          type: [integer, 'null']
+          minimum: 1
+        solvedate:
+          oneOf:
+            - $ref: '#/components/schemas/GlpiDateTime'
+            - type: 'null'
+        closedate:
+          oneOf:
+            - $ref: '#/components/schemas/GlpiDateTime'
+            - type: 'null'
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/TicketAttachment'
+    ITILFollowup:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - itemtype
+        - items_id
+        - users_id
+        - content
+        - is_private
+        - date
+        - date_mod
+      properties:
+        id:
+          type: integer
+          minimum: 1
+          readOnly: true
+        itemtype:
+          type: string
+          const: Ticket
+        items_id:
+          type: integer
+          minimum: 1
+          description: ID do chamado ao qual o acompanhamento pertence
+        users_id:
+          type: integer
+          minimum: 1
+          description: ID do usuário autor da nota (`sync-bot` quando originada pelo sistema ou pelo B)
+        content:
+          type: string
+          minLength: 1
+          description: "Texto do acompanhamento (pode conter marcadores de idempotência `⟦n:…⟧` ou `⟦from-b:…⟧`)"
+        is_private:
+          type: integer
+          enum: [0, 1]
+          default: 0
+        date:
+          $ref: '#/components/schemas/GlpiDateTime'
+        date_mod:
+          $ref: '#/components/schemas/GlpiDateTime'
+    ITILFollowupInput:
+      type: object
+      additionalProperties: false
+      required:
+        - itemtype
+        - items_id
+        - content
+      properties:
+        itemtype:
+          type: string
+          const: Ticket
+        items_id:
+          type: integer
+          minimum: 1
+        content:
+          type: string
+          minLength: 1
+        is_private:
+          type: integer
+          enum: [0, 1]
+          default: 0
+    ITILSolution:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - itemtype
+        - items_id
+        - users_id
+        - content
+        - status
+        - date_creation
+      properties:
+        id:
+          type: integer
+          minimum: 1
+          readOnly: true
+        itemtype:
+          type: string
+          const: Ticket
+        items_id:
+          type: integer
+          minimum: 1
+          description: ID do chamado solucionado
+        users_id:
+          type: integer
+          minimum: 1
+          description: ID do autor da solução (`sync-bot` quando proposta a partir do B)
+        content:
+          type: string
+          minLength: 1
+          description: Descrição da solução proposta ou aplicada
+        status:
+          type: integer
+          enum: [2, 3, 4]
+          description: "`2`: pendente (proposta aguardando aprovação) · `3`: aceita (fecha o chamado → status 6) · `4`: recusada (volta para status 2)"
+        date_creation:
+          $ref: '#/components/schemas/GlpiDateTime'
+        users_id_approval:
+          type: [integer, 'null']
+          minimum: 1
+          description: ID do Técnico que aprovou ou recusou a solução
+        date_approval:
+          oneOf:
+            - $ref: '#/components/schemas/GlpiDateTime'
+            - type: 'null'
+          description: Data e hora da aprovação ou recusa no fuso `A_TIMEZONE`
+    ITILSolutionInput:
+      type: object
+      additionalProperties: false
+      required:
+        - itemtype
+        - items_id
+        - content
+      properties:
+        itemtype:
+          type: string
+          const: Ticket
+        items_id:
+          type: integer
+          minimum: 1
+        content:
+          type: string
+          minLength: 1
+        status:
+          type: integer
+          enum: [2, 3]
+          default: 2
+    ITILSolutionDecisionInput:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: integer
+          enum: [3, 4]
+          description: "`3` para aprovar (chamado vai para 6, Fechado) ou `4` para recusar (chamado volta para 2, Em atendimento)"
+        content:
+          type: string
+          description: Comentário ou motivo da decisão (obrigatório ao recusar)
+    GlpiError:
+      type: array
+      description: "Erro no formato da API REST do GLPI: `[\"ERROR_CODE\", \"Mensagem legível\"]`"
+      minItems: 2
+      maxItems: 2
+      prefixItems:
+        - type: string
+          description: Código simbólico do erro (ex. `ERROR_SESSION_TOKEN_INVALID`, `ERROR_TICKET_FROZEN`)
+        - type: string
+          description: Explicação legível do motivo da recusa
+      example:
+        - ERROR_TICKET_FROZEN
+        - "Chamado congelado (status 5 ou 6): apenas acompanhamentos (notas) são permitidos."
+  responses:
+    Unauthorized:
+      description: "`App-Token`, `Session-Token` ou credenciais ausentes/inválidos"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GlpiError'
+    Forbidden:
+      description: Ação negada para o perfil do usuário (ex. Estagiário tentando editar, comentar ou aprovar — seção 6)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GlpiError'
+    NotFound:
+      description: Recurso não encontrado no Sistema A
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GlpiError'
+    Frozen:
+      description: |
+        Chamado congelado nos status 5 (Solucionado) ou 6 (Fechado): edições de campos são bloqueadas
+        com 409 explícito para proteger o SLA; apenas notas (`ITILFollowup`) e decisão da solução são aceitas (Q17/Q27, ADR-006).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GlpiError'
