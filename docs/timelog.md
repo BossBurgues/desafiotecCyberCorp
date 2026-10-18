@@ -9,6 +9,7 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 16/10 | Resposta do avaliador: B→A opcional, anti-eco e concorrência | — | _a preencher_ | Seções 5.1 e 5.2 do plano |
 | 18/10 | #12 [S0.1] Estrutura do monorepo | 2 | _a preencher_ | |
 | 18/10 | #13 [S0.2] CI esqueleto + proteções | 1.5 | 0.5 | |
+| 18/10 | #14 [S0.3] ADRs 001–011 | 2 | 0.5 | 11 ADRs (o 011 entrou após a resposta do avaliador) |
 
 ## Totais por milestone
 
