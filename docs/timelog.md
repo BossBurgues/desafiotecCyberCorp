@@ -22,6 +22,8 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 18/10 | #24 [S2.2] Middleware de caos configurável e reproduzível | 3 | 0.5 | sprint M1 |
 | 18/10 | #26 [S2.4] UI do Operador B | 2.5 | 0.5 | sprint M1; "comentar" segue com a S2.3 (#25) |
 | 18/10 | #29 [S3.1] Bootstrap do sync: config, logs, HTTP, health/ready, migrations | 3 | 0.5 | sprint M1 |
+| 18/10 | #64 [S9.2] architecture.md com diagramas Mermaid | 2 | 0.5 | sprint M5; 8 diagramas validados no parser do Mermaid 11 |
+| 18/10 | #67 [S9.5] out-of-scope.md | 1 | 0.25 | sprint M5 |
 
 ## Totais por milestone
 
