@@ -43,6 +43,10 @@ ID="$(echo "$created" | sed -E 's/.*"id":"([^"]+)".*/\1/')"
 code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v2/records?page=1&pageSize=10")"
 [ "$code" = "200" ] && ok "3 GET /api/v2/records = 200" || fail "3 listagem devolveu $code"
 
+# 3b. UI do Operador B servida com CSP (S2.4): prova que o wwwroot entrou na imagem
+headers="$(curl -sS -D - -o /dev/null "$BASE/ui/")"
+echo "$headers" | head -1 | grep -q " 200" && echo "$headers" | grep -qi "^content-security-policy: default-src 'self'"   && ok "3b GET /ui/ = 200 com CSP" || fail "3b GET /ui/ sem 200 ou sem CSP"
+
 # 4. dado sobrevive a restart (volume), com o marcador intacto
 docker restart "$NAME" >/dev/null
 wait_healthy || fail "4 container não voltou healthy após restart"
