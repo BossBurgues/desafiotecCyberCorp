@@ -19,6 +19,9 @@ describe('loadConfig', () => {
       READY_CHECK_TIMEOUT_MS: 2000,
       READY_CHECK_INTERVAL_MS: 5000,
       WORKER_POLL_INTERVAL_MS: 1000,
+      B_TIMEOUT_MS: 5000,
+      B_BREAKER_THRESHOLD: 5,
+      B_BREAKER_OPEN_MS: 30000,
     });
   });
 

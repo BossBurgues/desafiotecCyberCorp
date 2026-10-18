@@ -17,6 +17,10 @@ const schema = z.object({
   READY_CHECK_TIMEOUT_MS: ms(100, 30_000).default(2_000),
   READY_CHECK_INTERVAL_MS: ms(500, 300_000).default(5_000),
   WORKER_POLL_INTERVAL_MS: ms(50, 60_000).default(1_000),
+  // Adapter do B (S3.5, ADR-008)
+  B_TIMEOUT_MS: ms(100, 60_000).default(5_000),
+  B_BREAKER_THRESHOLD: z.coerce.number().int().min(1).max(100).default(5),
+  B_BREAKER_OPEN_MS: ms(1_000, 600_000).default(30_000),
 });
 
 export type Config = z.infer<typeof schema>;
