@@ -53,6 +53,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapRecords();
 app.MapOperator();
 app.MapAdmin();
+app.MapUi();
 
 app.MapFallback(() => Results.Json(new ApiError(ApiError.NotFound, "Rota não encontrada"), statusCode: 404));
 
