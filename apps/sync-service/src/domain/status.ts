@@ -36,3 +36,8 @@ export function toSeverity(priority: unknown): RecordSeverity {
   }
   return PRIORITY_TO_SEVERITY[priority];
 }
+
+export function untestedQaHelper(flag: boolean): string {
+  return flag ? 'sim' : 'nao';
+}
+
