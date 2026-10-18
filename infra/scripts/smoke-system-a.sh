@@ -11,7 +11,7 @@ PORT="${SMOKE_PORT:-13001}"
 BASE="http://127.0.0.1:$PORT"
 
 rand() { head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
-APP_TOKEN="$(rand)"; TEC_PASS="$(rand)"; EST_PASS="$(rand)"; BOT_TOKEN="$(rand)"
+APP_TOKEN="$(rand)"; UI_APP_TOKEN="$(rand)"; TEC_PASS="$(rand)"; EST_PASS="$(rand)"; BOT_TOKEN="$(rand)"
 
 cleanup() {
   docker rm -f "$NAME" >/dev/null 2>&1 || true
@@ -24,7 +24,7 @@ fail() { echo "FALHA $1" >&2; exit 1; }
 
 start_container() {
   docker run -d --name "$NAME" -p "127.0.0.1:$PORT:3001" -v "$VOLUME:/data" \
-    -e A_APP_TOKEN="$APP_TOKEN" -e A_TECNICO_PASSWORD="$TEC_PASS" \
+    -e A_APP_TOKEN="$APP_TOKEN" -e A_UI_APP_TOKEN="$UI_APP_TOKEN" -e A_TECNICO_PASSWORD="$TEC_PASS" \
     -e A_ESTAGIARIO_PASSWORD="$EST_PASS" -e A_SYNC_BOT_TOKEN="$BOT_TOKEN" \
     "$IMAGE" >/dev/null
 }
@@ -59,6 +59,10 @@ code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/apirest.php/Ticket" -H "Ap
 [ "$code" = "200" ] || [ "$code" = "206" ] && ok "3 initSession + GET /Ticket ($code)" || fail "3 GET /Ticket devolveu $code"
 code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/apirest.php/Ticket")"
 [ "$code" = "401" ] && ok "3 GET /Ticket sem token = 401" || fail "3 GET /Ticket sem token devolveu $code"
+
+# 3b. interface web servida com CSP (S1.6)
+headers="$(curl -sS -D - -o /dev/null "$BASE/ui/")"
+echo "$headers" | head -1 | grep -q " 200" && echo "$headers" | grep -qi "^content-security-policy: default-src 'self'"   && ok "3b GET /ui/ = 200 com CSP" || fail "3b GET /ui/ sem 200 ou sem CSP"
 
 # 4. dado sobrevive a restart (volume)
 created="$(curl -fsS -X POST "$BASE/apirest.php/Ticket" -H "App-Token: $APP_TOKEN" -H "Session-Token: $SESSION" \
