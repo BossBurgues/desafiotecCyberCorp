@@ -195,4 +195,3 @@ test('prepareNewTicket assume defaultRecipientId quando users_id_recipient não 
   );
   assert.equal(explicitNull.users_id_recipient, null);
 });
-

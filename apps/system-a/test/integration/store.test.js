@@ -180,4 +180,3 @@ test('registro de negação não pode ser alterado nem apagado', () => {
     store.close();
   }
 });
-
