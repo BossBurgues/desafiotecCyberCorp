@@ -84,6 +84,49 @@ paths:
           description: Sessão encerrada
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /getFullSession:
+    get:
+      operationId: getFullSession
+      summary: Devolve o usuário e o perfil da sessão atual
+      description: |
+        Mesmo nome do GLPI real, reduzido ao que a UI (S1.6) usa para mostrar ou esconder ações.
+        Exige só sessão válida (sem permissão por ação). Nunca devolve senha nem token.
+      responses:
+        '200':
+          description: Dados da sessão atual
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [session]
+                properties:
+                  session:
+                    type: object
+                    additionalProperties: false
+                    required: [glpiID, glpiname, glpiactiveprofile]
+                    properties:
+                      glpiID:
+                        type: integer
+                        minimum: 1
+                      glpiname:
+                        type: string
+                      glpiactiveprofile:
+                        type: object
+                        additionalProperties: false
+                        required: [name]
+                        properties:
+                          name:
+                            type: string
+                            enum: [tecnico, estagiario, sync-bot]
+              example:
+                session:
+                  glpiID: 1
+                  glpiname: tecnico
+                  glpiactiveprofile:
+                    name: tecnico
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /Ticket:
     get:
       operationId: listTickets

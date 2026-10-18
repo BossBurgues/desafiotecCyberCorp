@@ -291,3 +291,25 @@ test('webhook ticket.changed respeita o schema do evento e os patterns de cabeç
     await new Promise((resolve) => receiver.close(resolve));
   }
 });
+
+test('resposta de getFullSession valida no schema do contrato', async () => {
+  const { ajv } = createContractValidators();
+  const validate = ajv.compile(
+    openapiDoc.paths['/getFullSession'].get.responses['200'].content['application/json'].schema,
+  );
+  const app = buildTestServer();
+  try {
+    for (const profile of ['tecnico', 'estagiario', 'sync-bot']) {
+      const headers = await login(app, profile);
+      const res = await app.inject({ method: 'GET', url: '/apirest.php/getFullSession', headers });
+      assert.equal(res.statusCode, 200);
+      assert.equal(
+        validate(res.json()),
+        true,
+        `GET /getFullSession (${profile}) divergiu do contrato: ${ajv.errorsText(validate.errors)}`,
+      );
+    }
+  } finally {
+    await app.close();
+  }
+});

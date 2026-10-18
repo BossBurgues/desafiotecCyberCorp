@@ -17,6 +17,7 @@ export const ACTIONS = Object.freeze({
 
 export const DEFAULT_DEV_CREDENTIALS = Object.freeze({
   appToken: 'dev-app-token',
+  uiAppToken: 'dev-ui-app-token',
   tecnicoPassword: 'dev-tecnico-password',
   estagiarioPassword: 'dev-estagiario-password',
   syncBotToken: 'dev-sync-bot-token',
@@ -141,7 +142,8 @@ export function parseAuthorization(header) {
   );
 }
 
-export function validateAppTokenHeader(headerValue, expectedAppToken) {
+// Aceita um token ou uma lista (API do sync + UI, S1.6); cada um é comparado em tempo constante.
+export function validateAppTokenHeader(headerValue, expectedAppTokens) {
   if (typeof headerValue !== 'string' || headerValue.trim() === '') {
     throw new AuthError(
       'ERROR_APP_TOKEN_PARAMETERS_MISSING',
@@ -150,11 +152,18 @@ export function validateAppTokenHeader(headerValue, expectedAppToken) {
     );
   }
   const providedBuf = Buffer.from(headerValue);
-  const expectedBuf = Buffer.from(String(expectedAppToken));
-  if (
-    providedBuf.length !== expectedBuf.length ||
-    !crypto.timingSafeEqual(providedBuf, expectedBuf)
-  ) {
+  const expectedList = Array.isArray(expectedAppTokens) ? expectedAppTokens : [expectedAppTokens];
+  let matched = false;
+  for (const expected of expectedList) {
+    const expectedBuf = Buffer.from(String(expected));
+    if (
+      providedBuf.length === expectedBuf.length &&
+      crypto.timingSafeEqual(providedBuf, expectedBuf)
+    ) {
+      matched = true;
+    }
+  }
+  if (!matched) {
     throw new AuthError('ERROR_WRONG_APP_TOKEN_PARAMETER', 'Cabeçalho App-Token inválido.', 401);
   }
 }
@@ -208,6 +217,7 @@ export function loadAuthConfig(env = process.env, overrides = {}) {
   const isProd = env.NODE_ENV === 'production';
   const requiredVars = [
     ['appToken', 'A_APP_TOKEN'],
+    ['uiAppToken', 'A_UI_APP_TOKEN'],
     ['tecnicoPassword', 'A_TECNICO_PASSWORD'],
     ['estagiarioPassword', 'A_ESTAGIARIO_PASSWORD'],
     ['syncBotToken', 'A_SYNC_BOT_TOKEN'],
@@ -225,6 +235,11 @@ export function loadAuthConfig(env = process.env, overrides = {}) {
     } else {
       resolved[key] = DEFAULT_DEV_CREDENTIALS[key];
     }
+  }
+
+  // O token da UI chega ao navegador; separado do A_APP_TOKEN, pode ser trocado sem afetar o sync.
+  if (resolved.uiAppToken === resolved.appToken) {
+    throw new Error('A_UI_APP_TOKEN deve ser diferente de A_APP_TOKEN no Sistema A.');
   }
 
   return resolved;

@@ -141,6 +141,7 @@ test('loadAuthConfig exige todas as credenciais em NODE_ENV=production e usa def
         A_APP_TOKEN: 'ok',
         A_TECNICO_PASSWORD: 'ok',
         A_ESTAGIARIO_PASSWORD: 'ok',
+        A_UI_APP_TOKEN: 'ok-ui',
       }),
     /A_SYNC_BOT_TOKEN ausente em NODE_ENV=production/,
   );
@@ -148,12 +149,14 @@ test('loadAuthConfig exige todas as credenciais em NODE_ENV=production e usa def
   const prodCfg = loadAuthConfig({
     NODE_ENV: 'production',
     A_APP_TOKEN: 'prod-app',
+    A_UI_APP_TOKEN: 'prod-ui',
     A_TECNICO_PASSWORD: 'prod-tec',
     A_ESTAGIARIO_PASSWORD: 'prod-est',
     A_SYNC_BOT_TOKEN: 'prod-bot',
   });
   assert.deepEqual(prodCfg, {
     appToken: 'prod-app',
+    uiAppToken: 'prod-ui',
     tecnicoPassword: 'prod-tec',
     estagiarioPassword: 'prod-est',
     syncBotToken: 'prod-bot',

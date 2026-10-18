@@ -24,9 +24,14 @@ import {
   prepareNewTicket,
   prepareTicketUpdate,
 } from './tickets.js';
+import { UI_SECURITY_HEADERS, detectFeatures, loadUiAssets } from './ui.js';
 import { createWebhookDispatcher, loadWebhookConfig } from './webhooks.js';
 
-const SESSION_ONLY_ROUTES = new Set(['/apirest.php/initSession', '/apirest.php/killSession']);
+const SESSION_ONLY_ROUTES = new Set([
+  '/apirest.php/initSession',
+  '/apirest.php/killSession',
+  '/apirest.php/getFullSession',
+]);
 
 function parsePositiveIdOrNull(rawId) {
   if (rawId === undefined || rawId === null) {
@@ -50,9 +55,12 @@ export function buildServer({
   auth = {},
   webhook: webhookOverrides = {},
   trustProxy = env.A_TRUST_PROXY === 'true' || env.A_TRUST_PROXY === true,
+  uiDir,
 } = {}) {
   const authConfig = loadAuthConfig(env, auth);
+  const appTokens = [authConfig.appToken, authConfig.uiAppToken];
   const webhookConfig = loadWebhookConfig(env, webhookOverrides);
+  const uiAssets = loadUiAssets(uiDir);
   const app = Fastify({ logger, trustProxy });
   const store = new TicketStore(dbPath);
   store.seedUsers(authConfig);
@@ -135,6 +143,19 @@ export function buildServer({
       .send(glpiError('ERROR_INTERNAL', error.message || 'Erro interno no Sistema A.'));
   });
 
+  // Calculado depois de registradas todas as rotas: a UI liga conversa/aprovações sozinha quando S1.4/S1.5 entrarem.
+  let uiFeatures = { followups: false, solutions: false };
+  app.addHook('onReady', async () => {
+    uiFeatures = detectFeatures(registeredRoutes);
+  });
+
+  app.addHook('onSend', async (request, reply, payload) => {
+    if (request.url === '/ui' || request.url.startsWith('/ui/')) {
+      reply.headers(UI_SECURITY_HEADERS);
+    }
+    return payload;
+  });
+
   app.decorateRequest('user', null);
   app.decorateRequest('sessionToken', null);
 
@@ -149,6 +170,30 @@ export function buildServer({
     }
   });
 
+  // Interface web (S1.6): fora de /apirest.php, não exige sessão; a API continua exigindo App-Token e sessão.
+  app.get('/', (_request, reply) => reply.redirect('/ui/', 302));
+  app.get('/ui', (_request, reply) => reply.redirect('/ui/', 302));
+
+  const sendUiAsset = (reply, name) => {
+    const asset = uiAssets.get(name);
+    if (!asset) {
+      return reply
+        .code(404)
+        .send(glpiError('ERROR_ITEM_NOT_FOUND', 'Recurso não encontrado no Sistema A.'));
+    }
+    return reply.type(asset.contentType).send(asset.body);
+  };
+
+  app.get('/ui/', (_request, reply) => sendUiAsset(reply, 'index.html'));
+
+  app.get('/ui/config.json', (_request, reply) =>
+    reply
+      .header('cache-control', 'no-store')
+      .send({ appToken: authConfig.uiAppToken, features: uiFeatures }),
+  );
+
+  app.get('/ui/:file', (request, reply) => sendUiAsset(reply, request.params.file));
+
   app.register(
     async (api) => {
       api.addHook('preHandler', async (request) => {
@@ -156,7 +201,7 @@ export function buildServer({
         if (routeUrl === '/apirest.php/initSession') {
           return;
         }
-        validateAppTokenHeader(request.headers['app-token'], authConfig.appToken);
+        validateAppTokenHeader(request.headers['app-token'], appTokens);
         const { token, user } = validateSessionTokenHeader(
           request.headers['session-token'],
           store,
@@ -183,7 +228,7 @@ export function buildServer({
       });
 
       api.get('/initSession', async (request) => {
-        validateAppTokenHeader(request.headers['app-token'], authConfig.appToken);
+        validateAppTokenHeader(request.headers['app-token'], appTokens);
         const parsed = parseAuthorization(request.headers.authorization);
 
         if (parsed.kind === 'basic') {
@@ -215,6 +260,15 @@ export function buildServer({
         store.deleteSession(request.sessionToken);
         return reply.code(200).send();
       });
+
+      // Só os campos que a UI usa; nunca senha nem token.
+      api.get('/getFullSession', async (request) => ({
+        session: {
+          glpiID: request.user.id,
+          glpiname: request.user.login,
+          glpiactiveprofile: { name: request.user.profile },
+        },
+      }));
 
       api.get(
         '/Ticket',

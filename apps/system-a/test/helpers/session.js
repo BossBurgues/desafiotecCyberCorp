@@ -4,6 +4,7 @@ import { buildServer } from '../../src/server.js';
 
 export const TEST_AUTH_CONFIG = Object.freeze({
   appToken: 'test-app-token',
+  uiAppToken: 'test-ui-app-token',
   tecnicoPassword: 'test-tecnico-password',
   estagiarioPassword: 'test-estagiario-password',
   syncBotToken: 'test-sync-bot-token',
