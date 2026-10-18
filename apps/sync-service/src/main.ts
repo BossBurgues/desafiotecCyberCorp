@@ -1,12 +1,14 @@
 import pg from 'pg';
 import { createSystemAClient } from './adapters/system-a/client.js';
 import { createSystemBClient } from './adapters/system-b/client.js';
+import { startPoller } from './application/poller.js';
 import { createProcessJob } from './application/process-job.js';
 import { ConfigError, loadConfig } from './config.js';
 import { migrate } from './infra/db/migrate.js';
 import { buildServer } from './infra/http/server.js';
 import { createReadiness, httpHealthCheck, postgresCheck } from './infra/http/readiness.js';
 import { createLogger } from './infra/logger.js';
+import { webhookPlugin } from './infra/http/webhook.js';
 import { drain } from './infra/queue/runner.js';
 import { startWorkerLoop } from './infra/queue/worker-loop.js';
 
@@ -80,9 +82,21 @@ async function main(): Promise<void> {
     logger,
   });
 
+  const poller = startPoller({
+    pool,
+    a,
+    logger,
+    timeZone: config.A_TIMEZONE,
+    overlapMs: config.POLL_OVERLAP_MS,
+    pageSize: config.POLL_PAGE_SIZE,
+    intervalMs: config.POLL_INTERVAL_MS,
+    isReady: readiness.isReady,
+  });
+
   const app = buildServer({
     logger,
     readiness,
+    plugins: [webhookPlugin({ pool, secret: config.HMAC_SECRET, windowMs: config.WEBHOOK_REPLAY_WINDOW_MS })],
   });
   await app.listen({ host: config.HOST, port: config.PORT });
 
@@ -93,6 +107,7 @@ async function main(): Promise<void> {
     logger.info({ signal }, 'desligando');
     clearInterval(readinessTimer);
     await app.close();
+    await poller.stop();
     await worker.stop();
     await pool.end();
     process.exit(0);
