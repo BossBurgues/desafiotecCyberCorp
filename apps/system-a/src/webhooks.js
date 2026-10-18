@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 
+export const WEBHOOK_TIMEOUT_MS = 2000;
 export const MIN_PROD_SECRET_LENGTH = 32;
 
 export function toUnixSeconds(ms) {
@@ -148,5 +149,117 @@ export function loadWebhookConfig(env = process.env, overrides = {}) {
     url,
     secret,
     dropRate,
+  };
+}
+
+const NOOP_LOG = Object.freeze({
+  info() {},
+  warn() {},
+  debug() {},
+  error() {},
+});
+
+export function createWebhookDispatcher(
+  config,
+  {
+    fetch: fetchImpl = globalThis.fetch,
+    now = Date.now,
+    uuid = crypto.randomUUID,
+    log = NOOP_LOG,
+  } = {},
+) {
+  const pending = new Set();
+
+  async function send(event, headers, rawBody) {
+    const startedAt = Date.now();
+    try {
+      const response = await fetchImpl(config.url, {
+        method: 'POST',
+        headers,
+        body: rawBody,
+        signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+      });
+      const ms = Date.now() - startedAt;
+      if (response.ok) {
+        log.info(
+          {
+            event_id: event.event_id,
+            ticket_id: event.ticket_id,
+            action: event.action,
+            status: response.status,
+            ms,
+          },
+          'webhook enviado',
+        );
+      } else {
+        log.warn(
+          {
+            event_id: event.event_id,
+            ticket_id: event.ticket_id,
+            action: event.action,
+            status: response.status,
+            ms,
+          },
+          'webhook falhou: resposta não-2xx do receptor',
+        );
+      }
+    } catch (err) {
+      const ms = Date.now() - startedAt;
+      log.warn(
+        {
+          event_id: event.event_id,
+          ticket_id: event.ticket_id,
+          action: event.action,
+          reason: err?.message || String(err),
+          ms,
+        },
+        'webhook falhou',
+      );
+    }
+  }
+
+  function handle(change) {
+    try {
+      if (!config?.enabled) {
+        return;
+      }
+
+      const event = buildEvent(
+        {
+          ticketId: change.ticketId,
+          action: change.action,
+          dateMod: change.dateMod,
+        },
+        { now, uuid },
+      );
+
+      const { rawBody, headers } = serialize(event, { secret: config.secret, now });
+      const task = send(event, headers, rawBody).finally(() => {
+        pending.delete(task);
+      });
+      pending.add(task);
+    } catch (err) {
+      log.warn(
+        {
+          ticket_id: change?.ticketId,
+          action: change?.action,
+          reason: err?.message || String(err),
+        },
+        'webhook falhou',
+      );
+    }
+  }
+
+  async function close() {
+    await Promise.allSettled([...pending]);
+  }
+
+  return {
+    config,
+    handle,
+    close,
+    get pendingCount() {
+      return pending.size;
+    },
   };
 }
