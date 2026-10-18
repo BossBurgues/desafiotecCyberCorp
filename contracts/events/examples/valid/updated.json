@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "event_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "type": "ticket.changed",
+  "ticket_id": 42,
+  "action": "updated",
+  "occurred_at": "2026-10-18T17:10:05Z"
+}

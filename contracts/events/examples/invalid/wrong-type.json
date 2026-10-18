@@ -1,1 +1,8 @@
-[]
+{
+  "schema_version": 1,
+  "event_id": "550e8400-e29b-41d4-a716-446655440000",
+  "type": "ticket.deleted",
+  "ticket_id": 42,
+  "action": "updated",
+  "occurred_at": "2026-10-18T17:03:22Z"
+}
