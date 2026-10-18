@@ -31,7 +31,7 @@ const PERMISSION_MATRIX = Object.freeze({
     ACTIONS.SOLUTION_CREATE,
     ACTIONS.SOLUTION_DECIDE,
   ]),
-  [PROFILES.ESTAGIARIO]: new Set([ACTIONS.TICKET_READ, ACTIONS.TICKET_CREATE]),
+  [PROFILES.ESTAGIARIO]: new Set([ACTIONS.TICKET_READ, ACTIONS.TICKET_CREATE, ACTIONS.TICKET_UPDATE]),
   // No M1 o sync-bot apenas lê chamados; escritas de nota (S1.4) e proposta de solução (S1.5/M3) já ficam declaradas.
   [PROFILES.SYNC_BOT]: new Set([
     ACTIONS.TICKET_READ,
