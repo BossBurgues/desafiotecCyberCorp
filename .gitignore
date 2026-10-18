@@ -1,0 +1,28 @@
+# Node
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+
+# .NET
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+
+# Dados locais e segredos
+.env
+.env.*
+!.env.example
+*.sqlite
+*.db
+data/
+
+# SO / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

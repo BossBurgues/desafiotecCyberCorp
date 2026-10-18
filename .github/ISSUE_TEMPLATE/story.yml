@@ -1,0 +1,45 @@
+name: User story
+description: Funcionalidade descrita do ponto de vista de quem usa
+title: "[S?.?] "
+labels: ["type:story"]
+body:
+  - type: input
+    id: papel
+    attributes:
+      label: Como
+      placeholder: Técnico do A
+    validations:
+      required: true
+  - type: input
+    id: quero
+    attributes:
+      label: Quero
+    validations:
+      required: true
+  - type: input
+    id: para
+    attributes:
+      label: Para
+    validations:
+      required: true
+  - type: textarea
+    id: criterios
+    attributes:
+      label: Critérios de aceite
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: depende
+    attributes:
+      label: Depende de
+      description: Registre também como dependência "blocked by" na issue.
+  - type: checkboxes
+    id: garantia
+    attributes:
+      label: Garantia protegida
+      options:
+        - label: Nenhum chamado/nota duplicado
+        - label: Nenhuma atualização perdida
+        - label: Dado antigo não sobrescreve novo

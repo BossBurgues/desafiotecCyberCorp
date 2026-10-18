@@ -1,0 +1,33 @@
+name: Bug
+description: Algo não se comporta como o esperado
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: oque
+    attributes:
+      label: O que aconteceu
+    validations:
+      required: true
+  - type: textarea
+    id: esperado
+    attributes:
+      label: O que era esperado
+    validations:
+      required: true
+  - type: textarea
+    id: reproduzir
+    attributes:
+      label: Como reproduzir
+      description: Passos, configuração de caos, IDs de chamado e correlation_id se houver.
+    validations:
+      required: true
+  - type: dropdown
+    id: garantia
+    attributes:
+      label: Viola alguma garantia?
+      options:
+        - Não
+        - Duplicata
+        - Atualização perdida
+        - Dado antigo sobre novo

@@ -1,0 +1,34 @@
+name: Cenário de teste
+description: Cenário do catálogo que prova uma garantia
+title: "[X?] "
+labels: ["type:test"]
+body:
+  - type: dropdown
+    id: nivel
+    attributes:
+      label: Nível
+      options:
+        - U (unitário)
+        - I (integração)
+        - E (E2E na CI)
+        - D (demo/manual)
+    validations:
+      required: true
+  - type: textarea
+    id: cenario
+    attributes:
+      label: Cenário
+      description: Condição inicial e o que acontece.
+    validations:
+      required: true
+  - type: textarea
+    id: esperado
+    attributes:
+      label: Resultado esperado
+    validations:
+      required: true
+  - type: textarea
+    id: implementado
+    attributes:
+      label: Implementado por
+      description: Stories que precisam estar prontas (registre como "blocked by").

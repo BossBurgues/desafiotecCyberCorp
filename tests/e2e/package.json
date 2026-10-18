@@ -1,0 +1,11 @@
+{
+  "name": "@desafiotec/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Catálogo de cenários E2E (docs/PLANO_DE_ACAO.md, seção 12) rodando contra o docker compose completo.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {}
+}

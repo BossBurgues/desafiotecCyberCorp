@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Plano de ação
+    url: https://github.com/BossBurgues/desafiotecCyberCorp/blob/main/docs/PLANO_DE_ACAO.md
+    about: Decisões, arquitetura e catálogo de cenários
