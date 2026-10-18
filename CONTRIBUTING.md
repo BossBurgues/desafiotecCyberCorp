@@ -1,17 +1,32 @@
 # Como contribuir
 
-## Fluxo
+## Branches
 
-1. **Escolha uma issue desbloqueada** no [Project](https://github.com/users/BossBurgues/projects/2). Ela só pode começar quando todas as issues em *blocked by* estiverem fechadas.
-2. **Crie uma branch** a partir da `main`:
-   - `feat/<nº>-slug` para funcionalidade
-   - `fix/<nº>-slug` para correção
-   - `test/<nº>-slug` para cenário de teste
-   - `docs/<nº>-slug` para documentação
-   - `chore/<nº>-slug` para infra e configuração
-3. **Commits pequenos e frequentes**, um conceito por commit.
-4. **Abra um PR** com `Closes #<nº>` e preencha o template.
-5. **Merge só com a CI verde.** A `main` está sempre pronta para deploy.
+| Branch | Papel |
+|---|---|
+| `Prod` | Produção (URL entregue). Recebe só PRs de release vindos da `Dev`. Deploy com aprovação manual |
+| `Dev` | Integração e homologação (branch padrão). Recebe PRs das branches de milestone. Deploy automático em `dev.<host>` |
+| `milestone/M<n>-slug` | Uma por milestone, criada a partir da `Dev`. No máximo 3 ativas ao mesmo tempo |
+
+Branches de milestone: `milestone/M0-fundacao`, `milestone/M1-nucleo-a-b`, `milestone/M2-auditoria-seguranca`, `milestone/M3-b-a-propostas`, `milestone/M4-notas-mocks`, `milestone/M5-entrega`.
+
+## Fluxo de cada atualização
+
+1. **Escolha a próxima issue desbloqueada do milestone** no [Project](https://github.com/users/BossBurgues/projects/2), pela prioridade. Ela só começa quando todas as issues em *blocked by* estiverem fechadas.
+2. Na branch do milestone, faça **commits pequenos**, um conceito por commit, com `Refs #<nº>`.
+3. **Push** da branch.
+4. **Abra um PR para a `Dev`** com `Closes #<nº>` e preencha o template. Um PR aberto por vez em cada branch.
+5. **Merge (merge commit, sem squash) só com a CI verde** → deploy automático em homologação.
+6. `git pull origin Dev` na branch do milestone e siga para a próxima issue.
+7. Milestone concluído → **PR de release `Dev` → `Prod`** (`release: M<n> …`) → aprovação → deploy em produção.
+
+## CI
+
+- O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda em PRs para `Dev` ou `Prod` e em push nas branches `milestone/**`.
+- Só os apps alterados (`system-a`, `system-b`, `sync-service`) rodam; mexer em `contracts/` ou no `ci.yml` roda todos.
+- `ci-ok` é a verificação obrigatória nas proteções; ela resume o resultado dos outros jobs.
+- PR para a `Prod` só é aceito a partir da `Dev` (job `prod-source-guard`).
+- Proteções: `Dev` e `Prod` não aceitam push direto e exigem `ci-ok` verde e merge commit; a `Dev` também exige a branch atualizada.
 
 ## Conventional Commits
 
