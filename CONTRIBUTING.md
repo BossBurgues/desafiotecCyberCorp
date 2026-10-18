@@ -20,6 +20,14 @@ Branches de milestone: `milestone/M0-fundacao`, `milestone/M1-nucleo-a-b`, `mile
 6. `git pull origin Dev` na branch do milestone e siga para a próxima issue.
 7. Milestone concluído → **PR de release `Dev` → `Prod`** (`release: M<n> …`) → aprovação → deploy em produção.
 
+## CI
+
+- O workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda em PRs para `Dev` ou `Prod` e em push nas branches `milestone/**`.
+- Só os apps alterados (`system-a`, `system-b`, `sync-service`) rodam; mexer em `contracts/` ou no `ci.yml` roda todos.
+- `ci-ok` é a verificação obrigatória nas proteções; ela resume o resultado dos outros jobs.
+- PR para a `Prod` só é aceito a partir da `Dev` (job `prod-source-guard`).
+- Proteções: `Dev` e `Prod` não aceitam push direto e exigem `ci-ok` verde e merge commit; a `Dev` também exige a branch atualizada.
+
 ## Conventional Commits
 
 ```
