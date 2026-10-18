@@ -403,7 +403,7 @@ flowchart LR
 **Regras:**
 - No máximo **3 branches de milestone ativas ao mesmo tempo** (o atual e os próximos desbloqueados pela prioridade).
 - Um PR aberto por vez em cada branch. A próxima issue só começa depois do merge da anterior.
-- A branch do milestone é apagada quando todas as issues dele estiverem fechadas.
+- A branch do milestone **não é apagada** ao concluir: ela fica congelada como histórico do milestone, para mostrar na apresentação a evolução e os commits de cada etapa. Não recebe mais commits depois do PR de release.
 - Os cenários de teste (épico E8) entram na branch do **milestone de cada cenário**.
 - Exceção histórica: a S0.1 (#12) foi entregue no PR #135 (`feat/12-estrutura-monorepo` → `main`) antes desta regra. A `Dev` e a `Prod` nasceram desse merge, e a `milestone/M0-fundacao` nasce da `Dev`.
 
