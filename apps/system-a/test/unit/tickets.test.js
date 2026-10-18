@@ -174,3 +174,5 @@ test('valida metadados de anexos com sha256 em hex de 64 caracteres', () => {
     TicketValidationError,
   );
 });
+
+test('falha proposital de QA', () => { assert.equal(1, 2); });
