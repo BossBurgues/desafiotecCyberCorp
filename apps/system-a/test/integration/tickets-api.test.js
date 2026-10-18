@@ -309,11 +309,13 @@ test('PUT /apirest.php/Ticket/:id atualiza campos parciais, renova date_mod sem 
       {
         ticketId: 1,
         action: 'created',
+        dateMod: '2026-10-18 13:50:00',
         actor: { id: 1, login: 'tecnico', profile: 'tecnico' },
       },
       {
         ticketId: 1,
         action: 'updated',
+        dateMod: '2026-10-18 14:03:22',
         actor: { id: 1, login: 'tecnico', profile: 'tecnico' },
       },
     ]);
