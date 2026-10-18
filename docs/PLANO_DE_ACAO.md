@@ -8,6 +8,7 @@
 > **Como usar este plano (pessoa ou LLM executora)**
 > 1. Trabalhe **issue por issue** no GitHub, respeitando as dependências *blocked by*. Uma issue só começa quando todas as que a bloqueiam estão fechadas.
 > 2. **Uma branch por milestone** (`milestone/M0-fundacao`, …). Cada atualização = commit pequeno (Conventional Commits) + push + PR para a `Dev` que fecha a issue (`Closes #n`). A `Dev` faz deploy em homologação; a `Prod` recebe um PR de release por milestone e faz deploy em produção. Ver seções 14.1 e 14.2.
+> 2.1. **Antes de cada merge: rodada de QA** registrada no PR (critérios, negativos, validações temporárias, regressão). Ver seção 14.3.
 > 3. Ao terminar cada issue: CI verde, `docs/how-it-works.md` atualizado e uma **explicação em linguagem simples** no PR (o que foi feito, por quê, como testar e qual garantia protege).
 > 4. Ao terminar cada milestone, **pare e explique** antes de seguir.
 > 5. Toda decisão abaixo foi tomada de propósito (sessão de *grilling*). Não mude nada sem registrar um ADR novo.
@@ -353,7 +354,7 @@ Nível: **U** unitário · **I** integração · **E** E2E (CI) · **D** demo/ma
 - **Dependências nativas *blocked by*:** fechar uma issue libera as próximas.
 - **Labels:** `type:*` (epic/story/test/docs) · `app:*` (system-a/system-b/sync/infra/docs) · `guarantee:*` (no-dup/no-loss/no-stale) · `area:*` (approval/blackbox/echo/data/security/audit).
 - **Story:** "Como [papel], quero [ação], para [valor]" + critérios de aceite + Definition of Done.
-- **Definition of Done:** testes passando · CI verde · documentação/`how-it-works` atualizados · PR explicando o que foi feito, por quê, como testar e qual garantia protege · horas registradas no `timelog.md`.
+- **Definition of Done:** **rodada de QA registrada (14.3)** · testes passando · CI verde · documentação/`how-it-works` atualizados · PR explicando o que foi feito, por quê, como testar e qual garantia protege · horas registradas no `timelog.md`.
 - **Branches:** uma por milestone (ver 14.1). A `main` fica protegida e sempre pronta para deploy.
 - **Project:** Status · Milestone · Priority · Size · Estimate · Start/Target date → views **Board** e **Roadmap**.
 
@@ -426,6 +427,40 @@ flowchart LR
 - Rollback: o `deploy-prod.yml` aceita `workflow_dispatch` com uma tag `prod-<sha>` anterior.
 
 Issues afetadas: **S0.2** (CI esqueleto + proteções da `Dev`/`Prod`), **S4.2** (CI completo), **S4.3** (VM com dois ambientes) e **S4.4** (deploy dev/prod).
+
+### 14.3 Rodada de QA ao fim de cada issue (definido em 18/10)
+
+Nenhuma issue é mergeada sem uma **rodada de QA registrada**. O padrão nasceu na M0 (PRs #136 e #140, com as validações temporárias #137–#139) e vale para todas as issues daqui em diante.
+
+**Quando:** depois da implementação e antes do merge na `Dev`. Para issues com comportamento em runtime, há também um **QA pós-merge** na homologação.
+
+**Passos:**
+
+| # | Etapa | O que fazer | Evidência |
+|---|---|---|---|
+| 1 | **Critérios de aceite** | Verificar **cada** critério da issue, um a um | Comando + saída, link do run da CI ou captura de tela |
+| 2 | **Caminho feliz** | Executar o fluxo principal como está em "Como testar" | Saída dos comandos / testes verdes |
+| 3 | **Testes negativos** | Provar que o que deve ser **bloqueado ou rejeitado** de fato é (ex.: PR para a `Prod` fora da `Dev`, push direto, 403/409, HMAC inválido, B com caos) | Saída mostrando a falha esperada |
+| 4 | **Validações temporárias** | Quando o comportamento só aparece no GitHub/CI: abrir PRs **rascunho** de uma branch `test/qa-<nº>-<slug>` com título `test(qa): …`, observar o resultado, **fechar sem merge e apagar a branch** | Links dos PRs fechados, listados no PR da issue |
+| 5 | **Regressão** | CI completa verde. Em issues de código, rodar os **cenários do catálogo** ligados à issue (mesmos rótulos `guarantee:*` / `area:*`) | Run da CI + lista de cenários executados |
+| 6 | **Prova de que o teste testa** | Em issues que protegem uma garantia: remover/desligar o mecanismo localmente e ver o teste falhar (ver "exercícios de quebra", seção 18) | Saída do teste falhando |
+| 7 | **QA pós-merge** (só issues de runtime) | Depois do deploy em `dev.<host>`: smoke + fluxo principal na homologação | Saída do smoke / captura |
+
+**Registro:** a seção **QA** do PR traz a tabela *critério → como verifiquei → resultado (✅/❌) → evidência* e os links das validações temporárias. O comentário final no PR é **"QA ✅"** ou **"QA ❌"**, com o que falhou.
+
+**Se o QA falhar:**
+- defeito da própria issue → corrigir no mesmo PR (`fix(...)`, `Refs #n`) e repetir a rodada;
+- defeito de outra coisa → abrir issue `[bug]` (template de bug), ligada como *blocked by* se impedir o merge.
+
+**Proporcionalidade:** o tamanho da rodada acompanha a issue. Documentação = critérios + checagem por script (ex.: seções obrigatórias dos ADRs) + CI. Infra/CI = critérios + testes negativos + validações temporárias. Código = todas as etapas.
+
+**QA de release (fim do milestone, antes do PR `Dev` → `Prod`):**
+- todos os cenários E2E do milestone verdes na `Dev`;
+- smoke completo na homologação;
+- o trecho da demo (seção 17) referente ao milestone executado de ponta a ponta;
+- o resultado vai na descrição do PR de release.
+
+**Tempo:** as horas de QA entram na mesma linha da issue no `timelog.md` (coluna Observações: "inclui QA").
 
 ---
 
