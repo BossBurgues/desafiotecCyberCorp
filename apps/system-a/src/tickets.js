@@ -210,9 +210,15 @@ export function createTicketEmitter() {
   return new EventEmitter();
 }
 
-export function prepareNewTicket(body, { now = Date.now, timeZone = DEFAULT_TIMEZONE } = {}) {
+export function prepareNewTicket(
+  body,
+  { now = Date.now, timeZone = DEFAULT_TIMEZONE, defaultRecipientId = null } = {},
+) {
   const rawInput = extractInputEnvelope(body);
   const validated = validateTicketInput(rawInput, { partial: false });
+  if (!Object.hasOwn(rawInput, 'users_id_recipient') && defaultRecipientId !== null) {
+    validated.users_id_recipient = defaultRecipientId;
+  }
   const ticket = { ...validated };
   touch(ticket, now, timeZone);
   ticket.date = ticket.date_mod;

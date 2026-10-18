@@ -210,9 +210,21 @@ export function buildServer({
         '/Ticket',
         { config: { action: ACTIONS.TICKET_CREATE } },
         async (request, reply) => {
-          const ticketData = prepareNewTicket(request.body, { now, timeZone });
+          const ticketData = prepareNewTicket(request.body, {
+            now,
+            timeZone,
+            defaultRecipientId: request.user.id,
+          });
           const created = store.insert(ticketData);
-          emitter.emit('ticket.changed', { ticketId: created.id, action: 'created' });
+          emitter.emit('ticket.changed', {
+            ticketId: created.id,
+            action: 'created',
+            actor: {
+              id: request.user.id,
+              login: request.user.login,
+              profile: request.user.profile,
+            },
+          });
           return reply.code(201).send(created);
         },
       );
@@ -241,7 +253,15 @@ export function buildServer({
           }
           const patch = prepareTicketUpdate(request.body, { now, timeZone });
           const updated = store.update(id, patch);
-          emitter.emit('ticket.changed', { ticketId: updated.id, action: 'updated' });
+          emitter.emit('ticket.changed', {
+            ticketId: updated.id,
+            action: 'updated',
+            actor: {
+              id: request.user.id,
+              login: request.user.login,
+              profile: request.user.profile,
+            },
+          });
           return updated;
         },
       );
