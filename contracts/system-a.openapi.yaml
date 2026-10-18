@@ -320,7 +320,7 @@ paths:
         required: true
         description: ID numérico da solução (`ITILSolution`)
         schema:
-          type: integer
+          type: inteiro
           minimum: 1
     put:
       operationId: updateSolution
