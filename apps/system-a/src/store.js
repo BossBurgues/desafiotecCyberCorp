@@ -1,6 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import {
+  PROFILES,
+  generateSessionToken,
+  hashPassword,
+  hashToken,
+  verifyPassword,
+} from './auth.js';
 
 export const DEFAULT_DB_PATH = './data/system-a.db';
 
@@ -36,6 +43,7 @@ export class TicketStore {
     }
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
+    this.db.pragma('foreign_keys = ON');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS tickets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +62,20 @@ export class TicketStore {
         attachments_json TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_tickets_date_mod_id ON tickets (date_mod, id);
+
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY,
+        login TEXT UNIQUE NOT NULL,
+        profile TEXT NOT NULL CHECK (profile IN ('tecnico', 'estagiario', 'sync-bot')),
+        password_hash TEXT,
+        api_token_hash TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS sessions (
+        token TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        created_at TEXT NOT NULL
+      );
     `);
   }
 
@@ -202,6 +224,102 @@ export class TicketStore {
     }
     const row = this.db.prepare('SELECT COUNT(*) AS total FROM tickets').get();
     return row.total;
+  }
+
+  seedUsers({ tecnicoPassword, estagiarioPassword, syncBotToken }) {
+    const insertIgnore = this.db.prepare(`
+      INSERT OR IGNORE INTO users (id, login, profile, password_hash, api_token_hash)
+      VALUES (@id, @login, @profile, @password_hash, @api_token_hash)
+    `);
+    const selectById = this.db.prepare('SELECT * FROM users WHERE id = ?');
+    const updatePassword = this.db.prepare(
+      'UPDATE users SET password_hash = ?, api_token_hash = NULL WHERE id = ?',
+    );
+    const updateToken = this.db.prepare(
+      'UPDATE users SET api_token_hash = ?, password_hash = NULL WHERE id = ?',
+    );
+
+    const runSeed = this.db.transaction(() => {
+      // IDs fixos 1 (tecnico), 2 (estagiario) e 3 (sync-bot) batem com o exemplo do contrato e estabilizam o filtro anti-eco (ADR-009).
+      const humans = [
+        { id: 1, login: 'tecnico', profile: PROFILES.TECNICO, password: tecnicoPassword },
+        { id: 2, login: 'estagiario', profile: PROFILES.ESTAGIARIO, password: estagiarioPassword },
+      ];
+
+      for (const h of humans) {
+        const existing = selectById.get(h.id);
+        if (!existing) {
+          insertIgnore.run({
+            id: h.id,
+            login: h.login,
+            profile: h.profile,
+            password_hash: hashPassword(h.password),
+            api_token_hash: null,
+          });
+        } else if (!verifyPassword(h.password, existing.password_hash)) {
+          updatePassword.run(hashPassword(h.password), h.id);
+        }
+      }
+
+      const botTokenHash = hashToken(syncBotToken);
+      const existingBot = selectById.get(3);
+      if (!existingBot) {
+        insertIgnore.run({
+          id: 3,
+          login: 'sync-bot',
+          profile: PROFILES.SYNC_BOT,
+          password_hash: null,
+          api_token_hash: botTokenHash,
+        });
+      } else if (existingBot.api_token_hash !== botTokenHash) {
+        updateToken.run(botTokenHash, 3);
+      }
+    });
+
+    runSeed();
+  }
+
+  findUserByLogin(login) {
+    return this.db.prepare('SELECT * FROM users WHERE login = ?').get(login) || null;
+  }
+
+  findUserByApiTokenHash(apiTokenHash) {
+    return (
+      this.db.prepare('SELECT * FROM users WHERE api_token_hash = ?').get(apiTokenHash) || null
+    );
+  }
+
+  createSession(userId, now = Date.now) {
+    const token = generateSessionToken();
+    const instant = typeof now === 'function' ? now() : now;
+    const createdAt = new Date(instant).toISOString();
+    this.db
+      .prepare('INSERT INTO sessions (token, user_id, created_at) VALUES (?, ?, ?)')
+      .run(token, userId, createdAt);
+    return token;
+  }
+
+  getSessionUser(token) {
+    if (typeof token !== 'string' || token === '') {
+      return null;
+    }
+    const row = this.db
+      .prepare(`
+        SELECT u.id, u.login, u.profile
+        FROM sessions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.token = ?
+      `)
+      .get(token);
+    return row || null;
+  }
+
+  deleteSession(token) {
+    if (typeof token !== 'string' || token === '') {
+      return false;
+    }
+    const info = this.db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+    return info.changes > 0;
   }
 
   close() {

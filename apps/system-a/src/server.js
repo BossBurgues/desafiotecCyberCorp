@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import Fastify from 'fastify';
+import { loadAuthConfig } from './auth.js';
 import { DEFAULT_DB_PATH, TicketStore } from './store.js';
 import {
   DEFAULT_TIMEZONE,
@@ -19,11 +20,16 @@ export function buildServer({
   now = Date.now,
   emitter = createTicketEmitter(),
   logger = false,
+  env = process.env,
+  auth = {},
 } = {}) {
+  const authConfig = loadAuthConfig(env, auth);
   const app = Fastify({ logger });
   const store = new TicketStore(dbPath);
+  store.seedUsers(authConfig);
 
   app.decorate('store', store);
+  app.decorate('authConfig', authConfig);
   app.decorate('timeZone', timeZone);
   app.decorate('now', now);
   app.decorate('emitter', emitter);
