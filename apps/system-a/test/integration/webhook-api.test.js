@@ -9,7 +9,6 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import YAML from 'yaml';
 import { PROFILES } from '../../src/auth.js';
-import { sign } from '../../src/webhooks.js';
 import { buildTestServer, login } from '../helpers/session.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -116,7 +115,11 @@ test('criar chamado envia webhook created que o receptor verifica com o HMAC_SEC
     assert.match(sigHeader, sigPattern, 'X-Signature-256 deve bater com o pattern do OpenAPI');
     assert.match(tsHeader, tsPattern, 'X-Timestamp deve bater com o pattern do OpenAPI');
 
-    const expectedSig = sign(secret, tsHeader, req.rawBody);
+    const expectedHex = crypto
+      .createHmac('sha256', secret)
+      .update(`${tsHeader}.${req.rawBody}`, 'utf8')
+      .digest('hex');
+    const expectedSig = `sha256=${expectedHex}`;
     const sigBuf = Buffer.from(sigHeader, 'utf8');
     const expBuf = Buffer.from(expectedSig, 'utf8');
     assert.equal(sigBuf.length, expBuf.length);
