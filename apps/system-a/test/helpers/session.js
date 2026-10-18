@@ -17,6 +17,10 @@ export function buildTestServer(opts = {}) {
       ...TEST_AUTH_CONFIG,
       ...(opts.auth || {}),
     },
+    webhook: {
+      enabled: false,
+      ...(opts.webhook || {}),
+    },
   });
 }
 

@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 
+export const MIN_PROD_SECRET_LENGTH = 32;
+
 export function toUnixSeconds(ms) {
   return Math.floor(Number(ms) / 1000);
 }
@@ -54,5 +56,97 @@ export function serialize(event, { secret, now = Date.now } = {}) {
       'X-Timestamp': timestamp,
       'X-Signature-256': signature,
     },
+  };
+}
+
+function parseEnabled(rawEnabled) {
+  if (typeof rawEnabled === 'boolean') {
+    return rawEnabled;
+  }
+  if (typeof rawEnabled === 'string') {
+    return rawEnabled.trim().toLowerCase() === 'true';
+  }
+  return false;
+}
+
+function parseDropRate(rawDropRate) {
+  if (rawDropRate === undefined || rawDropRate === null || rawDropRate === '') {
+    return 0;
+  }
+  const str = String(rawDropRate).trim();
+  if (str === '') {
+    return 0;
+  }
+  const num = Number(str);
+  if (!Number.isFinite(num) || num < 0 || num > 100) {
+    throw new Error(
+      'Configuração inválida em A_WEBHOOK_DROP_RATE: informe um número entre 0 e 100.',
+    );
+  }
+  return num;
+}
+
+function parseWebhookUrl(rawUrl) {
+  if (typeof rawUrl !== 'string' || rawUrl.trim() === '') {
+    throw new Error(
+      'Configuração inválida: A_WEBHOOK_URL é obrigatória quando A_WEBHOOK_ENABLED=true.',
+    );
+  }
+  let parsed;
+  try {
+    parsed = new URL(rawUrl.trim());
+  } catch {
+    throw new Error('Configuração inválida em A_WEBHOOK_URL: informe uma URL HTTP ou HTTPS válida.');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Configuração inválida em A_WEBHOOK_URL: protocolo deve ser http: ou https:.');
+  }
+  return parsed.toString();
+}
+
+function parseHmacSecret(rawSecret, isProd) {
+  if (typeof rawSecret !== 'string' || rawSecret.trim() === '') {
+    throw new Error(
+      'Configuração inválida: HMAC_SECRET é obrigatório quando A_WEBHOOK_ENABLED=true.',
+    );
+  }
+  if (isProd && rawSecret.length < MIN_PROD_SECRET_LENGTH) {
+    throw new Error(
+      `Configuração inválida: HMAC_SECRET deve ter pelo menos ${MIN_PROD_SECRET_LENGTH} caracteres em NODE_ENV=production.`,
+    );
+  }
+  return rawSecret;
+}
+
+export function loadWebhookConfig(env = process.env, overrides = {}) {
+  const isProd = env.NODE_ENV === 'production';
+  const rawEnabled =
+    overrides.enabled !== undefined ? overrides.enabled : env.A_WEBHOOK_ENABLED;
+  const enabled = parseEnabled(rawEnabled);
+
+  const rawDropRate =
+    overrides.dropRate !== undefined ? overrides.dropRate : env.A_WEBHOOK_DROP_RATE;
+  const dropRate = parseDropRate(rawDropRate);
+
+  if (!enabled) {
+    return {
+      enabled: false,
+      url: null,
+      secret: null,
+      dropRate,
+    };
+  }
+
+  const rawUrl = overrides.url !== undefined ? overrides.url : env.A_WEBHOOK_URL;
+  const url = parseWebhookUrl(rawUrl);
+
+  const rawSecret = overrides.secret !== undefined ? overrides.secret : env.HMAC_SECRET;
+  const secret = parseHmacSecret(rawSecret, isProd);
+
+  return {
+    enabled: true,
+    url,
+    secret,
+    dropRate,
   };
 }

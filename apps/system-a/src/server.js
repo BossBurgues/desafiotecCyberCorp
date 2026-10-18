@@ -24,6 +24,7 @@ import {
   prepareNewTicket,
   prepareTicketUpdate,
 } from './tickets.js';
+import { loadWebhookConfig } from './webhooks.js';
 
 const SESSION_ONLY_ROUTES = new Set(['/apirest.php/initSession', '/apirest.php/killSession']);
 
@@ -47,9 +48,11 @@ export function buildServer({
   logger = false,
   env = process.env,
   auth = {},
+  webhook: webhookOverrides = {},
   trustProxy = env.A_TRUST_PROXY === 'true' || env.A_TRUST_PROXY === true,
 } = {}) {
   const authConfig = loadAuthConfig(env, auth);
+  const webhookConfig = loadWebhookConfig(env, webhookOverrides);
   const app = Fastify({ logger, trustProxy });
   const store = new TicketStore(dbPath);
   store.seedUsers(authConfig);
@@ -58,6 +61,7 @@ export function buildServer({
 
   app.decorate('store', store);
   app.decorate('authConfig', authConfig);
+  app.decorate('webhookConfig', webhookConfig);
   app.decorate('timeZone', timeZone);
   app.decorate('now', now);
   app.decorate('emitter', emitter);
