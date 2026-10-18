@@ -200,6 +200,165 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Frozen'
+  /Ticket/{id}/ITILFollowup:
+    parameters:
+      - $ref: '#/components/parameters/TicketId'
+    get:
+      operationId: listTicketFollowups
+      summary: Lista os acompanhamentos (notas da conversa) de um chamado
+      responses:
+        '200':
+          description: Lista de acompanhamentos do chamado em ordem cronológica
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ITILFollowup'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ITILFollowup:
+    post:
+      operationId: createFollowup
+      summary: Adiciona um acompanhamento (nota) a um chamado
+      description: |
+        Nota é aceita em qualquer status, inclusive 5 (Solucionado) e 6 (Fechado) (S1.4, Q17/Q29).
+        Negado com **403** para perfil Estagiário (seção 6 do plano).
+        Notas gravadas pelo `sync-bot` não disparam sync A → B (anti-eco, ADR-009).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input:
+                  $ref: '#/components/schemas/ITILFollowupInput'
+      responses:
+        '201':
+          description: Acompanhamento criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITILFollowup'
+        '400':
+          description: Dados de entrada inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlpiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /Ticket/{id}/ITILSolution:
+    parameters:
+      - $ref: '#/components/parameters/TicketId'
+    get:
+      operationId: listTicketSolutions
+      summary: Lista as soluções (pendentes, aceitas ou recusadas) de um chamado
+      responses:
+        '200':
+          description: Lista de soluções registradas para o chamado
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ITILSolution'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ITILSolution:
+    post:
+      operationId: createSolution
+      summary: Propõe uma solução para um chamado (muda o chamado para status 5, Solucionado)
+      description: |
+        No fluxo B → A (M3, opcional), quando o B resolve um registro, o `sync-bot` cria uma
+        `ITILSolution` com `status: 2` (pendente), coloca o chamado no status 5 (congelado) e
+        preenche `solvedate` com o instante UTC da detecção (Q26, ADR-006).
+      x-optional: "B→A (M3)"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input:
+                  $ref: '#/components/schemas/ITILSolutionInput'
+      responses:
+        '201':
+          description: Solução proposta criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITILSolution'
+        '400':
+          description: Dados de entrada inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlpiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ITILSolution/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        description: ID numérico da solução (`ITILSolution`)
+        schema:
+          type: integer
+          minimum: 1
+    put:
+      operationId: updateSolution
+      summary: Aprova (status 3) ou recusa (status 4) uma solução pendente
+      description: |
+        Exclusivo do perfil Técnico (Estagiário e `sync-bot` recebem **403**).
+        - `status: 3` (aceita) → chamado vai para **6 (Fechado)**.
+        - `status: 4` (recusada) → chamado volta para **2 (Em atendimento)** e o B é revertido (Q26, ADR-006).
+      x-optional: "B→A (M3)"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input:
+                  $ref: '#/components/schemas/ITILSolutionDecisionInput'
+      responses:
+        '200':
+          description: Decisão aplicada à solução
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITILSolution'
+        '400':
+          description: Transição ou dados inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlpiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
 components:
   securitySchemes:
     appToken:
@@ -397,6 +556,147 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TicketAttachment'
+    ITILFollowup:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - itemtype
+        - items_id
+        - users_id
+        - content
+        - is_private
+        - date
+        - date_mod
+      properties:
+        id:
+          type: integer
+          minimum: 1
+          readOnly: true
+        itemtype:
+          type: string
+          const: Ticket
+        items_id:
+          type: integer
+          minimum: 1
+          description: ID do chamado ao qual o acompanhamento pertence
+        users_id:
+          type: integer
+          minimum: 1
+          description: ID do usuário autor da nota (`sync-bot` quando originada pelo sistema ou pelo B)
+        content:
+          type: string
+          minLength: 1
+          description: "Texto do acompanhamento (pode conter marcadores de idempotência `⟦n:…⟧` ou `⟦from-b:…⟧`)"
+        is_private:
+          type: integer
+          enum: [0, 1]
+          default: 0
+        date:
+          $ref: '#/components/schemas/GlpiDateTime'
+        date_mod:
+          $ref: '#/components/schemas/GlpiDateTime'
+    ITILFollowupInput:
+      type: object
+      additionalProperties: false
+      required:
+        - itemtype
+        - items_id
+        - content
+      properties:
+        itemtype:
+          type: string
+          const: Ticket
+        items_id:
+          type: integer
+          minimum: 1
+        content:
+          type: string
+          minLength: 1
+        is_private:
+          type: integer
+          enum: [0, 1]
+          default: 0
+    ITILSolution:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - itemtype
+        - items_id
+        - users_id
+        - content
+        - status
+        - date_creation
+      properties:
+        id:
+          type: integer
+          minimum: 1
+          readOnly: true
+        itemtype:
+          type: string
+          const: Ticket
+        items_id:
+          type: integer
+          minimum: 1
+          description: ID do chamado solucionado
+        users_id:
+          type: integer
+          minimum: 1
+          description: ID do autor da solução (`sync-bot` quando proposta a partir do B)
+        content:
+          type: string
+          minLength: 1
+          description: Descrição da solução proposta ou aplicada
+        status:
+          type: integer
+          enum: [2, 3, 4]
+          description: "`2`: pendente (proposta aguardando aprovação) · `3`: aceita (fecha o chamado → status 6) · `4`: recusada (volta para status 2)"
+        date_creation:
+          $ref: '#/components/schemas/GlpiDateTime'
+        users_id_approval:
+          type: [integer, 'null']
+          minimum: 1
+          description: ID do Técnico que aprovou ou recusou a solução
+        date_approval:
+          oneOf:
+            - $ref: '#/components/schemas/GlpiDateTime'
+            - type: 'null'
+          description: Data e hora da aprovação ou recusa no fuso `A_TIMEZONE`
+    ITILSolutionInput:
+      type: object
+      additionalProperties: false
+      required:
+        - itemtype
+        - items_id
+        - content
+      properties:
+        itemtype:
+          type: string
+          const: Ticket
+        items_id:
+          type: integer
+          minimum: 1
+        content:
+          type: string
+          minLength: 1
+        status:
+          type: integer
+          enum: [2, 3]
+          default: 2
+    ITILSolutionDecisionInput:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: integer
+          enum: [3, 4]
+          description: "`3` para aprovar (chamado vai para 6, Fechado) ou `4` para recusar (chamado volta para 2, Em atendimento)"
+        content:
+          type: string
+          description: Comentário ou motivo da decisão (obrigatório ao recusar)
     GlpiError:
       type: array
       description: "Erro no formato da API REST do GLPI: `[\"ERROR_CODE\", \"Mensagem legível\"]`"
