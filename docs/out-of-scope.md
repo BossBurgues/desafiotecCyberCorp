@@ -25,6 +25,7 @@ O critério de corte veio do avaliador (16/10): o obrigatório é o **A → B**;
 
 | Item | Por que ficou de fora | Como eu faria |
 |---|---|---|
+| **Mirror no GitLab** | O enunciado aceita GitHub **ou** GitLab, e o pull mirror do GitLab é recurso pago (ADR-012) | Um job no GitHub Actions que, a cada push na `Dev` e na `Prod`, faz `git push --mirror` para o GitLab com uma deploy key SSH com escrita guardada em GitHub Secrets |
 | **Webhooks do B** | Contradiz o contrato mínimo: não podemos assumir que o B avisa nada | Se o B oferecesse, entraria como **acelerador**, igual ao webhook do A: o auditor continua sendo a garantia e o evento continua sendo só um sinal |
 | **Alta disponibilidade e multi-região** | A infra gratuita é uma VM só | Várias réplicas do sync já funcionam pelo desenho (`SKIP LOCKED` + lease + um job ativo por chamado). Faltaria Postgres em HA (primário + réplica com failover) e réplicas atrás de um balanceador |
 | **Grafana, Loki, Prometheus** | Custo de operação maior que o ganho no prazo | O sync já loga JSON com `correlation_id`, e o `/metrics` está previsto no desenho (seção 3 do plano). Bastaria apontar o Promtail/Loki para os logs e o Prometheus para o `/metrics`, com alertas para DLQ crescendo, breaker aberto e atraso do poll |

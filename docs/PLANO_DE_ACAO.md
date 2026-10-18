@@ -59,7 +59,7 @@ Toda criação ou atualização de chamado no **Sistema A** (estilo GLPI) precis
 | Q32 | Segurança | HMAC + timestamp no webhook, segredos só em GitHub Secrets/`.env`, dashboard e caos atrás de login, scans na CI |
 | Q38 | Mocks extras | Caixa de saída de alertas, anexos (só metadados), tabela de-para de usuários/grupos/categorias, SLA (TTR/TTO) no A |
 | Hosp. | Infra | VM **Oracle Always Free** + Docker Compose + Caddy (HTTPS). Imagens no GHCR. Plano B: Render + Neon |
-| CI/CD | Pipeline | **GitHub Actions** (principal). GitLab como **mirror**. `milestone/*` → `Dev` (homologação) → `Prod` (produção), com promoção da mesma imagem (seção 14.2) |
+| CI/CD | Pipeline | **GitHub Actions**, sem mirror no GitLab (ADR-012: o enunciado aceita GitHub ou GitLab). `milestone/*` → `Dev` (homologação) → `Prod` (produção), com promoção da mesma imagem (seção 14.2) |
 | Q16/Q24 | Gestão | Milestones = camadas, épicos com sub-issues, stories com critérios de aceite, dependências *blocked by*, Roadmap no Project |
 
 ---
