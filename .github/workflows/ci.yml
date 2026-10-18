@@ -37,6 +37,8 @@ jobs:
               - '.github/workflows/ci.yml'
             system-a:
               - 'apps/system-a/**'
+              - '.dockerignore'
+              - 'infra/scripts/smoke-system-a.sh'
               - 'contracts/**'
               - 'package.json'
               - 'package-lock.json'
@@ -76,10 +78,14 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      # Placeholder: os scripts ainda estão vazios; --if-present deixa passar até a S4.2 preencher
+      # lint e typecheck seguem como placeholder (--if-present) até a S4.2; o test é obrigatório desde a S1.7
       - run: npm run lint -w apps/system-a --if-present
       - run: npm run typecheck -w apps/system-a --if-present
-      - run: npm run test -w apps/system-a --if-present
+      - run: npm run test -w apps/system-a
+      - name: Build da imagem do Sistema A
+        run: docker build -f apps/system-a/Dockerfile -t system-a:ci .
+      - name: Smoke do container
+        run: bash infra/scripts/smoke-system-a.sh system-a:ci
 
   sync-service:
     needs: changes
