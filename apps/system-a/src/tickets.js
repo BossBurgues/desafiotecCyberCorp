@@ -35,6 +35,19 @@ export class TicketValidationError extends Error {
   }
 }
 
+export class TicketNotFoundError extends Error {
+  constructor(message = 'Chamado não encontrado.') {
+    super(message);
+    this.name = 'TicketNotFoundError';
+    this.glpiCode = 'ERROR_ITEM_NOT_FOUND';
+    this.statusCode = 404;
+  }
+}
+
+export function glpiError(code, message) {
+  return [String(code), String(message)];
+}
+
 export function isGlpiDateTime(value) {
   return typeof value === 'string' && GLPI_DATETIME_PATTERN.test(value);
 }
