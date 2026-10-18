@@ -378,3 +378,105 @@ async function start() {
 
 // Seções seguintes registram views.detail e detailExtensions antes do start.
 queueMicrotask(start);
+
+// ---------- detalhe e edição ----------
+
+function renderTicket(ticket) {
+  $('detail-title').textContent = `#${ticket.id} · ${ticket.name}`;
+  $('detail-meta').replaceChildren(
+    badge(ticket.status),
+    ` · Prioridade ${core.priorityLabel(ticket.priority)} · aberto em ${ticket.date} · alterado em ${ticket.date_mod}`,
+  );
+  $('detail-content').textContent = core.htmlToText(ticket.content) || '(sem descrição)';
+}
+
+async function refreshDetail() {
+  const id = state.detailId;
+  const ticket = await api('GET', `/Ticket/${id}`);
+  if (state.detailId !== id) {
+    return;
+  }
+  state.ticket = ticket;
+  renderTicket(ticket);
+  for (const extension of detailExtensions) {
+    await extension(ticket);
+  }
+}
+
+function toggleEdit(open) {
+  const form = $('edit-form');
+  form.hidden = !open;
+  showBanner($('edit-error'), '');
+  if (!open) {
+    return;
+  }
+  const ticket = state.ticket;
+  form.name.value = ticket.name;
+  form.content.value = core.htmlToText(ticket.content);
+  const statuses = core.editableStatuses();
+  fillOptions($('edit-status'), statuses, core.statusLabel, ticket.status);
+  if (!statuses.includes(ticket.status)) {
+    // Solucionado/Fechado aparece só como valor atual, sem poder ser escolhido.
+    const current = el('option', { value: String(ticket.status), text: core.statusLabel(ticket.status) });
+    current.disabled = true;
+    current.selected = true;
+    $('edit-status').prepend(current);
+  }
+  fillOptions($('edit-priority'), [1, 2, 3, 4, 5, 6], core.priorityLabel, ticket.priority);
+  form.name.focus();
+}
+
+async function onSaveTicket(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const ticket = state.ticket;
+  const input = {};
+  if (form.name.value.trim() !== ticket.name) {
+    input.name = form.name.value.trim();
+  }
+  if (form.content.value !== core.htmlToText(ticket.content)) {
+    input.content = form.content.value;
+  }
+  if (Number(form.status.value) !== ticket.status) {
+    input.status = Number(form.status.value);
+  }
+  if (Number(form.priority.value) !== ticket.priority) {
+    input.priority = Number(form.priority.value);
+  }
+  if (Object.keys(input).length === 0) {
+    toggleEdit(false);
+    return;
+  }
+
+  const button = form.querySelector('button[type=submit]');
+  button.disabled = true;
+  showBanner($('edit-error'), '');
+  try {
+    state.ticket = await api('PUT', `/Ticket/${ticket.id}`, { input });
+    renderTicket(state.ticket);
+    toggleEdit(false);
+  } catch (err) {
+    // 403/409: o aviso fica acima do formulário, que continua aberto com o que foi digitado.
+    showBanner($('edit-error'), describe(err, 'editar chamados'));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+views.detail = {
+  screen: 'screen-detail',
+  pollMs: DETAIL_POLL_MS,
+  async enter({ id }) {
+    if (state.detailId !== id) {
+      toggleEdit(false);
+    }
+    state.detailId = id;
+    $('edit-toggle').hidden = !core.canEdit(state.session.profile);
+    await refreshDetail();
+  },
+  refresh: refreshDetail,
+};
+
+$('edit-toggle').addEventListener('click', () => toggleEdit($('edit-form').hidden));
+$('edit-cancel').addEventListener('click', () => toggleEdit(false));
+$('edit-form').addEventListener('submit', onSaveTicket);
