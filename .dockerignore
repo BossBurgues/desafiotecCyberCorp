@@ -1,0 +1,14 @@
+**/node_modules
+.git
+**/data
+*.db
+*.sqlite
+.env
+.env.*
+!.env.example
+coverage
+docs
+apps/system-b
+**/test
+**/bin
+**/obj
