@@ -1,7 +1,10 @@
 import { pathToFileURL } from 'node:url';
 import Fastify from 'fastify';
 import {
+  ACTIONS,
   AuthError,
+  ForbiddenError,
+  can,
   hashToken,
   loadAuthConfig,
   parseAuthorization,
@@ -22,6 +25,8 @@ import {
   prepareTicketUpdate,
 } from './tickets.js';
 
+const SESSION_ONLY_ROUTES = new Set(['/apirest.php/initSession', '/apirest.php/killSession']);
+
 export function buildServer({
   dbPath = process.env.A_DB_PATH || DEFAULT_DB_PATH,
   timeZone = process.env.A_TIMEZONE || DEFAULT_TIMEZONE,
@@ -36,11 +41,22 @@ export function buildServer({
   const store = new TicketStore(dbPath);
   store.seedUsers(authConfig);
 
+  const registeredRoutes = [];
+
   app.decorate('store', store);
   app.decorate('authConfig', authConfig);
   app.decorate('timeZone', timeZone);
   app.decorate('now', now);
   app.decorate('emitter', emitter);
+  app.decorate('registeredRoutes', registeredRoutes);
+
+  app.addHook('onRoute', (routeOptions) => {
+    registeredRoutes.push({
+      method: routeOptions.method,
+      url: routeOptions.url,
+      config: routeOptions.config || {},
+    });
+  });
 
   app.addHook('onClose', async () => {
     store.close();
@@ -74,7 +90,8 @@ export function buildServer({
   app.register(
     async (api) => {
       api.addHook('preHandler', async (request) => {
-        if (request.routeOptions.url === '/apirest.php/initSession') {
+        const routeUrl = request.routeOptions.url;
+        if (routeUrl === '/apirest.php/initSession') {
           return;
         }
         validateAppTokenHeader(request.headers['app-token'], authConfig.appToken);
@@ -84,6 +101,23 @@ export function buildServer({
         );
         request.sessionToken = token;
         request.user = user;
+
+        if (SESSION_ONLY_ROUTES.has(routeUrl)) {
+          return;
+        }
+
+        const action = request.routeOptions.config?.action;
+        if (!action) {
+          const err = new Error(`Rota ${routeUrl} sem config.action declarada.`);
+          err.glpiCode = 'ERROR_INTERNAL';
+          err.statusCode = 500;
+          throw err;
+        }
+
+        // Permissão é conferida antes de validar o corpo ou buscar o chamado no banco para não revelar se o ID existe.
+        if (!can(user.profile, action)) {
+          throw new ForbiddenError(user.profile, action);
+        }
       });
 
       api.get('/initSession', async (request) => {
@@ -120,46 +154,62 @@ export function buildServer({
         return reply.code(200).send();
       });
 
-      api.get('/Ticket', async (request, reply) => {
-        const { offset, start, limit, sort, order, dateModGte } = parseListQuery(request.query);
-        const total = store.count({ dateModGte });
-        const items =
-          start >= total ? [] : store.list({ offset, limit, sort, order, dateModGte });
-        const { statusCode, contentRange } = buildListMeta({
-          start,
-          count: items.length,
-          total,
-        });
-        return reply.header('Content-Range', contentRange).code(statusCode).send(items);
-      });
+      api.get(
+        '/Ticket',
+        { config: { action: ACTIONS.TICKET_READ } },
+        async (request, reply) => {
+          const { offset, start, limit, sort, order, dateModGte } = parseListQuery(request.query);
+          const total = store.count({ dateModGte });
+          const items =
+            start >= total ? [] : store.list({ offset, limit, sort, order, dateModGte });
+          const { statusCode, contentRange } = buildListMeta({
+            start,
+            count: items.length,
+            total,
+          });
+          return reply.header('Content-Range', contentRange).code(statusCode).send(items);
+        },
+      );
 
-      api.post('/Ticket', async (request, reply) => {
-        const ticketData = prepareNewTicket(request.body, { now, timeZone });
-        const created = store.insert(ticketData);
-        emitter.emit('ticket.changed', { ticketId: created.id, action: 'created' });
-        return reply.code(201).send(created);
-      });
+      api.post(
+        '/Ticket',
+        { config: { action: ACTIONS.TICKET_CREATE } },
+        async (request, reply) => {
+          const ticketData = prepareNewTicket(request.body, { now, timeZone });
+          const created = store.insert(ticketData);
+          emitter.emit('ticket.changed', { ticketId: created.id, action: 'created' });
+          return reply.code(201).send(created);
+        },
+      );
 
-      api.get('/Ticket/:id', async (request) => {
-        const id = parseTicketId(request.params.id);
-        const ticket = store.getById(id);
-        if (!ticket) {
-          throw new TicketNotFoundError(`Chamado ${id} não encontrado.`);
-        }
-        return ticket;
-      });
+      api.get(
+        '/Ticket/:id',
+        { config: { action: ACTIONS.TICKET_READ } },
+        async (request) => {
+          const id = parseTicketId(request.params.id);
+          const ticket = store.getById(id);
+          if (!ticket) {
+            throw new TicketNotFoundError(`Chamado ${id} não encontrado.`);
+          }
+          return ticket;
+        },
+      );
 
-      api.put('/Ticket/:id', async (request) => {
-        const id = parseTicketId(request.params.id);
-        const existing = store.getById(id);
-        if (!existing) {
-          throw new TicketNotFoundError(`Chamado ${id} não encontrado.`);
-        }
-        const patch = prepareTicketUpdate(request.body, { now, timeZone });
-        const updated = store.update(id, patch);
-        emitter.emit('ticket.changed', { ticketId: updated.id, action: 'updated' });
-        return updated;
-      });
+      api.put(
+        '/Ticket/:id',
+        { config: { action: ACTIONS.TICKET_UPDATE } },
+        async (request) => {
+          const id = parseTicketId(request.params.id);
+          const existing = store.getById(id);
+          if (!existing) {
+            throw new TicketNotFoundError(`Chamado ${id} não encontrado.`);
+          }
+          const patch = prepareTicketUpdate(request.body, { now, timeZone });
+          const updated = store.update(id, patch);
+          emitter.emit('ticket.changed', { ticketId: updated.id, action: 'updated' });
+          return updated;
+        },
+      );
     },
     { prefix: '/apirest.php' },
   );
