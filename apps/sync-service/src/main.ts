@@ -38,7 +38,9 @@ async function main(): Promise<void> {
 
   const worker = startWorkerLoop({
     isReady: readiness.isReady,
-    tick: async () => {}, // S3.3: pega o próximo job com SKIP LOCKED
+    // A fila (infra/queue: claim com SKIP LOCKED, lease, backoff, DLQ) está pronta; o tick passa a ser
+    // drain({ pool, processor: processJob, ... }) quando o processJob entrar na S3.6 (#34)
+    tick: async () => {},
     intervalMs: config.WORKER_POLL_INTERVAL_MS,
     logger,
   });

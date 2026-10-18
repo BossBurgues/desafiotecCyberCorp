@@ -33,6 +33,12 @@ Na subida, em ordem: **valida a config** (zod; qualquer variável inválida list
 | `READY_CHECK_TIMEOUT_MS` | `2000` | Tempo máximo de cada checagem de dependência |
 | `READY_CHECK_INTERVAL_MS` | `5000` | De quanto em quanto tempo o worker reavalia a prontidão |
 | `WORKER_POLL_INTERVAL_MS` | `1000` | Intervalo entre ticks do worker |
+| `B_TIMEOUT_MS` | `5000` | Timeout de cada requisição ao B |
+| `B_BREAKER_THRESHOLD` / `B_BREAKER_OPEN_MS` | `5` / `30000` | Falhas seguidas que abrem o disjuntor e quanto tempo ele fica aberto |
+| `QUEUE_LEASE_MS` | `60000` | Lease do job (renovado a cada terço enquanto roda) |
+| `QUEUE_BACKOFF_BASE_MS` / `QUEUE_BACKOFF_MAX_MS` | `1000` / `300000` | Backoff 1 s·2ⁿ + jitter, teto de 5 min |
+| `QUEUE_TRANSIENT_MAX_AGE_MS` | `86400000` | Erro transitório vai para a DLQ depois de 24 h desde a primeira falha |
+| `QUEUE_PERMANENT_MAX_ATTEMPTS` | `3` | Erro permanente vai para a DLQ nesta tentativa |
 
 ### HTTP
 
@@ -47,7 +53,40 @@ Logs JSON do pino. Cada requisição recebe um `correlation_id`: reaproveita o `
 
 ### Worker
 
-O laço (`src/infra/queue/worker-loop.ts`) **pausa enquanto `/ready` falha**: sem Postgres, A ou B, pegar job só gastaria tentativas. Loga uma vez ao pausar e uma ao retomar. O processamento dos jobs entra na S3.3.
+O laço (`src/infra/queue/worker-loop.ts`) **pausa enquanto `/ready` falha**: sem Postgres, A ou B, pegar job só gastaria tentativas. Loga uma vez ao pausar e uma ao retomar. O tick passa a chamar `drain` com o `processJob` na S3.6 (#34).
+
+### Fila (S3.3, ADR-002 e ADR-008)
+
+`src/infra/queue/queue.ts` usa a tabela `sync_jobs`, sem broker:
+
+- **`enqueue`**: upsert no índice único parcial (um job `pending`/`running` por chamado). Evento repetido **aglutina**. Se o job já está rodando, marca `rerun`: o worker pode ter lido o A antes da mudança, então, ao concluir, o job volta para `pending` em vez de virar `done` (nenhuma mudança se perde na aglutinação).
+- **`claim`**: `SELECT … FOR UPDATE SKIP LOCKED` nos jobs vencidos. Dois workers nunca pegam o mesmo job e nenhum espera o outro. Cada claim gera um `lease_token` e `locked_until`. Lease vencido (worker caiu) é retomado e conta como tentativa transitória, para um job que derruba o worker não girar para sempre.
+- **`complete` / `fail` / `extendLease`** exigem o `lease_token`: um worker lento cujo lease já foi para outro não sobrescreve nada (`lost_lease`).
+- **`fail`**: transitório → backoff `1 s·2ⁿ + jitter` (teto de 5 min) por até 24 h desde `first_failed_at`. Permanente → 3 tentativas. Depois disso, `dead` (DLQ) + linha em `alerts_outbox`. Disjuntor aberto (`circuit_open`) espera o tempo restante **sem gastar tentativa**. `Retry-After` maior que o backoff vence.
+- **`reprocessDead`**: o job não guarda payload. Reprocessar cria um job novo para o chamado, e o worker **relê o estado atual do A**. O item morto fica como histórico (`reprocessed_at`).
+- **`runner.ts`**: `runOnce`/`drain` pegam o job, renovam o lease enquanto o processador roda e classificam o erro (`BError` do adapter, `MappingError` = permanente, desconhecido = transitório).
+
+Migration `002_queue_lease_rerun.sql`: `lease_token`, `rerun`, `reprocessed_at` e o índice da DLQ.
+
+### Adapter do B (S3.5, ADR-003 e ADR-008)
+
+`src/adapters/system-b/client.ts` fala com `/api/v2` tratando o B como hostil:
+
+| Situação | Classe | `reason` | Observação |
+|---|---|---|---|
+| Sem resposta em `B_TIMEOUT_MS` | transitório | `timeout` | ambíguo em escrita (gravação tardia, A2) |
+| Rede (conexão recusada/resetada) | transitório | `network` | ambíguo em escrita |
+| 5xx / 408 | transitório | `server_error` | ambíguo em escrita (grava e falha, A1) |
+| 2xx com `{ error, message }` | transitório | `error_body` | ambíguo em escrita (A3) |
+| 2xx que não é JSON | transitório | `invalid_body` | |
+| 429 | transitório | `rate_limited` | espera o `Retry-After` (1 s sem cabeçalho, teto de 60 s) antes da próxima chamada; não conta para o disjuntor |
+| Disjuntor aberto | transitório | `circuit_open` | a requisição nem sai; `retryAfterMs` = tempo até a meia-abertura |
+| 412 (`If-Match`) | transitório | `precondition_failed` | reler e tentar de novo (ADR-011) |
+| 400 / 422 / outros 4xx | permanente | `rejected` | o B recusou; repetir não muda nada |
+| 404 | permanente | `not_found` | `getRecord` devolve `null`; no `PUT`, quem decide é o fluxo de exclusão (ADR-007) |
+| 2xx fora do contrato (campo renomeado, a mais, tipo errado) | permanente | `schema_drift` | E1; zod estrito espelhando o `additionalProperties: false` do contrato |
+
+Disjuntor (`circuit-breaker.ts`): abre depois de 5 falhas transitórias seguidas, fica aberto 30 s e então deixa passar **uma** requisição de teste (sucesso fecha, falha reabre). 4xx e drift não contam: o B respondeu. A resposta 2xx é sempre validada antes de chegar ao caso de uso, e `ambiguous` diz ao create se ele precisa ir para `create_uncertain` em vez de reenviar (ADR-004).
 
 ### Migrations
 

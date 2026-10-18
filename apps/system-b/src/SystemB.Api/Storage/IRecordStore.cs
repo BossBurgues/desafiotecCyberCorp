@@ -11,4 +11,6 @@ public interface IRecordStore
     IReadOnlyList<Models.Record> List(int offset, int limit, string? createdAtOrBefore = null);
     int Count(string? createdAtOrBefore = null);
     bool Delete(string id);
+    /// <summary>Apaga todos os registros. Os IDs não voltam a ser usados (AUTOINCREMENT): um ID antigo nunca aponta para outro registro.</summary>
+    int Wipe();
 }

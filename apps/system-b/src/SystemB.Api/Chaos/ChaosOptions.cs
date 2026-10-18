@@ -21,6 +21,8 @@ public record ChaosOptions
     public double PageRepeatRate { get; init; }
     public double PageSkipRate { get; init; }
     public int ListDelayMs { get; init; }
+    /// <summary>Drift de formato: as respostas de /api/v2/records trocam o nome de <c>title</c> para <c>summary</c> (cenário E1).</summary>
+    public bool FormatDrift { get; init; }
 
     private const int MaxDelayMs = 600_000;
 
@@ -66,6 +68,14 @@ public record ChaosOptions
                 ? v
                 : throw new InvalidOperationException($"B_CHAOS_{key} deve ser um inteiro (recebido: {raw})");
         }
+        bool Bool(string key)
+        {
+            var raw = c[$"B_CHAOS_{key}"];
+            if (string.IsNullOrWhiteSpace(raw)) return false;
+            return bool.TryParse(raw, out var v)
+                ? v
+                : throw new InvalidOperationException($"B_CHAOS_{key} deve ser true ou false (recebido: {raw})");
+        }
         double Dbl(string key)
         {
             var raw = c[$"B_CHAOS_{key}"];
@@ -90,6 +100,7 @@ public record ChaosOptions
             PageRepeatRate = Dbl("PAGE_REPEAT_RATE"),
             PageSkipRate = Dbl("PAGE_SKIP_RATE"),
             ListDelayMs = Int("LIST_DELAY_MS") ?? 0,
+            FormatDrift = Bool("FORMAT_DRIFT"),
         };
         var problems = options.Validate();
         return problems.Count == 0

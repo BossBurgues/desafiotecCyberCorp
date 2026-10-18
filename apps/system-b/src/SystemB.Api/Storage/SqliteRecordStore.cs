@@ -131,4 +131,12 @@ public sealed class SqliteRecordStore : IRecordStore
         cmd.Parameters.AddWithValue("$id", id);
         return cmd.ExecuteNonQuery() > 0;
     }
+
+    public int Wipe()
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM records";
+        return cmd.ExecuteNonQuery();
+    }
 }

@@ -53,10 +53,11 @@ Cada requisição faz **um sorteio** e cai em no máximo uma falha, por isso a s
 | `TRUNCATE_TEXT` | `truncateText` | Corta `description` em N caracteres ao gravar (0 = desliga); o marcador no fim some | S3.7 |
 | `PAGE_REPEAT_RATE` / `PAGE_SKIP_RATE` | `pageRepeatRate` / `pageSkipRate` | Listagem desloca o offset: repete o último item da página anterior ou pula um | A7, S3.9 |
 | `LIST_DELAY_MS` | `listDelayMs` | Registro recém-criado só aparece na listagem depois de N ms (o GET por ID já acha) | A7 |
+| `FORMAT_DRIFT` | `formatDrift` | `true`: as respostas 2xx de `/api/v2/records` trocam `title` por `summary` (no registro e em cada item da página). O dado gravado não muda | E1 |
 
 Valor inválido nas variáveis derruba a subida (falha rápido).
 
-### Admin do caos
+### Admin (caos, drift, perda de dados)
 
 Exige `X-Admin-Token` igual a `B_ADMIN_TOKEN` (comparação em tempo constante). Sem `B_ADMIN_TOKEN`, as rotas `/admin` respondem 403.
 
@@ -65,11 +66,18 @@ Exige `X-Admin-Token` igual a `B_ADMIN_TOKEN` (comparação em tempo constante).
 | `GET /admin/chaos` | Configuração atual |
 | `PUT /admin/chaos` | Substitui a configuração inteira (campo ausente = 0/desligado). 422 se uma taxa sair de 0–1 ou a soma passar de 1; 400 para campo desconhecido |
 | `POST /admin/chaos/reset` | Volta para o que veio das variáveis `B_CHAOS_*` |
+| `DELETE /admin/records/{id}` | 204 · 404. Apaga um registro como se o B o tivesse perdido (S2.5) |
+| `POST /admin/wipe` | 200 `{ "deleted": n }`. Apaga todos os registros (S2.5) |
+
+Depois de um wipe, os IDs **não são reaproveitados** (`AUTOINCREMENT`): um `b_record_id` antigo no mapeamento do sync dá 404, nunca aponta para outro chamado. O drift de formato é ligado pelo `/admin/chaos` (`formatDrift`) e desligado com `PUT /admin/chaos {}` ou `/admin/chaos/reset`.
 
 ```bash
 curl -s -X PUT $B/admin/chaos -H "X-Admin-Token: $B_ADMIN_TOKEN" -H 'Content-Type: application/json' \
   -d '{"seed":42,"errorRate":0.2,"timeoutRate":0.05,"timeoutMs":8000,"commitThenFailRate":0.05}'
 curl -s -X POST $B/admin/chaos/reset -H "X-Admin-Token: $B_ADMIN_TOKEN"
+curl -s -X PUT $B/admin/chaos -H "X-Admin-Token: $B_ADMIN_TOKEN" -H 'Content-Type: application/json' -d '{"formatDrift":true}'
+curl -s -X DELETE $B/admin/records/B-1 -H "X-Admin-Token: $B_ADMIN_TOKEN" -i
+curl -s -X POST $B/admin/wipe -H "X-Admin-Token: $B_ADMIN_TOKEN"
 ```
 
 ## Container (S2.6)
@@ -96,6 +104,7 @@ docker buildx build --platform linux/amd64,linux/arm64 apps/system-b        # im
 | `GET /api/v2/records?page&pageSize` | 200 `RecordPage` (`page` ≥ 1, `pageSize` 1–200, padrão 1 e 50) |
 | `GET/PUT /operator/records[/{id}]` | Mesmas respostas da API, **sem caos** (usadas pela UI do operador) |
 | `DELETE /operator/records/{id}` | 204 · 404 (exclusão física pelo operador) |
+| `/admin/*` | Caos, drift, apagar registro e wipe, com `X-Admin-Token` (seção Admin) |
 | `GET /ui/` | UI do Operador B |
 | `GET /health` | 200 `{ "status": "ok" }` |
 
@@ -119,7 +128,6 @@ Erros sempre `{ "error": "...", "message": "..." }`:
 | O quê | Issue |
 |---|---|
 | Comentários (`B_SUPPORTS_COMMENTS`) | S2.3 (#25) |
-| Admin, wipe e drift com token | S2.5 (#27) |
 | `updatedBy`, ETag e `If-Match` (hoje `If-Match` é ignorado) | S2.7 (#128) |
 
 ## Exemplos

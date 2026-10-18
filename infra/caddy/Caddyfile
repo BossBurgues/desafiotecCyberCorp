@@ -1,0 +1,34 @@
+# Um host por sistema: as UIs usam caminhos absolutos (/ui/, /apirest.php), então prefixo de caminho quebraria os links.
+# DOMAIN=localhost (padrão) → https://a.localhost, https://b.localhost, https://sync.localhost com certificado local do Caddy.
+# Na VM (ADR-010), DOMAIN é o domínio real e o Caddy emite os certificados pelo Let's Encrypt.
+{
+	email {$ACME_EMAIL:admin@localhost}
+}
+
+(comum) {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+}
+
+a.{$DOMAIN:localhost} {
+	import comum
+	reverse_proxy system-a:3001
+}
+
+b.{$DOMAIN:localhost} {
+	import comum
+	# O admin do B (caos, wipe) não fica exposto na internet: só pela rede interna do compose
+	@admin path /admin /admin/*
+	respond @admin 404
+	reverse_proxy system-b:5002
+}
+
+sync.{$DOMAIN:localhost} {
+	import comum
+	reverse_proxy sync-service:3000
+}

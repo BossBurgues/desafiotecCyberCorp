@@ -35,6 +35,14 @@ public sealed class ChaosMiddleware(RequestDelegate next, ChaosEngine engine, IR
         if (HttpMethods.IsGet(req.Method) && IsListRoute(ctx))
             ctx.Features.Set(new ListChaos(engine.PageShift(), ListCutoff(o)));
 
+        if (o.FormatDrift)
+            await WithFormatDrift(ctx, () => Dispatch(ctx, o, isWrite));
+        else
+            await Dispatch(ctx, o, isWrite);
+    }
+
+    private async Task Dispatch(HttpContext ctx, ChaosOptions o, bool isWrite)
+    {
         switch (engine.Decide(isWrite))
         {
             case Fault.RateLimit:
@@ -62,6 +70,59 @@ public sealed class ChaosMiddleware(RequestDelegate next, ChaosEngine engine, IR
                 await next(ctx);
                 return;
         }
+    }
+
+    /// <summary>Nome que <c>title</c> passa a ter nas respostas quando o drift de formato está ligado.</summary>
+    public const string DriftedTitle = "summary";
+
+    /// <summary>
+    /// Captura a resposta e renomeia <c>title</c> no registro (ou em cada item da página). O status continua 2xx:
+    /// é o B que mudou o contrato sem avisar, e só a validação do esquema no sync percebe.
+    /// </summary>
+    private static async Task WithFormatDrift(HttpContext ctx, Func<Task> inner)
+    {
+        var original = ctx.Response.Body;
+        using var buffer = new MemoryStream();
+        ctx.Response.Body = buffer;
+        try
+        {
+            await inner();
+        }
+        finally
+        {
+            ctx.Response.Body = original;
+        }
+
+        var bytes = buffer.ToArray();
+        if (ctx.Response.StatusCode is >= 200 and < 300) bytes = RenameTitle(bytes);
+        ctx.Response.ContentLength = bytes.Length;
+        await original.WriteAsync(bytes);
+    }
+
+    private static byte[] RenameTitle(byte[] body)
+    {
+        JsonNode? root;
+        try
+        {
+            root = JsonNode.Parse(body);
+        }
+        catch (JsonException)
+        {
+            return body;
+        }
+        if (root is not JsonObject obj) return body;
+
+        static void Rename(JsonObject o)
+        {
+            if (!o.TryGetPropertyValue("title", out var v)) return;
+            o.Remove("title");
+            o[DriftedTitle] = v;
+        }
+
+        Rename(obj);
+        if (obj["items"] is JsonArray items)
+            foreach (var item in items.OfType<JsonObject>()) Rename(item);
+        return Encoding.UTF8.GetBytes(obj.ToJsonString(JsonDefaults.Options));
     }
 
     private static bool IsListRoute(HttpContext ctx) =>

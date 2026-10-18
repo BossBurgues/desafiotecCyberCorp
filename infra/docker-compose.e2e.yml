@@ -1,0 +1,49 @@
+# Override dos testes E2E (catálogo da seção 12): o mesmo ambiente com caos agressivo e estado descartável.
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.e2e.yml --env-file .env.example up -d --build --wait
+# Seed fixa: a mesma sequência de requisições produz as mesmas falhas (reprodutível na CI).
+# Valores fixos (não interpolados): o .env de desenvolvimento desliga o caos e não pode vencer aqui.
+# Os cenários que precisam de outra combinação reconfiguram o caos em tempo de execução pelo PUT /admin/chaos.
+name: cybercorp-e2e
+
+services:
+  postgres:
+    # Banco em memória: cada execução começa do zero e não sobra lixo na máquina da CI
+    volumes: !reset []
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  system-a:
+    environment:
+      A_WEBHOOK_DROP_RATE: '30' # perde 30% dos webhooks: o polling precisa cobrir (cenário B2)
+    volumes: !reset []
+    tmpfs:
+      - /data:uid=1000,gid=1000
+
+  system-b:
+    environment:
+      B_CHAOS_SEED: '42'
+      B_CHAOS_LATENCY_MS: '50'
+      B_CHAOS_ERROR_RATE: '0.10'
+      B_CHAOS_TIMEOUT_RATE: '0.05'
+      B_CHAOS_TIMEOUT_MS: '8000' # acima do B_TIMEOUT_MS do sync: o sync desiste e o B grava depois (A2)
+      B_CHAOS_COMMIT_THEN_FAIL_RATE: '0.05'
+      B_CHAOS_ACK_WITHOUT_PERSIST_RATE: '0.03'
+      B_CHAOS_OK_WITH_ERROR_BODY_RATE: '0.05'
+      B_CHAOS_RATE_LIMIT_RATE: '0.05'
+      B_CHAOS_PAGE_REPEAT_RATE: '0.05'
+      B_CHAOS_PAGE_SKIP_RATE: '0.05'
+      B_CHAOS_LIST_DELAY_MS: '3000'
+    volumes: !reset []
+    tmpfs:
+      - /data:uid=1654,gid=1654
+
+  sync-service:
+    environment:
+      LOG_LEVEL: 'debug'
+      READY_CHECK_INTERVAL_MS: 1000
+      WORKER_POLL_INTERVAL_MS: 200
+      B_BREAKER_OPEN_MS: 5000 # o teste não espera 30 s para ver a meia-abertura
+
+  # Os testes falam direto com os serviços pelas portas locais; o Caddy (HTTPS) fica de fora
+  caddy:
+    profiles: [caddy]

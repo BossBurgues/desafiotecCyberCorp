@@ -86,5 +86,7 @@ public class ChaosEngineTests
         Assert.Throws<InvalidOperationException>(() => ChaosOptions.FromConfiguration(Cfg("B_CHAOS_LATENCY_MS", "1.5")));
         Assert.Throws<InvalidOperationException>(() => ChaosOptions.FromConfiguration(Cfg("B_CHAOS_ERROR_RATE", "2")));
         Assert.Equal(0.25, ChaosOptions.FromConfiguration(Cfg("B_CHAOS_ERROR_RATE", "0.25")).ErrorRate);
+        Assert.Throws<InvalidOperationException>(() => ChaosOptions.FromConfiguration(Cfg("B_CHAOS_FORMAT_DRIFT", "talvez")));
+        Assert.True(ChaosOptions.FromConfiguration(Cfg("B_CHAOS_FORMAT_DRIFT", "true")).FormatDrift);
     }
 }

@@ -45,6 +45,9 @@ jobs:
               - '.github/workflows/ci.yml'
             sync-service:
               - 'apps/sync-service/**'
+              - 'infra/docker-compose*.yml'
+              - 'infra/caddy/**'
+              - '.env.example'
               - 'contracts/**'
               - 'package.json'
               - 'package-lock.json'
@@ -116,6 +119,13 @@ jobs:
       - run: npm run typecheck -w apps/sync-service --if-present
       - run: npm run test -w apps/sync-service
       - run: npm run build -w apps/sync-service
+      - name: Build da imagem do sync
+        run: docker build -f apps/sync-service/Dockerfile -t sync-service:ci .
+      # O compose recusa subir sem os segredos; aqui ele só valida a sintaxe e a mescla com o override E2E
+      - name: Compose válido (base e E2E)
+        run: |
+          docker compose -f infra/docker-compose.yml --env-file .env.example config -q
+          docker compose -f infra/docker-compose.yml -f infra/docker-compose.e2e.yml --env-file .env.example config -q
 
   system-b:
     needs: changes

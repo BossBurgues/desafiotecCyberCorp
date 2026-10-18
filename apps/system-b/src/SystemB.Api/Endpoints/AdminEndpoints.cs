@@ -3,12 +3,13 @@ using System.Text;
 using System.Text.Json;
 using SystemB.Api.Chaos;
 using SystemB.Api.Models;
+using SystemB.Api.Storage;
 
 namespace SystemB.Api.Endpoints;
 
 /// <summary>
-/// Rotas de administração do B (fora de /api/v2 e do contrato). Exigem X-Admin-Token igual a B_ADMIN_TOKEN;
-/// sem B_ADMIN_TOKEN configurado ficam desligadas.
+/// Rotas de administração do B (fora de /api/v2 e do contrato): caos, drift de formato, apagar um registro e wipe.
+/// Exigem X-Admin-Token igual a B_ADMIN_TOKEN; sem B_ADMIN_TOKEN configurado ficam desligadas.
 /// </summary>
 public static class AdminEndpoints
 {
@@ -55,5 +56,11 @@ public static class AdminEndpoints
             engine.Reset();
             return Results.Json(engine.Options, JsonDefaults.Options);
         });
+
+        // Perda de dados simulada: some do B sem passar pela UI do operador (autocura pelo auditor, cenários D)
+        g.MapDelete("/records/{id}", (string id, IRecordStore store) =>
+            store.Delete(id) ? Results.NoContent() : ErrorResults.NotFound($"Registro {id} não encontrado"));
+
+        g.MapPost("/wipe", (IRecordStore store) => Results.Json(new { deleted = store.Wipe() }, JsonDefaults.Options));
     }
 }
