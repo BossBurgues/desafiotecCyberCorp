@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
 import test from 'node:test';
+import { loadAuthConfig } from '../../src/auth.js';
 import { buildTestServer, login } from '../helpers/session.js';
 
 test('initSession com senha certa devolve session_token e a sessão lê chamados', async () => {
@@ -491,4 +492,104 @@ test('evento ticket.changed leva o ator da sessão', async () => {
   } finally {
     await app.close();
   }
+});
+
+test('getFullSession devolve id, login e perfil de cada usuário', async () => {
+  const app = buildTestServer();
+  try {
+    for (const [profile, id] of [
+      ['tecnico', 1],
+      ['estagiario', 2],
+      ['sync-bot', 3],
+    ]) {
+      const headers = await login(app, profile);
+      const res = await app.inject({ method: 'GET', url: '/apirest.php/getFullSession', headers });
+      assert.equal(res.statusCode, 200, profile);
+      assert.deepEqual(res.json(), {
+        session: { glpiID: id, glpiname: profile, glpiactiveprofile: { name: profile } },
+      });
+      assert.doesNotMatch(res.body, /scrypt|password|token/i);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+test('getFullSession sem sessão é 401', async () => {
+  const app = buildTestServer();
+  try {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/apirest.php/getFullSession',
+      headers: { 'App-Token': app.authConfig.appToken },
+    });
+    assert.equal(res.statusCode, 401);
+    assert.equal(res.json()[0], 'ERROR_SESSION_TOKEN_MISSING');
+  } finally {
+    await app.close();
+  }
+});
+
+test('API aceita o token da UI', async () => {
+  const app = buildTestServer();
+  try {
+    const basic = Buffer.from(`estagiario:${app.authConfig.estagiarioPassword}`).toString('base64');
+    const initRes = await app.inject({
+      method: 'GET',
+      url: '/apirest.php/initSession',
+      headers: { 'App-Token': app.authConfig.uiAppToken, Authorization: `Basic ${basic}` },
+    });
+    assert.equal(initRes.statusCode, 200);
+    const listRes = await app.inject({
+      method: 'GET',
+      url: '/apirest.php/Ticket',
+      headers: {
+        'App-Token': app.authConfig.uiAppToken,
+        'Session-Token': initRes.json().session_token,
+      },
+    });
+    assert.equal(listRes.statusCode, 200);
+  } finally {
+    await app.close();
+  }
+});
+
+test('token da UI errado é 401 e fica em access_denials', async () => {
+  const app = buildTestServer();
+  try {
+    const headers = await login(app, 'tecnico');
+    const res = await app.inject({
+      method: 'GET',
+      url: '/apirest.php/Ticket',
+      headers: { ...headers, 'App-Token': `${app.authConfig.uiAppToken}x` },
+    });
+    assert.equal(res.statusCode, 401);
+    assert.equal(res.json()[0], 'ERROR_WRONG_APP_TOKEN_PARAMETER');
+    assert.equal(app.store.listDenials().at(-1).error_code, 'ERROR_WRONG_APP_TOKEN_PARAMETER');
+  } finally {
+    await app.close();
+  }
+});
+
+const PROD_ENV = Object.freeze({
+  NODE_ENV: 'production',
+  A_APP_TOKEN: 'prod-app',
+  A_TECNICO_PASSWORD: 'prod-tec',
+  A_ESTAGIARIO_PASSWORD: 'prod-est',
+  A_SYNC_BOT_TOKEN: 'prod-bot',
+});
+
+test('produção sem A_UI_APP_TOKEN não sobe', () => {
+  assert.throws(() => loadAuthConfig({ ...PROD_ENV }), /A_UI_APP_TOKEN ausente em NODE_ENV=production/);
+});
+
+test('A_UI_APP_TOKEN igual ao A_APP_TOKEN não sobe', () => {
+  assert.throws(
+    () => loadAuthConfig({ ...PROD_ENV, A_UI_APP_TOKEN: 'prod-app' }),
+    /A_UI_APP_TOKEN deve ser diferente de A_APP_TOKEN/,
+  );
+  assert.throws(
+    () => loadAuthConfig({}, { appToken: 'mesmo', uiAppToken: 'mesmo' }),
+    /A_UI_APP_TOKEN deve ser diferente/,
+  );
 });
