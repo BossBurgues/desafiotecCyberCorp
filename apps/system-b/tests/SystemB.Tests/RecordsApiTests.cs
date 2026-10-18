@@ -160,11 +160,14 @@ public class RecordsApiTests : IClassFixture<SystemBFactory>
     }
 }
 
-public class ListingTests : IClassFixture<SystemBFactory>
+public class ListingTests : IDisposable
 {
+    private readonly SystemBFactory _f = new();
     private readonly HttpClient _c;
 
-    public ListingTests(SystemBFactory f) => _c = f.CreateClient();
+    public ListingTests() => _c = _f.CreateClient();
+
+    public void Dispose() => _f.Dispose();
 
     [Theory]
     [InlineData("page=0")]
