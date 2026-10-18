@@ -359,6 +359,43 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+webhooks:
+  ticket.changed:
+    post:
+      operationId: ticketChanged
+      summary: Avisa o sync que um chamado mudou (fire-and-forget, pode se perder)
+      description: |
+        Disparado em create/update, exceto mudanças do sync-bot (anti-eco, ADR-009).
+        Pode ser desligado (A_WEBHOOK_ENABLED) e pode perder X% (A_WEBHOOK_DROP_RATE): o poller é a garantia.
+        Assinatura: HMAC-SHA256 com HMAC_SECRET sobre "<X-Timestamp>.<corpo cru>".
+        O receptor rejeita assinatura inválida e timestamp fora da janela de 5 min (401), e persiste antes do 200.
+      security: []
+      parameters:
+        - in: header
+          name: X-Signature-256
+          required: true
+          description: "Assinatura HMAC-SHA256 sobre `<X-Timestamp>.<corpo cru>` no formato `sha256=<hex>`"
+          schema:
+            type: string
+            pattern: '^sha256=[0-9a-f]{64}$'
+        - in: header
+          name: X-Timestamp
+          required: true
+          description: Timestamp Unix em segundos (janela anti-replay de 5 min)
+          schema:
+            type: string
+            pattern: '^\d{10}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './events/ticket-changed.schema.json'
+      responses:
+        '200':
+          description: Evento persistido em inbound_events
+        '401':
+          description: HMAC inválido ou fora da janela anti-replay
 components:
   securitySchemes:
     appToken:
