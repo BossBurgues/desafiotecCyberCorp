@@ -155,3 +155,30 @@ export function glpiLocalToUtc(glpiDateTime: string, timeZone: string): string {
   // Hora inexistente na ida do horário de verão: avança pelo offset anterior à transição
   return formatUtcNoMs(candidateFirstMs);
 }
+
+export function pollLowerBoundLocal(
+  fromUtc: Date | string | number,
+  toUtc: Date | string | number,
+  timeZone: string,
+): string {
+  const formatter = getFormatter(timeZone);
+  const fromMs = parseInstantMs(fromUtc, 'fromUtc');
+  const toMs = parseInstantMs(toUtc, 'toUtc');
+  if (toMs < fromMs) {
+    throw new MappingError('toUtc', toUtc, 'toUtc não pode ser anterior a fromUtc.');
+  }
+
+  let minOffsetMs = Math.min(
+    getTimeZoneOffsetMs(fromMs, formatter),
+    getTimeZoneOffsetMs(toMs, formatter),
+  );
+
+  for (let sampleMs = fromMs + TWENTY_FOUR_HOURS_MS; sampleMs < toMs; sampleMs += TWENTY_FOUR_HOURS_MS) {
+    minOffsetMs = Math.min(minOffsetMs, getTimeZoneOffsetMs(sampleMs, formatter));
+  }
+
+  const truncatedFromMs = Math.trunc(fromMs / 1000) * 1000;
+  const wallMsAtMinOffset = truncatedFromMs + minOffsetMs;
+  const iso = new Date(wallMsAtMinOffset).toISOString();
+  return `${iso.slice(0, 10)} ${iso.slice(11, 19)}`;
+}

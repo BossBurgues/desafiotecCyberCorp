@@ -3,6 +3,7 @@ import { MappingError } from '../../../src/domain/errors.js';
 import {
   glpiLocalToUtc,
   isValidTimeZone,
+  pollLowerBoundLocal,
   utcToGlpiLocal,
 } from '../../../src/domain/time.js';
 
@@ -91,5 +92,61 @@ describe('conversão de fuso e horário de verão (ADR-005, B11)', () => {
     expect(isValidTimeZone('America/Sao_Paulo')).toBe(true);
     expect(isValidTimeZone('Fuso/Inexistente')).toBe(false);
     expect(isValidTimeZone('   ')).toBe(false);
+  });
+
+  describe('pollLowerBoundLocal (B11, parte U)', () => {
+    it('na volta do horário de verão o limite do poll cobre a hora repetida', () => {
+      // Checkpoint 05:58Z (01:58 EDT), sobreposição de 2 min -> fromUtc = 05:56Z (01:56 EDT).
+      // Agora = 06:30Z (01:30 EST).
+      // Um chamado alterado às 06:10Z (01:10 EST) tem date_mod = "2026-11-01 01:10:00".
+      // Se usássemos o relógio de fromUtc no offset EDT ("2026-11-01 01:56:00"), "01:10:00" < "01:56:00" seria pulado!
+      const bound = pollLowerBoundLocal(
+        '2026-11-01T05:56:00Z',
+        '2026-11-01T06:30:00Z',
+        'America/New_York',
+      );
+      expect(bound).toBe('2026-11-01 00:56:00');
+      expect('2026-11-01 01:10:00' >= bound).toBe(true);
+    });
+
+    it('sem virada de offset o limite é só o relógio local de from', () => {
+      const bound = pollLowerBoundLocal(
+        '2026-10-18T17:01:22Z',
+        '2026-10-18T17:05:00Z',
+        'America/Sao_Paulo',
+      );
+      expect(bound).toBe('2026-10-18 14:01:22');
+    });
+
+    it('intervalo de vários dias atravessando a virada usa o menor offset', () => {
+      // Intervalo de 4 dias em que o início e o fim teriam offset maior ou intermediário,
+      // mas a amostra diária encontra um offset menor (ex. atravessando o fim do DST em NY de 30/10 a 03/11,
+      // ou de verão para inverno e de volta à primavera num intervalo longo).
+      const boundAcrossDstFall = pollLowerBoundLocal(
+        '2026-10-30T12:00:00Z',
+        '2026-11-03T12:00:00Z',
+        'America/New_York',
+      );
+      // 12:00Z no menor offset (-05 EST) = 07:00:00
+      expect(boundAcrossDstFall).toBe('2026-10-30 07:00:00');
+
+      // E quando o início e o fim estão no horário de verão (-04 EDT), mas o meio passa pelo inverno (-05 EST):
+      const boundSummerToSummer = pollLowerBoundLocal(
+        '2026-10-31T12:00:00Z',
+        '2027-03-10T12:00:00Z',
+        'America/New_York',
+      );
+      expect(boundSummerToSummer).toBe('2026-10-31 07:00:00');
+    });
+
+    it('rejeita toUtc anterior a fromUtc com MappingError', () => {
+      expect(() =>
+        pollLowerBoundLocal(
+          '2026-10-18T18:00:00Z',
+          '2026-10-18T17:00:00Z',
+          'America/Sao_Paulo',
+        ),
+      ).toThrow(MappingError);
+    });
   });
 });
