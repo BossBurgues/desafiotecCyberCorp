@@ -89,3 +89,75 @@ test('POST /apirest.php/Ticket cria chamado (201) e GET /apirest.php/Ticket/:id 
     await app.close();
   }
 });
+
+test('listagem pagina 120 chamados em 0-49, 50-99 e 100-149 sem repetir nem pular em ordem estável', async () => {
+  // Múltiplos chamados no mesmo segundo testam o desempate por id em ORDER BY date_mod, id.
+  let counter = 0;
+  const baseEpoch = Date.parse('2026-10-18T15:00:00Z');
+  const app = buildServer({
+    dbPath: ':memory:',
+    timeZone: 'America/Sao_Paulo',
+    now: () => {
+      const offsetSeconds = Math.floor(counter / 4);
+      counter += 1;
+      return baseEpoch + offsetSeconds * 1000;
+    },
+  });
+
+  try {
+    for (let i = 1; i <= 120; i += 1) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/apirest.php/Ticket',
+        payload: {
+          input: {
+            name: `Chamado #${i}`,
+            content: `<p>Descrição ${i}</p>`,
+          },
+        },
+      });
+      assert.equal(res.statusCode, 201);
+    }
+
+    const page1 = await app.inject({
+      method: 'GET',
+      url: '/apirest.php/Ticket?range=0-49&sort=date_mod&order=ASC',
+    });
+    assert.equal(page1.statusCode, 206);
+    assert.equal(page1.headers['content-range'], '0-49/120');
+    const items1 = page1.json();
+    assert.equal(items1.length, 50);
+
+    const page2 = await app.inject({
+      method: 'GET',
+      url: '/apirest.php/Ticket?range=50-99&sort=date_mod&order=ASC',
+    });
+    assert.equal(page2.statusCode, 206);
+    assert.equal(page2.headers['content-range'], '50-99/120');
+    const items2 = page2.json();
+    assert.equal(items2.length, 50);
+
+    const page3 = await app.inject({
+      method: 'GET',
+      url: '/apirest.php/Ticket?range=100-149&sort=date_mod&order=ASC',
+    });
+    assert.equal(page3.statusCode, 206);
+    assert.equal(page3.headers['content-range'], '100-119/120');
+    const items3 = page3.json();
+    assert.equal(items3.length, 20);
+
+    const allIds = [...items1, ...items2, ...items3].map((t) => t.id);
+    const expectedIds = Array.from({ length: 120 }, (_, idx) => idx + 1);
+    assert.deepEqual(allIds, expectedIds);
+
+    const outOfBounds = await app.inject({
+      method: 'GET',
+      url: '/apirest.php/Ticket?range=150-199',
+    });
+    assert.equal(outOfBounds.statusCode, 200);
+    assert.equal(outOfBounds.headers['content-range'], '*/120');
+    assert.deepEqual(outOfBounds.json(), []);
+  } finally {
+    await app.close();
+  }
+});

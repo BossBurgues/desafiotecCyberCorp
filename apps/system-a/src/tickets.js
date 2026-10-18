@@ -228,3 +228,51 @@ export function parseTicketId(rawId) {
   }
   return id;
 }
+
+export const MAX_RANGE_SIZE = 500;
+
+export function parseListQuery(query = {}) {
+  const rangeStr = query.range !== undefined ? String(query.range) : '0-49';
+  const match = /^(\d+)-(\d+)$/.exec(rangeStr);
+  if (!match) {
+    throw new TicketValidationError('O parâmetro range deve estar no formato <início>-<fim>.');
+  }
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end) {
+    throw new TicketValidationError('O parâmetro range possui intervalo inválido (início > fim).');
+  }
+  const limit = end - start + 1;
+  if (limit > MAX_RANGE_SIZE) {
+    throw new TicketValidationError(
+      `O parâmetro range permite no máximo ${MAX_RANGE_SIZE} itens por página.`,
+    );
+  }
+
+  const sort = query.sort !== undefined ? String(query.sort) : 'date_mod';
+  if (sort !== 'date_mod' && sort !== 'id') {
+    throw new TicketValidationError('O parâmetro sort deve ser "date_mod" ou "id".');
+  }
+
+  const order = query.order !== undefined ? String(query.order) : 'ASC';
+  if (order !== 'ASC' && order !== 'DESC') {
+    throw new TicketValidationError('O parâmetro order deve ser "ASC" ou "DESC".');
+  }
+
+  return { offset: start, start, end, limit, sort, order };
+}
+
+export function buildListMeta({ start, count, total }) {
+  if (total === 0 || count === 0 || start >= total) {
+    return {
+      statusCode: 200,
+      contentRange: `*/${total}`,
+    };
+  }
+  const actualEnd = start + count - 1;
+  const isComplete = start === 0 && count === total;
+  return {
+    statusCode: isComplete ? 200 : 206,
+    contentRange: `${start}-${actualEnd}/${total}`,
+  };
+}

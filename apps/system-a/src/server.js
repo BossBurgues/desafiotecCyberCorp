@@ -4,7 +4,9 @@ import { DEFAULT_DB_PATH, TicketStore } from './store.js';
 import {
   DEFAULT_TIMEZONE,
   TicketNotFoundError,
+  buildListMeta,
   glpiError,
+  parseListQuery,
   parseTicketId,
   prepareNewTicket,
 } from './tickets.js';
@@ -50,6 +52,19 @@ export function buildServer({
 
   app.register(
     async (api) => {
+      api.get('/Ticket', async (request, reply) => {
+        const { offset, start, limit, sort, order } = parseListQuery(request.query);
+        const total = store.count();
+        const items =
+          start >= total ? [] : store.list({ offset, limit, sort, order });
+        const { statusCode, contentRange } = buildListMeta({
+          start,
+          count: items.length,
+          total,
+        });
+        return reply.header('Content-Range', contentRange).code(statusCode).send(items);
+      });
+
       api.post('/Ticket', async (request, reply) => {
         const ticketData = prepareNewTicket(request.body, { now, timeZone });
         const created = store.insert(ticketData);
