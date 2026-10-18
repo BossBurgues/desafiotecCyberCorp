@@ -24,6 +24,16 @@ dotnet test apps/system-b                            # testes xUnit (mesmo coman
 | `B_ADMIN_TOKEN` | _(vazio = admin desligado)_ | Token das rotas `/admin` |
 | `B_CHAOS_*` | tudo desligado | Caos (seção abaixo) |
 
+## UI do Operador B (S2.4)
+
+`http://localhost:5002/ui/` — o apresentador age como o executor do B: **listar, ver, editar campos, mudar estado, resolver, fechar, reabrir e excluir**. Sem papéis nem login (o B é caixa-preta).
+
+- Usa as rotas `/operator/records`, que ficam fora do contrato e **fora do caos**: a demo continua operável com o caos ligado.
+- Mostra o chamado do A ligado ao registro (lido do marcador `⟦s:glpi-<id>⟧`). Editar a descrição pode apagar o marcador de propósito: é o cenário em que o auditor do sync regrava.
+- O `PUT` é substituição completa, então a UI parte do registro atual e preserva localização, anexos e `sourceUpdatedAt`.
+- Mesmas regras da UI do A: lista fechada de arquivos, CSP `default-src 'self'` e nenhum HTML montado a partir de texto (teste `Nenhum_arquivo_da_UI_monta_HTML_a_partir_de_texto`).
+- **Comentar** depende da capacidade de comentários do B (S2.3, #25) e entra junto com ela.
+
 ## Caos (S2.2)
 
 O caos vale **só para `/api/v2`** (a API que o sync usa). `/health`, `/operator`, `/admin` e a UI ficam fora, para a demo continuar operável.
@@ -84,7 +94,9 @@ docker buildx build --platform linux/amd64,linux/arm64 apps/system-b        # im
 | `GET /api/v2/records/{id}` | 200 `Record` · 404 |
 | `PUT /api/v2/records/{id}` | 200 `Record` (substituição completa) · 404 |
 | `GET /api/v2/records?page&pageSize` | 200 `RecordPage` (`page` ≥ 1, `pageSize` 1–200, padrão 1 e 50) |
+| `GET/PUT /operator/records[/{id}]` | Mesmas respostas da API, **sem caos** (usadas pela UI do operador) |
 | `DELETE /operator/records/{id}` | 204 · 404 (exclusão física pelo operador) |
+| `GET /ui/` | UI do Operador B |
 | `GET /health` | 200 `{ "status": "ok" }` |
 
 Erros sempre `{ "error": "...", "message": "..." }`:
@@ -99,7 +111,7 @@ Erros sempre `{ "error": "...", "message": "..." }`:
 
 - **Busca por referência**: parâmetros como `externalId`, `search`, `ref` e `q` na listagem são ignorados; não há rota de busca.
 - **`Idempotency-Key`**: o cabeçalho é ignorado; dois POSTs iguais criam dois registros.
-- **DELETE na API do sync**: `DELETE /api/v2/records/{id}` não existe (ADR-003). A exclusão fica em `/operator/records/{id}`, fora de `/api/v2` e fora do contrato, para a futura UI do Operador B. Para o sync, excluído e perdido parecem iguais (404) e quem decide é uma pessoa (ADR-007).
+- **DELETE na API do sync**: `DELETE /api/v2/records/{id}` não existe (ADR-003). A exclusão fica em `/operator/records/{id}`, fora de `/api/v2` e fora do contrato, usada pela UI do Operador B. Para o sync, excluído e perdido parecem iguais (404) e quem decide é uma pessoa (ADR-007).
 - Webhooks e autenticação.
 
 ## Ainda não implementado
@@ -107,7 +119,6 @@ Erros sempre `{ "error": "...", "message": "..." }`:
 | O quê | Issue |
 |---|---|
 | Comentários (`B_SUPPORTS_COMMENTS`) | S2.3 (#25) |
-| UI do Operador B | S2.4 (#26) |
 | Admin, wipe e drift com token | S2.5 (#27) |
 | `updatedBy`, ETag e `If-Match` (hoje `If-Match` é ignorado) | S2.7 (#128) |
 
