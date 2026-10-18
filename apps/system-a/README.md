@@ -29,6 +29,7 @@ npm run start -w apps/system-a
 | `A_TIMEZONE` | `America/Sao_Paulo` | Fuso usado para formatar `date` e `date_mod` sem offset (ADR-005) |
 | `A_DB_PATH` | `./data/system-a.db` | Caminho do arquivo SQLite (`:memory:` em testes) |
 | `A_APP_TOKEN` | `dev-app-token` | Token de aplicação exigido no cabeçalho `App-Token` em todas as rotas |
+| `A_UI_APP_TOKEN` | `dev-ui-app-token` | `App-Token` próprio da interface web (S1.6), entregue ao navegador em `/ui/config.json`. A API aceita este ou o `A_APP_TOKEN`; precisa ser diferente do `A_APP_TOKEN` |
 | `A_TECNICO_PASSWORD` | `dev-tecnico-password` | Senha do usuário `tecnico` (ID `1`, login via `Authorization: Basic`) |
 | `A_ESTAGIARIO_PASSWORD` | `dev-estagiario-password` | Senha do usuário `estagiario` (ID `2`, login via `Authorization: Basic`) |
 | `A_SYNC_BOT_TOKEN` | `dev-sync-bot-token` | Token da conta de serviço `sync-bot` (ID `3`, login via `Authorization: user_token`) |
@@ -37,7 +38,7 @@ npm run start -w apps/system-a
 | `A_WEBHOOK_URL` | — | URL HTTP/HTTPS completa do receptor do webhook (sugestão em dev: `http://localhost:3000/webhooks/system-a`) |
 | `A_WEBHOOK_DROP_RATE` | `0` | Porcentagem (`0`–`100`) de eventos descartados propositalmente antes do envio para exercitar o cenário B2 |
 | `HMAC_SECRET` | — | Segredo compartilhado com o sincronizador para assinar `X-Signature-256` (em `NODE_ENV=production` exige `>= 32` caracteres quando o webhook está ligado) |
-| `NODE_ENV` | — | Quando `production`, a ausência de `A_APP_TOKEN`, `A_TECNICO_PASSWORD`, `A_ESTAGIARIO_PASSWORD` ou `A_SYNC_BOT_TOKEN` (e `HMAC_SECRET` curto com webhook ligado) impede o servidor de subir |
+| `NODE_ENV` | — | Quando `production`, a ausência de `A_APP_TOKEN`, `A_UI_APP_TOKEN`, `A_TECNICO_PASSWORD`, `A_ESTAGIARIO_PASSWORD` ou `A_SYNC_BOT_TOKEN` (e `HMAC_SECRET` curto com webhook ligado) impede o servidor de subir |
 
 ## Login e perfis (S1.2 · #17)
 
@@ -99,11 +100,38 @@ curl http://localhost:3001/health   # {"status":"ok"}
 ```
 
 - Imagem multi-stage (`node:20-bookworm-slim`), processo como usuário `node` (não root) e código somente leitura; o único diretório gravável é `/data` (SQLite em `/data/system-a.db`).
-- `NODE_ENV=production` é fixo na imagem: sem as 4 credenciais (`A_APP_TOKEN`, `A_TECNICO_PASSWORD`, `A_ESTAGIARIO_PASSWORD`, `A_SYNC_BOT_TOKEN`) o container não sobe. Nenhuma credencial vai na imagem.
+- `NODE_ENV=production` é fixo na imagem: sem as 5 credenciais (`A_APP_TOKEN`, `A_UI_APP_TOKEN`, `A_TECNICO_PASSWORD`, `A_ESTAGIARIO_PASSWORD`, `A_SYNC_BOT_TOKEN`) o container não sobe. Nenhuma credencial vai na imagem.
 - `GET /health` (sem autenticação, fora de `/apirest.php`) confere o SQLite; é usado pelo `HEALTHCHECK`.
 - `SIGTERM`/`SIGINT` fecham o servidor e o banco e saem com código 0.
 - Smoke local: `bash infra/scripts/smoke-system-a.sh system-a`.
 - No Windows o `shutdown.test.js` é pulado (SIGTERM mata o processo sem handler); a CI (Linux) roda.
+
+## Interface web (S1.6 · #21)
+
+Com o servidor de pé, abra **http://localhost:3001/ui/** (`GET /` redireciona para lá) e entre como `tecnico` ou `estagiario` com as senhas do `.env`. O `sync-bot` é conta técnica e não entra pela interface (Q31).
+
+- **Sem build e sem framework:** HTML + CSS + JavaScript em módulos ES em `src/public/`. A lógica que não toca o DOM fica em `ui-core.js`, importado pelo navegador e pelos testes (`node --test`).
+- **Servida pelo próprio A, mesma origem da API (sem CORS):** lista fechada de 4 arquivos lidos na subida (`index.html`, `app.js`, `ui-core.js`, `styles.css`); qualquer outro nome em `/ui/` é `404` (sem *path traversal*). Falta de arquivo impede o servidor de subir.
+- **Quem sou eu:** depois do `initSession`, a UI chama `GET /apirest.php/getFullSession` para saber o perfil.
+- **Atualização ao vivo:** o detalhe relê chamado, notas e soluções a cada 5 s; a lista, a cada 10 s; pausa com a aba escondida.
+
+| Na tela | Técnico | Estagiário |
+|---|---|---|
+| Lista, detalhe, novo chamado | ✅ | ✅ |
+| Botão **Editar** (status 1–4 e prioridade) | ✅ | aparece; o servidor responde `403` e a UI mostra a frase (D7) |
+| Adicionar nota | ✅ | escondido |
+| **Aprovar / Recusar** solução pendente (recusa exige motivo) | ✅ | escondido; vê "Aguardando aprovação de um Técnico" |
+
+Solucionado (5) e Fechado (6) não aparecem no seletor de status: só chegam pelo fluxo de aprovação (Q26).
+
+**Conversa e aprovações ligam sozinhas.** `GET /ui/config.json` devolve `{ appToken, features: { followups, solutions } }`, calculado das rotas registradas no `onReady`. Enquanto `GET /apirest.php/Ticket/:id/ITILFollowup` (S1.4 · #19) ou `PUT /apirest.php/ITILSolution/:id` (S1.5 · #20) não existirem, a tela mostra o aviso cinza no lugar da seção. Na conversa, o autor aparece como 👤 Técnico/Estagiário, 🤖 `sync-bot` ou 🏢 Operador B (nota do `sync-bot` com `⟦from-b:…⟧`); os marcadores `⟦…⟧` não são exibidos.
+
+**Mensagens de erro** (`errorMessage` em `ui-core.js`): `403 ERROR_RIGHT_MISSING` → "Seu perfil (Estagiário) não pode … Peça a um Técnico."; `409 ERROR_TICKET_FROZEN` → "Chamado congelado … só aceita notas. A edição não foi salva."; sessão inválida → "Sua sessão expirou" e volta ao login; `ERROR_GLPI_LOGIN` → "Usuário ou senha incorretos."; falha de rede → "Sistema A fora do ar"; código desconhecido → mensagem do servidor + código. O formulário de edição não fecha nem perde o que foi digitado.
+
+**Segurança:**
+- todo texto entra no DOM por `textContent`; `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write` e `eval` são proibidos por teste estático (`ui-static.test.js`). O `content` do chamado (HTML no GLPI) passa por `htmlToText()` antes de exibir (G2);
+- em `/ui/*`: `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`; `config.json` com `Cache-Control: no-store`;
+- `Session-Token` no `sessionStorage` (some ao fechar a aba); "Sair" chama `killSession`.
 
 ## Webhook `ticket.changed` (S1.3 · #18)
 
@@ -118,12 +146,16 @@ Quando `A_WEBHOOK_ENABLED=true`, toda criação (`POST /apirest.php/Ticket`) ou 
   ```
 - **Fire-and-forget e modo "perder X%":** o handler HTTP responde imediatamente sem esperar o envio; cada disparo tem timeout de `2000 ms` e não faz retry (qualquer falha vira `warn` no log, sem expor o segredo nem a assinatura). Quando `A_WEBHOOK_DROP_RATE` está entre `0` e `100`, `X%` dos eventos são sorteados e descartados após montar o evento (`info` com `event_id`), permitindo provar que o poller recupera chamados sem perder atualização (cenário B2).
 
-## Endpoints implementados (S1.1 · #16, S1.2 · #17 e S1.7 · #22)
+## Endpoints implementados (S1.1 · #16, S1.2 · #17, S1.6 · #21 e S1.7 · #22)
 
 | Método | Rota | Descrição |
 |---|---|---|
 | `GET` | `/apirest.php/initSession` | Autentica `Basic` (`tecnico`/`estagiario`) ou `user_token` (`sync-bot`) e devolve `{ "session_token": "..." }` (`200`) |
 | `GET` | `/apirest.php/killSession` | Invalida o `Session-Token` atual (`200`) |
+| `GET` | `/apirest.php/getFullSession` | Usuário e perfil da sessão: `{ "session": { "glpiID", "glpiname", "glpiactiveprofile": { "name" } } }` (`200`); só exige sessão |
+| `GET` | `/`, `/ui` | Redirecionam (`302`) para `/ui/` |
+| `GET` | `/ui/`, `/ui/<arquivo>` | Interface web (lista fechada de arquivos, sem sessão; a API continua exigindo) |
+| `GET` | `/ui/config.json` | `{ appToken, features }` para a UI (`no-store`); não faz parte do contrato da API |
 | `POST` | `/apirest.php/Ticket` | Cria chamado a partir de `{ "input": { ... } }` (`201`). `name` e `content` obrigatórios; `status` assume `1`, `priority` assume `3` e `users_id_recipient` assume o usuário da sessão quando omitidos |
 | `GET` | `/apirest.php/Ticket/:id` | Lê chamado por ID (`200`) ou retorna `404` `["ERROR_ITEM_NOT_FOUND", "..."]` |
 | `GET` | `/apirest.php/Ticket` | Lista chamados com `range=<início>-<fim>` (padrão `0-49`, máx. `500`), `sort=date_mod\|id`, `order=ASC\|DESC` e filtro opcional `date_mod_gte=YYYY-MM-DD HH:MM:SS`. Retorna cabeçalho `Content-Range` (`200` ou `206`) |
@@ -138,6 +170,7 @@ Erros seguem o formato do GLPI: `["ERROR_CODIGO", "Mensagem legível"]`.
 - **Dropdowns como IDs:** `itilcategories_id`, `locations_id`, `users_id_recipient` e `users_id_assign` trafegam como inteiros (`>= 1` ou `null`); o de-para fica no serviço de sincronização.
 - **Defaults de domínio na criação:** `status = 1` (Novo), `priority = 3` (Média) e `users_id_recipient = <id da sessão>` quando omitidos no `POST /Ticket`.
 - **Sessão e segurança do mock:** sessões ficam no SQLite sem expiração automática (encerradas via `/killSession`); não há tela de gestão de usuários (trocar a senha no ambiente e reiniciar atualiza o hash no seed); não há rate-limit/bloqueio de força bruta (risco conhecido de mock de demonstração, mitigado pelo registro de todas as tentativas em `access_denials`); as negações ficam no SQLite e no log do A (a linha do tempo unificada de auditoria entra na M2).
+- **Interface web (S1.6):** o `App-Token` da UI (`A_UI_APP_TOKEN`) chega ao navegador, então é público por natureza; o que protege é a senha e a sessão. Ele é separado do `A_APP_TOKEN` do sync para poder ser trocado sozinho. Sem atualização por *push* (polling de 5 s/10 s) e sem testes de navegador automatizados (QA manual; a lógica fica coberta em `ui-core.test.js`).
 - **Webhook sem fila nem retry no A:** não há retentativa local no Sistema A porque o polling periódico com sobreposição é a garantia de entrega (ADR-005, cenário B2); o descarte de `A_WEBHOOK_DROP_RATE` é feito por sorteio uniforme em cada disparo.
 
 ## O que entra nas próximas issues do Épico E1
@@ -146,4 +179,3 @@ Erros seguem o formato do GLPI: `["ERROR_CODIGO", "Mensagem legível"]`.
 |---|---|
 | Acompanhamentos (`/Ticket/:id/ITILFollowup` e `POST /ITILFollowup`) | **S1.4 (#19)** |
 | Soluções (`ITILSolution`), preenchimento automático de `solvedate`/`closedate` e congelamento `409 ERROR_TICKET_FROZEN` nos status 5 e 6 | **S1.5 (#20)** |
-| Interface web de operação do Sistema A | **S1.6 (#21)** |
