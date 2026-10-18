@@ -7,5 +7,12 @@
   "engines": {
     "node": ">=20"
   },
-  "scripts": {}
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "better-sqlite3": "13.0.3",
+    "fastify": "5.12.7"
+  }
 }
