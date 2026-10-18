@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildServer } from '../../src/server.js';
 import { glpiError } from '../../src/tickets.js';
+import { buildTestServer, login } from '../helpers/session.js';
 
 test('glpiError formata erro como tupla [codigo, mensagem] de duas strings', async () => {
   assert.deepEqual(glpiError('ERROR_INVALID_INPUT', 'Campo inválido.'), [
@@ -9,7 +9,7 @@ test('glpiError formata erro como tupla [codigo, mensagem] de duas strings', asy
     'Campo inválido.',
   ]);
 
-  const app = buildServer({ dbPath: ':memory:' });
+  const app = buildTestServer();
   try {
     const res = await app.inject({
       method: 'GET',
@@ -28,16 +28,17 @@ test('glpiError formata erro como tupla [codigo, mensagem] de duas strings', asy
 });
 
 test('POST /apirest.php/Ticket cria chamado (201) e GET /apirest.php/Ticket/:id lê de volta (200)', async () => {
-  const app = buildServer({
-    dbPath: ':memory:',
+  const app = buildTestServer({
     timeZone: 'America/Sao_Paulo',
     now: () => Date.parse('2026-10-18T17:03:22Z'),
   });
 
   try {
+    const headers = await login(app, 'tecnico');
     const createRes = await app.inject({
       method: 'POST',
       url: '/apirest.php/Ticket',
+      headers,
       payload: {
         input: {
           name: 'Impressora do 3º andar não imprime',
@@ -73,6 +74,7 @@ test('POST /apirest.php/Ticket cria chamado (201) e GET /apirest.php/Ticket/:id 
     const getRes = await app.inject({
       method: 'GET',
       url: '/apirest.php/Ticket/1',
+      headers,
     });
 
     assert.equal(getRes.statusCode, 200);
@@ -81,6 +83,7 @@ test('POST /apirest.php/Ticket cria chamado (201) e GET /apirest.php/Ticket/:id 
     const notFoundRes = await app.inject({
       method: 'GET',
       url: '/apirest.php/Ticket/999',
+      headers,
     });
 
     assert.equal(notFoundRes.statusCode, 404);
@@ -94,8 +97,7 @@ test('listagem pagina 120 chamados em 0-49, 50-99 e 100-149 sem repetir nem pula
   // Múltiplos chamados no mesmo segundo testam o desempate por id em ORDER BY date_mod, id.
   let counter = 0;
   const baseEpoch = Date.parse('2026-10-18T15:00:00Z');
-  const app = buildServer({
-    dbPath: ':memory:',
+  const app = buildTestServer({
     timeZone: 'America/Sao_Paulo',
     now: () => {
       const offsetSeconds = Math.floor(counter / 4);
@@ -105,10 +107,12 @@ test('listagem pagina 120 chamados em 0-49, 50-99 e 100-149 sem repetir nem pula
   });
 
   try {
+    const headers = await login(app, 'tecnico');
     for (let i = 1; i <= 120; i += 1) {
       const res = await app.inject({
         method: 'POST',
         url: '/apirest.php/Ticket',
+        headers,
         payload: {
           input: {
             name: `Chamado #${i}`,
@@ -122,6 +126,7 @@ test('listagem pagina 120 chamados em 0-49, 50-99 e 100-149 sem repetir nem pula
     const page1 = await app.inject({
       method: 'GET',
       url: '/apirest.php/Ticket?range=0-49&sort=date_mod&order=ASC',
+      headers,
     });
     assert.equal(page1.statusCode, 206);
     assert.equal(page1.headers['content-range'], '0-49/120');
@@ -131,6 +136,7 @@ test('listagem pagina 120 chamados em 0-49, 50-99 e 100-149 sem repetir nem pula
     const page2 = await app.inject({
       method: 'GET',
       url: '/apirest.php/Ticket?range=50-99&sort=date_mod&order=ASC',
+      headers,
     });
     assert.equal(page2.statusCode, 206);
     assert.equal(page2.headers['content-range'], '50-99/120');
@@ -140,6 +146,7 @@ test('listagem pagina 120 chamados em 0-49, 50-99 e 100-149 sem repetir nem pula
     const page3 = await app.inject({
       method: 'GET',
       url: '/apirest.php/Ticket?range=100-149&sort=date_mod&order=ASC',
+      headers,
     });
     assert.equal(page3.statusCode, 206);
     assert.equal(page3.headers['content-range'], '100-119/120');
@@ -153,6 +160,7 @@ test('listagem pagina 120 chamados em 0-49, 50-99 e 100-149 sem repetir nem pula
     const outOfBounds = await app.inject({
       method: 'GET',
       url: '/apirest.php/Ticket?range=150-199',
+      headers,
     });
     assert.equal(outOfBounds.statusCode, 200);
     assert.equal(outOfBounds.headers['content-range'], '*/120');
@@ -170,17 +178,20 @@ test('filtra chamados por date_mod_gte de forma inclusiva no fuso do A e rejeita
   ];
   let idx = 0;
 
-  const app = buildServer({
-    dbPath: ':memory:',
+  const app = buildTestServer({
     timeZone: 'America/Sao_Paulo',
-    now: () => instants[idx++],
+    now: () => instants[Math.min(idx++, instants.length - 1)],
   });
 
   try {
+    const headers = await login(app, 'tecnico');
+    // Reset idx after login (login also calls now() for createSession)
+    idx = 0;
     for (let i = 1; i <= 3; i += 1) {
       await app.inject({
         method: 'POST',
         url: '/apirest.php/Ticket',
+        headers,
         payload: {
           input: {
             name: `Chamado ${i}`,
@@ -193,6 +204,7 @@ test('filtra chamados por date_mod_gte de forma inclusiva no fuso do A e rejeita
     const res = await app.inject({
       method: 'GET',
       url: '/apirest.php/Ticket',
+      headers,
       query: {
         date_mod_gte: '2026-10-18 14:05:00',
       },
@@ -212,6 +224,7 @@ test('filtra chamados por date_mod_gte de forma inclusiva no fuso do A e rejeita
     const invalidRes = await app.inject({
       method: 'GET',
       url: '/apirest.php/Ticket',
+      headers,
       query: {
         date_mod_gte: '2026-10-18T14:05:00Z',
       },
@@ -230,10 +243,9 @@ test('PUT /apirest.php/Ticket/:id atualiza campos parciais, renova date_mod sem 
   ];
   let idx = 0;
 
-  const app = buildServer({
-    dbPath: ':memory:',
+  const app = buildTestServer({
     timeZone: 'America/Sao_Paulo',
-    now: () => instants[idx++],
+    now: () => instants[Math.min(idx++, instants.length - 1)],
   });
 
   const events = [];
@@ -242,9 +254,12 @@ test('PUT /apirest.php/Ticket/:id atualiza campos parciais, renova date_mod sem 
   });
 
   try {
+    const headers = await login(app, 'tecnico');
+    idx = 0;
     const createRes = await app.inject({
       method: 'POST',
       url: '/apirest.php/Ticket',
+      headers,
       payload: {
         input: {
           name: 'Rede intermitente',
@@ -261,10 +276,12 @@ test('PUT /apirest.php/Ticket/:id atualiza campos parciais, renova date_mod sem 
     const created = createRes.json();
     assert.equal(created.date, '2026-10-18 13:50:00');
     assert.equal(created.date_mod, '2026-10-18 13:50:00');
+    assert.equal(created.users_id_recipient, 1);
 
     const updateRes = await app.inject({
       method: 'PUT',
       url: `/apirest.php/Ticket/${created.id}`,
+      headers,
       payload: {
         input: {
           status: 2,
@@ -289,13 +306,22 @@ test('PUT /apirest.php/Ticket/:id atualiza campos parciais, renova date_mod sem 
     assert.equal(updated.closedate, null);
 
     assert.deepEqual(events, [
-      { ticketId: 1, action: 'created' },
-      { ticketId: 1, action: 'updated' },
+      {
+        ticketId: 1,
+        action: 'created',
+        actor: { id: 1, login: 'tecnico', profile: 'tecnico' },
+      },
+      {
+        ticketId: 1,
+        action: 'updated',
+        actor: { id: 1, login: 'tecnico', profile: 'tecnico' },
+      },
     ]);
 
     const missingPut = await app.inject({
       method: 'PUT',
       url: '/apirest.php/Ticket/999',
+      headers,
       payload: { input: { status: 2 } },
     });
     assert.equal(missingPut.statusCode, 404);
@@ -306,16 +332,17 @@ test('PUT /apirest.php/Ticket/:id atualiza campos parciais, renova date_mod sem 
 });
 
 test('criar chamado devolve id, date e date_mod no fuso do A', async () => {
-  const app = buildServer({
-    dbPath: ':memory:',
+  const app = buildTestServer({
     timeZone: 'America/Sao_Paulo',
     now: () => Date.parse('2026-10-18T17:03:22Z'),
   });
 
   try {
+    const headers = await login(app, 'tecnico');
     const res = await app.inject({
       method: 'POST',
       url: '/apirest.php/Ticket',
+      headers,
       payload: {
         input: {
           name: 'Falha de VPN',
@@ -334,24 +361,25 @@ test('criar chamado devolve id, date e date_mod no fuso do A', async () => {
 });
 
 test('listagem pagina sem repetir nem pular', async () => {
-  const app = buildServer({
-    dbPath: ':memory:',
+  const app = buildTestServer({
     timeZone: 'America/Sao_Paulo',
     now: () => Date.parse('2026-10-18T17:00:00Z'),
   });
 
   try {
+    const headers = await login(app, 'tecnico');
     for (let i = 1; i <= 5; i += 1) {
       await app.inject({
         method: 'POST',
         url: '/apirest.php/Ticket',
+        headers,
         payload: { input: { name: `T${i}`, content: `C${i}` } },
       });
     }
 
-    const p1 = await app.inject({ method: 'GET', url: '/apirest.php/Ticket?range=0-1' });
-    const p2 = await app.inject({ method: 'GET', url: '/apirest.php/Ticket?range=2-3' });
-    const p3 = await app.inject({ method: 'GET', url: '/apirest.php/Ticket?range=4-5' });
+    const p1 = await app.inject({ method: 'GET', url: '/apirest.php/Ticket?range=0-1', headers });
+    const p2 = await app.inject({ method: 'GET', url: '/apirest.php/Ticket?range=2-3', headers });
+    const p3 = await app.inject({ method: 'GET', url: '/apirest.php/Ticket?range=4-5', headers });
 
     assert.equal(p1.statusCode, 206);
     assert.equal(p2.statusCode, 206);
@@ -371,16 +399,18 @@ test('PUT sem date_mod não reaproveita o valor antigo', async () => {
     Date.parse('2026-10-18T17:10:00Z'),
   ];
   let idx = 0;
-  const app = buildServer({
-    dbPath: ':memory:',
+  const app = buildTestServer({
     timeZone: 'America/Sao_Paulo',
-    now: () => instants[idx++],
+    now: () => instants[Math.min(idx++, instants.length - 1)],
   });
 
   try {
+    const headers = await login(app, 'tecnico');
+    idx = 0;
     const c = await app.inject({
       method: 'POST',
       url: '/apirest.php/Ticket',
+      headers,
       payload: { input: { name: 'A', content: 'B' } },
     });
     const before = c.json().date_mod;
@@ -388,6 +418,7 @@ test('PUT sem date_mod não reaproveita o valor antigo', async () => {
     const u = await app.inject({
       method: 'PUT',
       url: '/apirest.php/Ticket/1',
+      headers,
       payload: { input: { name: 'A editado' } },
     });
     const after = u.json().date_mod;
@@ -401,45 +432,54 @@ test('PUT sem date_mod não reaproveita o valor antigo', async () => {
 });
 
 test('rejeita entradas inválidas nas rotas com 400 ERROR_INVALID_INPUT e 404 ERROR_ITEM_NOT_FOUND', async () => {
-  const app = buildServer({ dbPath: ':memory:' });
+  const app = buildTestServer();
 
   try {
+    const headers = await login(app, 'tecnico');
     const cases400 = [
       {
         method: 'POST',
         url: '/apirest.php/Ticket',
+        headers,
         payload: { input: { name: 'Ok', content: 'Ok', status: 0 } },
       },
       {
         method: 'POST',
         url: '/apirest.php/Ticket',
+        headers,
         payload: { input: { name: 'Ok', content: 'Ok', status: 7 } },
       },
       {
         method: 'POST',
         url: '/apirest.php/Ticket',
+        headers,
         payload: { input: { name: 'Ok', content: 'Ok', unknown_field: true } },
       },
       {
         method: 'POST',
         url: '/apirest.php/Ticket',
+        headers,
         payload: { name: 'Sem envelope input' },
       },
       {
         method: 'GET',
         url: '/apirest.php/Ticket?range=50-10',
+        headers,
       },
       {
         method: 'GET',
         url: '/apirest.php/Ticket?range=0-500',
+        headers,
       },
       {
         method: 'GET',
         url: '/apirest.php/Ticket?date_mod_gte=invalido',
+        headers,
       },
       {
         method: 'GET',
         url: '/apirest.php/Ticket/0',
+        headers,
       },
     ];
 
@@ -456,6 +496,7 @@ test('rejeita entradas inválidas nas rotas com 400 ERROR_INVALID_INPUT e 404 ER
     const putWithoutId = await app.inject({
       method: 'PUT',
       url: '/apirest.php/Ticket',
+      headers,
       payload: { input: { status: 2 } },
     });
     assert.equal(putWithoutId.statusCode, 404);

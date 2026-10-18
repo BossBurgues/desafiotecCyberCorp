@@ -5,6 +5,7 @@ import {
   formatLocalDateTime,
   isGlpiDateTime,
   parseListQuery,
+  prepareNewTicket,
   touch,
   validateTicketInput,
 } from '../../src/tickets.js';
@@ -173,4 +174,24 @@ test('valida metadados de anexos com sha256 em hex de 64 caracteres', () => {
       }),
     TicketValidationError,
   );
+});
+
+test('prepareNewTicket assume defaultRecipientId quando users_id_recipient não é enviado e preserva quando enviado', () => {
+  const withDefault = prepareNewTicket(
+    { input: { name: 'Aberto pelo estagiário', content: 'Texto' } },
+    { defaultRecipientId: 2, now: () => Date.parse('2026-10-18T17:00:00Z') },
+  );
+  assert.equal(withDefault.users_id_recipient, 2);
+
+  const explicit = prepareNewTicket(
+    { input: { name: 'Em nome de outro', content: 'Texto', users_id_recipient: 9 } },
+    { defaultRecipientId: 2, now: () => Date.parse('2026-10-18T17:00:00Z') },
+  );
+  assert.equal(explicit.users_id_recipient, 9);
+
+  const explicitNull = prepareNewTicket(
+    { input: { name: 'Sem requerente', content: 'Texto', users_id_recipient: null } },
+    { defaultRecipientId: 2, now: () => Date.parse('2026-10-18T17:00:00Z') },
+  );
+  assert.equal(explicitNull.users_id_recipient, null);
 });

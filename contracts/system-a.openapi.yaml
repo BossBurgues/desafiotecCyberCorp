@@ -117,7 +117,7 @@ paths:
     post:
       operationId: createTicket
       summary: Abre um novo chamado no Sistema A
-      description: Permitido para os perfis Técnico e Estagiário (seção 6 do plano).
+      description: Permitido para Técnico e Estagiário; o `sync-bot` recebe 403 (seção 6 do plano).
       requestBody:
         required: true
         content:
@@ -143,6 +143,8 @@ paths:
                 $ref: '#/components/schemas/GlpiError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /Ticket/{id}:
     parameters:
       - $ref: '#/components/parameters/TicketId'
