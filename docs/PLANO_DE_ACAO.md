@@ -7,10 +7,66 @@
 
 > **Como usar este plano (pessoa ou LLM executora)**
 > 1. Trabalhe **issue por issue** no GitHub, respeitando as dependências *blocked by*. Uma issue só começa quando todas as que a bloqueiam estão fechadas.
-> 2. **Uma branch por milestone** (`milestone/M0-fundacao`, …). Cada atualização = commit pequeno (Conventional Commits) + push + PR para a `Dev` que fecha a issue (`Closes #n`). A `Dev` faz deploy em homologação; a `Prod` recebe um PR de release por milestone e faz deploy em produção. Ver seções 14.1 e 14.2.
+> 2. **Uma branch por milestone** (`milestone/M0-fundacao`, …). Cada atualização = commit pequeno (Conventional Commits) + push + PR para a `Dev` que fecha a issue (`Closes #n`). A `Dev` roda a CI (sem deploy, ver seção 0); a `Prod` recebe um PR de release por milestone e faz deploy em produção. Ver seções 14.1 e 14.2.
 > 3. Ao terminar cada issue: CI verde, `docs/how-it-works.md` atualizado e uma **explicação em linguagem simples** no PR (o que foi feito, por quê, como testar e qual garantia protege).
 > 4. Ao terminar cada milestone, **pare e explique** antes de seguir.
 > 5. Toda decisão abaixo foi tomada de propósito (sessão de *grilling*). Não mude nada sem registrar um ADR novo.
+
+---
+
+## 0. ⚠️ Escopo revisado em 18/10 (prevalece sobre o resto do documento)
+
+O plano original cresceu além do que o desafio pede. Com o prazo de 22/10, a estratégia passa a ser: **entregar o núcleo A → B à prova de caos, publicado e bem documentado**, e transformar o resto em **desenho documentado** (ADRs + `out-of-scope.md`). O próprio enunciado valoriza mais o raciocínio do que uma solução completa, e o avaliador confirmou que o B → A é opcional.
+
+### 0.1 O que já está pronto e é aproveitado
+
+| Área | Entregue | Issues |
+|---|---|---|
+| Fundação | Monorepo, CI com detecção por app, Dev/Prod protegidas, 12 ADRs, contratos OpenAPI | M0 inteira |
+| Sistema A | API estilo GLPI, perfis (Técnico/Estagiário/sync-bot), webhook HMAC com perda simulada, UI, Docker | S1.1, S1.2, S1.3, S1.6, S1.7 |
+| Sistema B | API do contrato mínimo, **caos completo**, UI do operador, admin, testes e Docker | S2.1, S2.2, S2.4, S2.5, S2.6 |
+| Sync | Bootstrap, domínio puro (mapper, hash, fuso, marcador), fila com lease/backoff/DLQ, adapter do B com circuit breaker | S3.1, S3.2, S3.3, S3.5 |
+| Sync (PR #163 aberto) | processJob idempotente com marcador, webhook + poller | S3.4, S3.6 |
+| Infra e docs | Compose completo, architecture.md, field-mapping.md, how-it-works.md, out-of-scope.md | S4.1, S9.2, S9.5 |
+
+Também é aproveitado o **desenho completo do B → A** (ADRs 006, 007, 009 e 011, seções 5.1 e 5.2): ele responde às duas perguntas do avaliador mesmo sem estar implementado.
+
+### 0.2 O que falta (o novo escopo inteiro)
+
+| # | Issue | Por que fica |
+|---|---|---|
+| 1 | **S3.4 + S3.6** (PR #163) | O coração: sem eles não há sincronização |
+| 2 | **S3.8** Verificação pós-escrita + 404 | Barata e fecha o "B diz que gravou e não gravou" (perda) |
+| 3 | **S3.10** Dashboard: fila, DLQ com reprocessar, controles de caos | É a tela da demo de caos |
+| 4 | **S5.3** Login no dashboard (movida para a M1) | A URL é pública e o caos não pode ficar aberto |
+| 5 | **S4.2** CI com E2E | Prova as garantias a cada PR |
+| 6 | **S4.3 + S4.4** VM + deploy, **um único ambiente** (produção, a partir da `Prod`) | Entregável obrigatório: URL publicada. A `Dev` fica só com a CI |
+| 7 | **14 cenários** do núcleo | A1, A2, A4, A6, B1, B2, B3, B5, B6, B10, C1, E4, H1, H2 |
+| 8 | **M5:** README, how-it-works final, runbook curto, timelog, roteiro + vídeo, entrega | Entregáveis do enunciado |
+
+### 0.3 O que sai (fechado como *not planned*, label `out-of-scope`, explicado no `out-of-scope.md`)
+
+| Sai | Motivo |
+|---|---|
+| **M3 inteiro (B → A):** propostas, aprovação, congelamento, exclusão em 2 passos, anti-eco, concorrência A×B (S1.5, S2.7, S6.1–S6.9) | Opcional segundo o avaliador. O desenho fica nos ADRs 006, 007, 009 e 011 |
+| **M4 inteiro:** notas nos dois sentidos, comentários no B, localização, mocks de alertas, anexos, de-para e SLA (S1.4, S2.3, S7.1–S7.7) | Não fazem parte do A → B obrigatório |
+| **M2, exceto o login:** audit_log append-only, linha do tempo, scans de segurança (S5.1, S5.2, S5.4) | Os logs JSON com `correlation_id` já existentes bastam para a demo |
+| **Luxos da M1:** teste de capacidade do marcador (S3.7), auditor anti-entropia (S3.9) | A verificação pós-escrita (S3.8) cobre o essencial do auditor |
+| **Segundo ambiente** (homologação em `dev.<host>`) | Um deploy só (produção). A `Dev` continua sendo a branch de integração com CI |
+| **Cenários fora do núcleo** (de 61 para 14) | Os que sobram provam as 3 garantias. Os demais dependiam do que foi cortado ou eram variações |
+
+### 0.4 Novo cronograma
+
+| Dia | Entrega |
+|---|---|
+| 18/10 (dom) | Merge do PR #163 (S3.4 + S3.6) |
+| 19/10 (seg) | S3.8 · S3.10 + S5.3 · cenários do núcleo em E2E (S4.2) |
+| 20/10 (ter) | S4.3 + S4.4: **URL publicada** · ensaio da demo de caos |
+| 21/10 (qua) | M5: README, how-it-works, runbook, timelog, roteiro e vídeo |
+| 22/10 (qui) | **Entrega** |
+| 23/10 (sex) | Reserva |
+
+**Regra de corte:** se a URL não estiver no ar no fim de 20/10, o E2E na CI (S4.2) vira teste local documentado e todo o esforço vai para o deploy.
 
 ---
 
