@@ -1,7 +1,37 @@
+using System.Text.Json;
+using SystemB.Api.Endpoints;
+using SystemB.Api.Models;
+using SystemB.Api.Storage;
+
 var builder = WebApplication.CreateBuilder(args);
+
+builder.WebHost.UseUrls(builder.Configuration["ASPNETCORE_URLS"] ?? "http://0.0.0.0:5002");
+
+builder.Services.ConfigureHttpJsonOptions(o =>
+{
+    var d = JsonDefaults.Options;
+    o.SerializerOptions.PropertyNamingPolicy = d.PropertyNamingPolicy;
+    o.SerializerOptions.DefaultIgnoreCondition = d.DefaultIgnoreCondition;
+    o.SerializerOptions.Encoder = d.Encoder;
+    foreach (var c in d.Converters) o.SerializerOptions.Converters.Add(c);
+});
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IRecordStore>(_ =>
+    new SqliteRecordStore(builder.Configuration["B_DB_PATH"] ?? "./data/system-b.db"));
+
 var app = builder.Build();
 
+app.UseExceptionHandler(errorApp => errorApp.Run(async ctx =>
+{
+    ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
+    await ctx.Response.WriteAsJsonAsync(new ApiError(ApiError.Internal, "Erro interno do Sistema B"));
+}));
+
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapRecords();
+app.MapOperator();
+
+app.MapFallback(() => Results.Json(new ApiError(ApiError.NotFound, "Rota não encontrada"), statusCode: 404));
 
 app.Run();
 
