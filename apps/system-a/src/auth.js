@@ -159,6 +159,18 @@ export function validateAppTokenHeader(headerValue, expectedAppToken) {
   }
 }
 
+export function validateSessionTokenHeader(headerValue, store) {
+  if (typeof headerValue !== 'string' || headerValue.trim() === '') {
+    throw new AuthError('ERROR_SESSION_TOKEN_MISSING', 'Cabeçalho Session-Token ausente.', 401);
+  }
+  const token = headerValue.trim();
+  const user = store.getSessionUser(token);
+  if (!user) {
+    throw new AuthError('ERROR_SESSION_TOKEN_INVALID', 'Cabeçalho Session-Token inválido.', 401);
+  }
+  return { token, user };
+}
+
 export function hashPassword(plain, saltHex = crypto.randomBytes(16).toString('hex')) {
   const derived = crypto.scryptSync(String(plain), Buffer.from(saltHex, 'hex'), 64);
   return `scrypt$${saltHex}$${derived.toString('hex')}`;

@@ -1,6 +1,14 @@
 import { pathToFileURL } from 'node:url';
 import Fastify from 'fastify';
-import { loadAuthConfig } from './auth.js';
+import {
+  AuthError,
+  hashToken,
+  loadAuthConfig,
+  parseAuthorization,
+  validateAppTokenHeader,
+  validateSessionTokenHeader,
+  verifyPassword,
+} from './auth.js';
 import { DEFAULT_DB_PATH, TicketStore } from './store.js';
 import {
   DEFAULT_TIMEZONE,
@@ -62,6 +70,42 @@ export function buildServer({
 
   app.register(
     async (api) => {
+      api.get('/initSession', async (request) => {
+        validateAppTokenHeader(request.headers['app-token'], authConfig.appToken);
+        const parsed = parseAuthorization(request.headers.authorization);
+
+        if (parsed.kind === 'basic') {
+          const user = store.findUserByLogin(parsed.login);
+          if (!user || !user.password_hash || !verifyPassword(parsed.password, user.password_hash)) {
+            throw new AuthError('ERROR_GLPI_LOGIN', 'Credenciais de login inválidas.', 401, {
+              login: parsed.login,
+              userId: user?.id ?? null,
+              profile: user?.profile ?? null,
+            });
+          }
+          const sessionToken = store.createSession(user.id, now);
+          return { session_token: sessionToken };
+        }
+
+        const user = store.findUserByApiTokenHash(hashToken(parsed.token));
+        if (!user) {
+          throw new AuthError(
+            'ERROR_GLPI_LOGIN_USER_TOKEN',
+            'Token de usuário inválido.',
+            401,
+          );
+        }
+        const sessionToken = store.createSession(user.id, now);
+        return { session_token: sessionToken };
+      });
+
+      api.get('/killSession', async (request, reply) => {
+        validateAppTokenHeader(request.headers['app-token'], authConfig.appToken);
+        const { token } = validateSessionTokenHeader(request.headers['session-token'], store);
+        store.deleteSession(token);
+        return reply.code(200).send();
+      });
+
       api.get('/Ticket', async (request, reply) => {
         const { offset, start, limit, sort, order, dateModGte } = parseListQuery(request.query);
         const total = store.count({ dateModGte });
