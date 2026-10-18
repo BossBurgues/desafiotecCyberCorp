@@ -222,3 +222,85 @@ test('filtra chamados por date_mod_gte de forma inclusiva no fuso do A e rejeita
     await app.close();
   }
 });
+
+test('PUT /apirest.php/Ticket/:id atualiza campos parciais, renova date_mod sem reaproveitar o antigo e emite ticket.changed', async () => {
+  const instants = [
+    Date.parse('2026-10-18T16:50:00Z'), // 13:50:00 em America/Sao_Paulo
+    Date.parse('2026-10-18T17:03:22Z'), // 14:03:22 em America/Sao_Paulo
+  ];
+  let idx = 0;
+
+  const app = buildServer({
+    dbPath: ':memory:',
+    timeZone: 'America/Sao_Paulo',
+    now: () => instants[idx++],
+  });
+
+  const events = [];
+  app.emitter.on('ticket.changed', (payload) => {
+    events.push(payload);
+  });
+
+  try {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/apirest.php/Ticket',
+      payload: {
+        input: {
+          name: 'Rede intermitente',
+          content: '<p>Oscilação no switch.</p>',
+          status: 1,
+          priority: 3,
+          itilcategories_id: 2,
+          locations_id: 4,
+          solvedate: '2026-10-18 13:55:00',
+        },
+      },
+    });
+    assert.equal(createRes.statusCode, 201);
+    const created = createRes.json();
+    assert.equal(created.date, '2026-10-18 13:50:00');
+    assert.equal(created.date_mod, '2026-10-18 13:50:00');
+
+    const updateRes = await app.inject({
+      method: 'PUT',
+      url: `/apirest.php/Ticket/${created.id}`,
+      payload: {
+        input: {
+          status: 2,
+          priority: 5,
+          users_id_assign: 1,
+        },
+      },
+    });
+
+    assert.equal(updateRes.statusCode, 200);
+    const updated = updateRes.json();
+    assert.equal(updated.id, created.id);
+    assert.equal(updated.name, 'Rede intermitente');
+    assert.equal(updated.status, 2);
+    assert.equal(updated.priority, 5);
+    assert.equal(updated.users_id_assign, 1);
+    assert.equal(updated.itilcategories_id, 2);
+    assert.equal(updated.locations_id, 4);
+    assert.equal(updated.date, '2026-10-18 13:50:00');
+    assert.equal(updated.date_mod, '2026-10-18 14:03:22');
+    assert.equal(updated.solvedate, '2026-10-18 13:55:00');
+    assert.equal(updated.closedate, null);
+
+    assert.deepEqual(events, [
+      { ticketId: 1, action: 'created' },
+      { ticketId: 1, action: 'updated' },
+    ]);
+
+    const missingPut = await app.inject({
+      method: 'PUT',
+      url: '/apirest.php/Ticket/999',
+      payload: { input: { status: 2 } },
+    });
+    assert.equal(missingPut.statusCode, 404);
+    assert.equal(missingPut.json()[0], 'ERROR_ITEM_NOT_FOUND');
+  } finally {
+    await app.close();
+  }
+});

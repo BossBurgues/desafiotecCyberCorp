@@ -1,3 +1,5 @@
+import { EventEmitter } from 'node:events';
+
 const GLPI_DATETIME_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
@@ -204,17 +206,23 @@ export function extractInputEnvelope(body) {
   return body.input;
 }
 
+export function createTicketEmitter() {
+  return new EventEmitter();
+}
+
 export function prepareNewTicket(body, { now = Date.now, timeZone = DEFAULT_TIMEZONE } = {}) {
   const rawInput = extractInputEnvelope(body);
   const validated = validateTicketInput(rawInput, { partial: false });
-  const instant = typeof now === 'function' ? now() : now;
-  const formatted = formatLocalDateTime(instant, timeZone);
+  const ticket = { ...validated };
+  touch(ticket, now, timeZone);
+  ticket.date = ticket.date_mod;
+  return ticket;
+}
 
-  return {
-    ...validated,
-    date: formatted,
-    date_mod: formatted,
-  };
+export function prepareTicketUpdate(body, { now = Date.now, timeZone = DEFAULT_TIMEZONE } = {}) {
+  const rawInput = extractInputEnvelope(body);
+  const validated = validateTicketInput(rawInput, { partial: true });
+  return touch(validated, now, timeZone);
 }
 
 export function parseTicketId(rawId) {
