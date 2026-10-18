@@ -480,3 +480,156 @@ views.detail = {
 $('edit-toggle').addEventListener('click', () => toggleEdit($('edit-form').hidden));
 $('edit-cancel').addEventListener('click', () => toggleEdit(false));
 $('edit-form').addEventListener('submit', onSaveTicket);
+
+// ---------- conversa (S1.4) e aprovações (S1.5) ----------
+// Cada seção liga sozinha quando o servidor informa a rota em config.features.
+
+let renderedPendingKey = null;
+
+function bubble(item) {
+  const classes = ['bubble'];
+  if (item.kind !== 'note') {
+    classes.push('event');
+  } else if (item.author.icon === '🏢') {
+    classes.push('from-b');
+  } else if (item.author.icon === '🤖') {
+    classes.push('bot');
+  }
+  let title = `${item.author.icon} ${item.author.label} · ${item.date}`;
+  if (item.kind === 'solution') {
+    title += ` · solução proposta (${core.solutionStatusLabel(item.status)})`;
+  }
+  if (item.private) {
+    title += ' · privada';
+  }
+  return el(
+    'li',
+    { className: classes.join(' ') },
+    el('div', { className: 'who-line', text: title }),
+    el('div', { className: 'text', text: item.text }),
+  );
+}
+
+function renderPending(solution, notice) {
+  const box = $('detail-pending');
+  const key = notice ? 'notice' : solution ? `${solution.id}` : 'none';
+  if (key === renderedPendingKey) {
+    return;
+  }
+  renderedPendingKey = key;
+  if (notice) {
+    box.replaceChildren(el('p', { className: 'notice', text: notice }));
+    return;
+  }
+  if (!solution) {
+    box.replaceChildren();
+    return;
+  }
+
+  const author = core.authorOf(solution);
+  const card = el(
+    'section',
+    { className: 'card pending' },
+    el('h2', { text: '⏳ Solução aguardando aprovação' }),
+    el('div', { className: 'meta', text: `${author.icon} ${author.label} · ${solution.date_creation}` }),
+    el('p', { text: core.stripMarkers(solution.content) }),
+  );
+
+  if (!core.canDecide(state.session.profile)) {
+    card.append(el('p', { className: 'hint', text: 'Aguardando aprovação de um Técnico.' }));
+    box.replaceChildren(card);
+    return;
+  }
+
+  const error = el('div', { className: 'banner error', role: 'alert' });
+  error.hidden = true;
+  const reason = el('textarea', { rows: '2', placeholder: 'Motivo (obrigatório para recusar)' });
+  const decide = async (status, button) => {
+    const input = { status };
+    if (status === 4) {
+      if (!reason.value.trim()) {
+        showBanner(error, 'Informe o motivo para recusar a solução.');
+        reason.focus();
+        return;
+      }
+      input.content = reason.value.trim();
+    }
+    button.disabled = true;
+    showBanner(error, '');
+    try {
+      await api('PUT', `/ITILSolution/${solution.id}`, { input });
+      renderedPendingKey = null;
+      await refreshDetail();
+    } catch (err) {
+      showBanner(error, describe(err, 'aprovar ou recusar soluções'));
+    } finally {
+      button.disabled = false;
+    }
+  };
+  const approve = el('button', { type: 'button', text: 'Aprovar' });
+  const refuse = el('button', { type: 'button', className: 'danger', text: 'Recusar' });
+  approve.addEventListener('click', () => decide(3, approve));
+  refuse.addEventListener('click', () => decide(4, refuse));
+  card.append(error, el('label', { text: 'Motivo da recusa' }, reason), el('div', { className: 'actions' }, approve, refuse));
+  box.replaceChildren(card);
+}
+
+async function renderConversation(ticket) {
+  const { followups: hasFollowups, solutions: hasSolutions } = state.config.features;
+  const [followups, solutions] = await Promise.all([
+    hasFollowups ? api('GET', `/Ticket/${ticket.id}/ITILFollowup`) : [],
+    hasSolutions ? api('GET', `/Ticket/${ticket.id}/ITILSolution`) : [],
+  ]);
+  if (state.detailId !== ticket.id) {
+    return;
+  }
+
+  renderPending(
+    core.pendingSolution(solutions || []),
+    hasSolutions ? null : 'Aprovações disponíveis quando a S1.5 (#20) entrar.',
+  );
+
+  $('conversation-off').hidden = hasFollowups;
+  $('note-form').hidden = !(hasFollowups && core.canAddNote(state.session.profile));
+  const items = core.buildTimeline(followups || [], solutions || []);
+  $('timeline').replaceChildren(...items.map(bubble));
+  if (hasFollowups && items.length === 0) {
+    $('timeline').append(el('li', { className: 'hint', text: 'Nenhuma nota ainda.' }));
+  }
+}
+
+async function onAddNote(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const content = form.content.value.trim();
+  if (!content) {
+    return;
+  }
+  const button = form.querySelector('button[type=submit]');
+  button.disabled = true;
+  showBanner($('note-error'), '');
+  try {
+    await api('POST', '/ITILFollowup', {
+      input: { itemtype: 'Ticket', items_id: state.detailId, content },
+    });
+    form.reset();
+    await refreshDetail();
+  } catch (err) {
+    showBanner($('note-error'), describe(err, 'adicionar notas'));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+const enterDetail = views.detail.enter;
+views.detail.enter = async (params) => {
+  if (state.detailId !== params.id) {
+    renderedPendingKey = null;
+    $('timeline').replaceChildren();
+    $('detail-pending').replaceChildren();
+  }
+  await enterDetail(params);
+};
+
+detailExtensions.push(renderConversation);
+$('note-form').addEventListener('submit', onAddNote);
