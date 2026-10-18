@@ -193,3 +193,24 @@ test('respostas de POST, GET, PUT, listagem, initSession e erros 401/403/404 res
     await app.close();
   }
 });
+
+test('GET /health respeita o contrato (200 e 503)', async () => {
+  const ajv = new Ajv2020({ strict: false, allErrors: true });
+  const responses = openapiDoc.paths['/health'].get.responses;
+  const validate200 = ajv.compile(responses['200'].content['application/json'].schema);
+  const validate503 = ajv.compile(responses['503'].content['application/json'].schema);
+
+  const app = buildTestServer();
+  try {
+    const ok = await app.inject({ method: 'GET', url: '/health' });
+    assert.equal(ok.statusCode, 200);
+    assert.equal(validate200(ok.json()), true, ajv.errorsText(validate200.errors));
+
+    app.store.close();
+    const down = await app.inject({ method: 'GET', url: '/health' });
+    assert.equal(down.statusCode, 503);
+    assert.equal(validate503(down.json()), true, ajv.errorsText(validate503.errors));
+  } finally {
+    await app.close().catch(() => {});
+  }
+});

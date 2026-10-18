@@ -122,6 +122,17 @@ export function buildServer({
   app.decorateRequest('user', null);
   app.decorateRequest('sessionToken', null);
 
+  // Fora do prefixo /apirest.php: não passa pelo preHandler de sessão (usado pelo healthcheck do container).
+  app.get('/health', async (request, reply) => {
+    try {
+      store.ping();
+      return { status: 'ok' };
+    } catch (err) {
+      request.log.error({ err }, 'health: banco indisponível');
+      return reply.code(503).send({ status: 'error' });
+    }
+  });
+
   app.register(
     async (api) => {
       api.addHook('preHandler', async (request) => {
@@ -282,4 +293,21 @@ if (isMain) {
     server.log.error(err);
     process.exit(1);
   });
+
+  for (const signal of ['SIGTERM', 'SIGINT']) {
+    process.once(signal, () => {
+      server.log.info({ signal }, 'encerrando');
+      const timer = setTimeout(() => process.exit(1), 10_000).unref();
+      server.close().then(
+        () => {
+          clearTimeout(timer);
+          process.exit(0);
+        },
+        (err) => {
+          server.log.error(err);
+          process.exit(1);
+        },
+      );
+    });
+  }
 }

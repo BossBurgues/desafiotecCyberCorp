@@ -84,6 +84,23 @@ curl -i http://localhost:3001/apirest.php/killSession \
 
 Toda resposta `401` ou `403` é gravada na tabela `access_denials` do SQLite (protegida por triggers `BEFORE UPDATE` e `BEFORE DELETE` append-only) com `occurred_at` em UTC ISO 8601 (`Z`), `status`, `error_code`, `user_id`, `login`, `profile`, `action`, `method`, `url`, `ticket_id` e `origin_ip`, além de linha `warn` no log do Fastify (sem expor senhas ou tokens).
 
+## Container (S1.7 · #22)
+
+Build na **raiz do repositório** (o `package-lock.json` é do monorepo):
+
+```bash
+docker build -f apps/system-a/Dockerfile -t system-a .
+docker run -d --env-file .env -p 3001:3001 -v system-a-data:/data system-a
+curl http://localhost:3001/health   # {"status":"ok"}
+```
+
+- Imagem multi-stage (`node:20-bookworm-slim`), processo como usuário `node` (não root) e código somente leitura; o único diretório gravável é `/data` (SQLite em `/data/system-a.db`).
+- `NODE_ENV=production` é fixo na imagem: sem as 4 credenciais (`A_APP_TOKEN`, `A_TECNICO_PASSWORD`, `A_ESTAGIARIO_PASSWORD`, `A_SYNC_BOT_TOKEN`) o container não sobe. Nenhuma credencial vai na imagem.
+- `GET /health` (sem autenticação, fora de `/apirest.php`) confere o SQLite; é usado pelo `HEALTHCHECK`.
+- `SIGTERM`/`SIGINT` fecham o servidor e o banco e saem com código 0.
+- Smoke local: `bash infra/scripts/smoke-system-a.sh system-a`.
+- No Windows o `shutdown.test.js` é pulado (SIGTERM mata o processo sem handler); a CI (Linux) roda.
+
 ## Endpoints implementados (S1.1 · #16 e S1.2 · #17)
 
 | Método | Rota | Descrição |
@@ -93,6 +110,7 @@ Toda resposta `401` ou `403` é gravada na tabela `access_denials` do SQLite (pr
 | `POST` | `/apirest.php/Ticket` | Cria chamado a partir de `{ "input": { ... } }` (`201`). `name` e `content` obrigatórios; `status` assume `1`, `priority` assume `3` e `users_id_recipient` assume o usuário da sessão quando omitidos |
 | `GET` | `/apirest.php/Ticket/:id` | Lê chamado por ID (`200`) ou retorna `404` `["ERROR_ITEM_NOT_FOUND", "..."]` |
 | `GET` | `/apirest.php/Ticket` | Lista chamados com `range=<início>-<fim>` (padrão `0-49`, máx. `500`), `sort=date_mod\|id`, `order=ASC\|DESC` e filtro opcional `date_mod_gte=YYYY-MM-DD HH:MM:SS`. Retorna cabeçalho `Content-Range` (`200` ou `206`) |
+| `GET` | `/health` | Saúde do Sistema A, sem autenticação (`200 {"status":"ok"}` ou `503`) |
 | `PUT` | `/apirest.php/Ticket/:id` | Atualiza campos parciais via `{ "input": { ... } }`, recalcula `date_mod` no fuso `A_TIMEZONE` e emite o evento interno `ticket.changed` com `{ ticketId, action, actor }` |
 
 Erros seguem o formato do GLPI: `["ERROR_CODIGO", "Mensagem legível"]`.
@@ -112,4 +130,3 @@ Erros seguem o formato do GLPI: `["ERROR_CODIGO", "Mensagem legível"]`.
 | Acompanhamentos (`/Ticket/:id/ITILFollowup` e `POST /ITILFollowup`) | **S1.4 (#19)** |
 | Soluções (`ITILSolution`), preenchimento automático de `solvedate`/`closedate` e congelamento `409 ERROR_TICKET_FROZEN` nos status 5 e 6 | **S1.5 (#20)** |
 | Interface web de operação do Sistema A | **S1.6 (#21)** |
-| Dockerfile e suíte final do container do Sistema A | **S1.7 (#22)** |
