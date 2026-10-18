@@ -168,13 +168,23 @@ export class TicketStore {
   }
 
   // Desempate por id garante ordem estável quando dois chamados empatam no mesmo segundo de date_mod.
-  list({ offset = 0, limit = 50, sort = 'date_mod', order = 'ASC' } = {}) {
+  // Ambos date_mod e date_mod_gte estão em YYYY-MM-DD HH:MM:SS no fuso do A, permitindo comparação lexical direta.
+  list({ offset = 0, limit = 50, sort = 'date_mod', order = 'ASC', dateModGte = null } = {}) {
     const safeSort = sort === 'id' ? 'id' : 'date_mod';
     const safeOrder = order === 'DESC' ? 'DESC' : 'ASC';
     const orderBy =
       safeSort === 'date_mod'
         ? `date_mod ${safeOrder}, id ${safeOrder}`
         : `id ${safeOrder}`;
+
+    if (dateModGte !== null && dateModGte !== undefined) {
+      const rows = this.db
+        .prepare(
+          `SELECT * FROM tickets WHERE date_mod >= ? ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+        )
+        .all(dateModGte, limit, offset);
+      return rows.map(rowToTicket);
+    }
 
     const rows = this.db
       .prepare(`SELECT * FROM tickets ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
@@ -183,7 +193,13 @@ export class TicketStore {
     return rows.map(rowToTicket);
   }
 
-  count() {
+  count({ dateModGte = null } = {}) {
+    if (dateModGte !== null && dateModGte !== undefined) {
+      const row = this.db
+        .prepare('SELECT COUNT(*) AS total FROM tickets WHERE date_mod >= ?')
+        .get(dateModGte);
+      return row.total;
+    }
     const row = this.db.prepare('SELECT COUNT(*) AS total FROM tickets').get();
     return row.total;
   }

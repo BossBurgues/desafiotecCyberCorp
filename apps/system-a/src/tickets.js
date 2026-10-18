@@ -259,7 +259,17 @@ export function parseListQuery(query = {}) {
     throw new TicketValidationError('O parâmetro order deve ser "ASC" ou "DESC".');
   }
 
-  return { offset: start, start, end, limit, sort, order };
+  let dateModGte = null;
+  if (query.date_mod_gte !== undefined) {
+    if (!isGlpiDateTime(query.date_mod_gte)) {
+      throw new TicketValidationError(
+        'O parâmetro date_mod_gte deve estar no formato YYYY-MM-DD HH:MM:SS.',
+      );
+    }
+    dateModGte = query.date_mod_gte;
+  }
+
+  return { offset: start, start, end, limit, sort, order, dateModGte };
 }
 
 export function buildListMeta({ start, count, total }) {

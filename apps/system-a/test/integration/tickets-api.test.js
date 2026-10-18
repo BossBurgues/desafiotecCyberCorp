@@ -161,3 +161,64 @@ test('listagem pagina 120 chamados em 0-49, 50-99 e 100-149 sem repetir nem pula
     await app.close();
   }
 });
+
+test('filtra chamados por date_mod_gte de forma inclusiva no fuso do A e rejeita formato inválido', async () => {
+  const instants = [
+    Date.parse('2026-10-18T17:00:00Z'), // 14:00:00 em America/Sao_Paulo
+    Date.parse('2026-10-18T17:05:00Z'), // 14:05:00 em America/Sao_Paulo
+    Date.parse('2026-10-18T17:10:00Z'), // 14:10:00 em America/Sao_Paulo
+  ];
+  let idx = 0;
+
+  const app = buildServer({
+    dbPath: ':memory:',
+    timeZone: 'America/Sao_Paulo',
+    now: () => instants[idx++],
+  });
+
+  try {
+    for (let i = 1; i <= 3; i += 1) {
+      await app.inject({
+        method: 'POST',
+        url: '/apirest.php/Ticket',
+        payload: {
+          input: {
+            name: `Chamado ${i}`,
+            content: `Texto ${i}`,
+          },
+        },
+      });
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/apirest.php/Ticket',
+      query: {
+        date_mod_gte: '2026-10-18 14:05:00',
+      },
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.headers['content-range'], '0-1/2');
+    const items = res.json();
+    assert.deepEqual(
+      items.map((t) => ({ id: t.id, date_mod: t.date_mod })),
+      [
+        { id: 2, date_mod: '2026-10-18 14:05:00' },
+        { id: 3, date_mod: '2026-10-18 14:10:00' },
+      ],
+    );
+
+    const invalidRes = await app.inject({
+      method: 'GET',
+      url: '/apirest.php/Ticket',
+      query: {
+        date_mod_gte: '2026-10-18T14:05:00Z',
+      },
+    });
+    assert.equal(invalidRes.statusCode, 400);
+    assert.equal(invalidRes.json()[0], 'ERROR_INVALID_INPUT');
+  } finally {
+    await app.close();
+  }
+});

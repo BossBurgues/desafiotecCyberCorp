@@ -53,10 +53,10 @@ export function buildServer({
   app.register(
     async (api) => {
       api.get('/Ticket', async (request, reply) => {
-        const { offset, start, limit, sort, order } = parseListQuery(request.query);
-        const total = store.count();
+        const { offset, start, limit, sort, order, dateModGte } = parseListQuery(request.query);
+        const total = store.count({ dateModGte });
         const items =
-          start >= total ? [] : store.list({ offset, limit, sort, order });
+          start >= total ? [] : store.list({ offset, limit, sort, order, dateModGte });
         const { statusCode, contentRange } = buildListMeta({
           start,
           count: items.length,
