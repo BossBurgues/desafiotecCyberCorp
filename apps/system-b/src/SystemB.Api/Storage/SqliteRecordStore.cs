@@ -99,11 +99,12 @@ public sealed class SqliteRecordStore : IRecordStore
         return Models.Record.From(id, input, createdAt, now);
     }
 
-    public IReadOnlyList<Models.Record> List(int offset, int limit)
+    public IReadOnlyList<Models.Record> List(int offset, int limit, string? createdAtOrBefore = null)
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT {Columns} FROM records ORDER BY seq ASC LIMIT $l OFFSET $o";
+        cmd.CommandText = $"SELECT {Columns} FROM records WHERE ($c IS NULL OR created_at <= $c) ORDER BY seq ASC LIMIT $l OFFSET $o";
+        cmd.Parameters.AddWithValue("$c", (object?)createdAtOrBefore ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$l", limit);
         cmd.Parameters.AddWithValue("$o", offset);
         using var r = cmd.ExecuteReader();
@@ -112,11 +113,13 @@ public sealed class SqliteRecordStore : IRecordStore
         return items;
     }
 
-    public int Count()
+    public int Count(string? createdAtOrBefore = null)
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM records";
+        // created_at é ISO 8601 em UTC com milissegundos fixos: a comparação de texto respeita a ordem do tempo
+        cmd.CommandText = "SELECT COUNT(*) FROM records WHERE ($c IS NULL OR created_at <= $c)";
+        cmd.Parameters.AddWithValue("$c", (object?)createdAtOrBefore ?? DBNull.Value);
         return (int)(long)cmd.ExecuteScalar()!;
     }
 

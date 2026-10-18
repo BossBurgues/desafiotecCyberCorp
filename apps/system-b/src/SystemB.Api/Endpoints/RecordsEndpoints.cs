@@ -1,4 +1,5 @@
 using System.Text.Json;
+using SystemB.Api.Chaos;
 using SystemB.Api.Models;
 using SystemB.Api.Storage;
 using SystemB.Api.Validation;
@@ -54,9 +55,12 @@ public static class RecordsEndpoints
             if (!TryInt(req.Query["pageSize"], 50, 1, 200, out var pageSize))
                 return ErrorResults.BadRequest("pageSize deve ser um inteiro entre 1 e 200");
 
-            var offset = (long)(page - 1) * pageSize;
-            var items = offset > int.MaxValue ? [] : store.List((int)offset, pageSize);
-            return Results.Json(new RecordPage(items, page, pageSize, store.Count()), JsonDefaults.Options);
+            // Distorções do caos (paginação instável e atraso de listagem); fora de /api/v2 não existem
+            var chaos = req.HttpContext.Features.Get<ListChaos>();
+            var offset = Math.Max(0, (long)(page - 1) * pageSize + (chaos?.OffsetShift ?? 0));
+            var cutoff = chaos?.CreatedAtOrBefore;
+            var items = offset > int.MaxValue ? [] : store.List((int)offset, pageSize, cutoff);
+            return Results.Json(new RecordPage(items, page, pageSize, store.Count(cutoff)), JsonDefaults.Options);
         });
 
         g.MapGet("/{id}", (string id, IRecordStore store) =>

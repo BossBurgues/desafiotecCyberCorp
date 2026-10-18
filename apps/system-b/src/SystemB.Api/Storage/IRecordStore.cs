@@ -7,7 +7,8 @@ public interface IRecordStore
     Models.Record Create(RecordInput input, string now);
     Models.Record? Get(string id);
     Models.Record? Replace(string id, RecordInput input, string now);
-    IReadOnlyList<Models.Record> List(int offset, int limit);
-    int Count();
+    /// <param name="createdAtOrBefore">Só registros criados até este instante (atraso de listagem do caos); null = todos.</param>
+    IReadOnlyList<Models.Record> List(int offset, int limit, string? createdAtOrBefore = null);
+    int Count(string? createdAtOrBefore = null);
     bool Delete(string id);
 }
