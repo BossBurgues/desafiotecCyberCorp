@@ -24,6 +24,8 @@ const NULLABLE_ID_FIELDS = [
 
 const NULLABLE_DATE_FIELDS = ['solvedate', 'closedate'];
 
+export const DEFAULT_TIMEZONE = 'America/Sao_Paulo';
+
 export class TicketValidationError extends Error {
   constructor(message) {
     super(message);
@@ -35,6 +37,34 @@ export class TicketValidationError extends Error {
 
 export function isGlpiDateTime(value) {
   return typeof value === 'string' && GLPI_DATETIME_PATTERN.test(value);
+}
+
+// O GLPI grava datas sem offset no fuso do servidor (ADR-005); formatToParts com h23 evita meia-noite "24:00:00".
+export function formatLocalDateTime(instant, timeZone = DEFAULT_TIMEZONE) {
+  const date = instant instanceof Date ? instant : new Date(instant);
+  if (Number.isNaN(date.getTime())) {
+    throw new TicketValidationError('Instante de data inválido.');
+  }
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  const parts = Object.fromEntries(
+    formatter.formatToParts(date).map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
+
+export function touch(ticket, now = Date.now, timeZone = DEFAULT_TIMEZONE) {
+  const instant = typeof now === 'function' ? now() : now;
+  ticket.date_mod = formatLocalDateTime(instant, timeZone);
+  return ticket;
 }
 
 function isPlainObject(value) {

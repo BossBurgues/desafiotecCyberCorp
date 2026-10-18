@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { TicketValidationError, validateTicketInput } from '../../src/tickets.js';
+import {
+  TicketValidationError,
+  formatLocalDateTime,
+  isGlpiDateTime,
+  touch,
+  validateTicketInput,
+} from '../../src/tickets.js';
 
 test('aceita chamado válido na criação aplicando defaults de status 1 e prioridade 3', () => {
   const result = validateTicketInput({
@@ -99,4 +105,30 @@ test('rejeita name vazio ou acima de 255 caracteres', () => {
 test('aceita atualização parcial mantendo apenas os campos enviados', () => {
   const patch = validateTicketInput({ status: 2, priority: 5 }, { partial: true });
   assert.deepEqual(patch, { status: 2, priority: 5 });
+});
+
+test('formata o mesmo instante com strings diferentes em America/Sao_Paulo e em UTC sem offset', () => {
+  const instant = Date.parse('2026-10-18T17:03:22Z');
+  const sp = formatLocalDateTime(instant, 'America/Sao_Paulo');
+  const utc = formatLocalDateTime(instant, 'UTC');
+
+  assert.equal(sp, '2026-10-18 14:03:22');
+  assert.equal(utc, '2026-10-18 17:03:22');
+  assert.ok(isGlpiDateTime(sp));
+  assert.ok(!sp.includes('Z') && !sp.includes('+') && !sp.includes('T'));
+});
+
+test('vira 23:59:59 para 00:00:00 do dia seguinte no fuso configurado', () => {
+  const beforeMidnightSp = Date.parse('2026-10-19T02:59:59Z');
+  const atMidnightSp = Date.parse('2026-10-19T03:00:00Z');
+
+  assert.equal(formatLocalDateTime(beforeMidnightSp, 'America/Sao_Paulo'), '2026-10-18 23:59:59');
+  assert.equal(formatLocalDateTime(atMidnightSp, 'America/Sao_Paulo'), '2026-10-19 00:00:00');
+});
+
+test('touch atualiza date_mod a partir do relógio injetado', () => {
+  const ticket = { id: 1, date_mod: '2026-10-18 10:00:00' };
+  touch(ticket, () => Date.parse('2026-10-18T18:30:05Z'), 'America/Sao_Paulo');
+
+  assert.equal(ticket.date_mod, '2026-10-18 15:30:05');
 });
