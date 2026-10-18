@@ -22,6 +22,20 @@ dotnet test apps/system-b                            # testes xUnit (mesmo coman
 | `ASPNETCORE_URLS` | `http://0.0.0.0:5002` | Endereço e porta |
 | `B_DB_PATH` | `./data/system-b.db` | Arquivo SQLite (os registros sobrevivem a reinício) |
 
+## Container (S2.6)
+
+```bash
+docker build -t system-b apps/system-b                                       # contexto é a pasta do B
+docker run -d -p 5002:5002 -v system-b-data:/data system-b
+bash infra/scripts/smoke-system-b.sh system-b                               # mesmo smoke da CI
+docker buildx build --platform linux/amd64,linux/arm64 apps/system-b        # imagem ARM e x64
+```
+
+- **Multi-stage:** o SDK compila na arquitetura de quem faz o build (`--platform=$BUILDPLATFORM`) e publica para a de destino (`-a $TARGETARCH`). O estágio final não tem `RUN`, então o arm64 sai sem emulação.
+- **Sem root:** roda como `APP_UID` (1654) das imagens oficiais; `/app` é somente leitura e os dados ficam no volume `/data`.
+- **Healthcheck sem curl:** a imagem `aspnet` não tem curl, então o `HEALTHCHECK` chama o próprio binário com `--healthcheck`, que consulta `/health` e sai com 0 ou 1.
+- A CI roda `dotnet test`, builda a imagem, executa o smoke (não-root, healthy, criar/listar, dado e marcador sobrevivem a restart, parada limpa, `/app` somente leitura) e faz o build multi-arquitetura.
+
 ## Rotas (S2.1)
 
 | Método e rota | Resposta |
@@ -56,7 +70,6 @@ Erros sempre `{ "error": "...", "message": "..." }`:
 | Comentários (`B_SUPPORTS_COMMENTS`) | S2.3 (#25) |
 | UI do Operador B | S2.4 (#26) |
 | Admin, wipe e drift com token | S2.5 (#27) |
-| Dockerfile e smoke do container | S2.6 (#28) |
 | `updatedBy`, ETag e `If-Match` (hoje `If-Match` é ignorado) | S2.7 (#128) |
 
 ## Exemplos
