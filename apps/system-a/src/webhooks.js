@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { PROFILES } from './auth.js';
 
 export const WEBHOOK_TIMEOUT_MS = 2000;
 export const MIN_PROD_SECRET_LENGTH = 32;
@@ -220,6 +221,15 @@ export function createWebhookDispatcher(
 
   function handle(change) {
     try {
+      // Barreira 2 do anti-eco (ADR-009): escritas feitas pelo sync-bot nunca disparam webhook A -> B.
+      if (change?.actor?.profile === PROFILES.SYNC_BOT) {
+        log.debug(
+          { ticket_id: change.ticketId, action: change.action },
+          'webhook ignorado: mudança do sync-bot',
+        );
+        return;
+      }
+
       if (!config?.enabled) {
         return;
       }
