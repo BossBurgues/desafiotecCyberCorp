@@ -68,8 +68,24 @@ export function buildServer({
       .send(glpiError('ERROR_INTERNAL', error.message || 'Erro interno no Sistema A.'));
   });
 
+  app.decorateRequest('user', null);
+  app.decorateRequest('sessionToken', null);
+
   app.register(
     async (api) => {
+      api.addHook('preHandler', async (request) => {
+        if (request.routeOptions.url === '/apirest.php/initSession') {
+          return;
+        }
+        validateAppTokenHeader(request.headers['app-token'], authConfig.appToken);
+        const { token, user } = validateSessionTokenHeader(
+          request.headers['session-token'],
+          store,
+        );
+        request.sessionToken = token;
+        request.user = user;
+      });
+
       api.get('/initSession', async (request) => {
         validateAppTokenHeader(request.headers['app-token'], authConfig.appToken);
         const parsed = parseAuthorization(request.headers.authorization);
@@ -100,9 +116,7 @@ export function buildServer({
       });
 
       api.get('/killSession', async (request, reply) => {
-        validateAppTokenHeader(request.headers['app-token'], authConfig.appToken);
-        const { token } = validateSessionTokenHeader(request.headers['session-token'], store);
-        store.deleteSession(token);
+        store.deleteSession(request.sessionToken);
         return reply.code(200).send();
       });
 
