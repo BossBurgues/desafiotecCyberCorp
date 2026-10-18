@@ -26,7 +26,11 @@ import {
 } from './tickets.js';
 import { createWebhookDispatcher, loadWebhookConfig } from './webhooks.js';
 
-const SESSION_ONLY_ROUTES = new Set(['/apirest.php/initSession', '/apirest.php/killSession']);
+const SESSION_ONLY_ROUTES = new Set([
+  '/apirest.php/initSession',
+  '/apirest.php/killSession',
+  '/apirest.php/getFullSession',
+]);
 
 function parsePositiveIdOrNull(rawId) {
   if (rawId === undefined || rawId === null) {
@@ -215,6 +219,15 @@ export function buildServer({
         store.deleteSession(request.sessionToken);
         return reply.code(200).send();
       });
+
+      // Só os campos que a UI usa; nunca senha nem token.
+      api.get('/getFullSession', async (request) => ({
+        session: {
+          glpiID: request.user.id,
+          glpiname: request.user.login,
+          glpiactiveprofile: { name: request.user.profile },
+        },
+      }));
 
       api.get(
         '/Ticket',
