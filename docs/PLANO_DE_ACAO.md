@@ -553,11 +553,11 @@ Plano B: vídeo gravado do mesmo roteiro.
 3. Comentários explicam o **porquê**.
 4. Os nomes dos testes são frases.
 5. `docs/how-it-works.md` acompanha o caminho de um chamado, arquivo por arquivo.
-6. **Exercícios de quebra** (para se preparar para a banca):
+6. **Exercícios de quebra** (para se preparar para a banca; revisados em 19/10 para o núcleo A → B e executados): a lista completa, com o teste que falha em cada um, está na seção 10 do [`how-it-works.md`](how-it-works.md).
    - Remover a busca pelo marcador → A1 falha (duplicata).
-   - Remover a sobreposição do poll → B11 falha (perda).
-   - Remover a checagem de `based_on_hash` → C3 falha (antigo sobre novo).
-   - Remover o filtro do `sync-bot` → F1 falha (loop).
+   - Pular a verificação pós-escrita → B5 falha (perda).
+   - Ignorar o lease no `claim` → A6 falha (dois workers no mesmo job).
+   - Remover a janela anti-replay → H1 falha.
 
 ---
 
