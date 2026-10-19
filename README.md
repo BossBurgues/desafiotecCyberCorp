@@ -116,7 +116,7 @@ Registro por issue, por dia e por milestone em [`docs/timelog.md`](docs/timelog.
 |---|---|
 | [`docs/how-it-works.md`](docs/how-it-works.md) | Passeio pelo código, garantias provadas e exercícios de quebra |
 | [`docs/architecture.md`](docs/architecture.md) | Diagramas da arquitetura |
-| [`docs/adr/`](docs/adr/) | Por que cada decisão foi tomada (12 ADRs) |
+| [`docs/adr/`](docs/adr/) | Por que cada decisão foi tomada (13 ADRs) |
 | [`docs/field-mapping.md`](docs/field-mapping.md) | Conversão campo a campo A → B |
 | [`docs/runbook.md`](docs/runbook.md) | O que fazer quando algo foge do normal |
 | [`docs/out-of-scope.md`](docs/out-of-scope.md) | O que ficou de fora e como seria feito |
