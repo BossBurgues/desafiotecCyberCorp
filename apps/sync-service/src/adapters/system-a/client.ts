@@ -1,6 +1,6 @@
 import type { Logger } from 'pino';
 import { z } from 'zod';
-import type { GlpiTicket } from '../../domain/types.js';
+import type { GlpiTicket, Lookups, RecordLocation } from '../../domain/types.js';
 
 const API_PREFIX = '/apirest.php';
 
@@ -27,6 +27,26 @@ export const ticketSchema = z.object({
     .optional(),
 });
 
+const categorySchema = z.object({ id: z.number().int(), name: z.string(), completename: z.string().optional() });
+const locationSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  latitude: z.number().nullable().optional(),
+  longitude: z.number().nullable().optional(),
+});
+const userSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  firstname: z.string().optional(),
+  realname: z.string().optional(),
+});
+
+/** "Ana Souza (tecnico)": o nome que o B mostra para requerente e técnico (docs/field-mapping.md). */
+export function userDisplayName(user: z.infer<typeof userSchema>): string {
+  const full = [user.firstname, user.realname].filter(Boolean).join(' ');
+  return full ? `${full} (${user.name})` : user.name;
+}
+
 /** Falha ao falar com o A. Sempre transitória: o A é a fonte da verdade e está sob o nosso controle. */
 export class AError extends Error {
   public readonly errorClass = 'transient' as const;
@@ -50,6 +70,8 @@ export interface SystemAClient {
   getTicket(id: number): Promise<GlpiTicket | null>;
   /** Chamados com date_mod >= `dateModGteLocal` (no fuso do A), em ordem de date_mod. */
   listChangedSince(dateModGteLocal: string, start: number, limit: number): Promise<TicketPage>;
+  /** Catálogos do GLPI (categorias, usuários e locais) já no formato do B, para o mapper converter os IDs. */
+  getLookups(): Promise<Lookups>;
 }
 
 export interface SystemAClientOptions {
@@ -139,6 +161,30 @@ export function createSystemAClient(options: SystemAClientOptions): SystemAClien
       if (!parsed.success) throw new AError(`GET ${API_PREFIX}/Ticket: lista fora do formato esperado`);
       const total = Number(/\/(\d+)$/.exec(res.headers.get('content-range') ?? '')?.[1] ?? start + parsed.data.length);
       return { items: parsed.data as GlpiTicket[], total };
+    },
+
+    async getLookups() {
+      const load = async <T>(path: string, schema: z.ZodType<T>): Promise<T[]> => {
+        const res = await authed(path);
+        // A sem o catálogo (versão antiga): o campo vai vazio para o B, como antes
+        if (res.status === 404) return [];
+        if (!res.ok) throw new AError(`GET ${API_PREFIX}${path}: ${res.status}`, res.status);
+        const parsed = z.array(schema).safeParse(await json(res, path));
+        if (!parsed.success) throw new AError(`GET ${API_PREFIX}${path}: catálogo fora do formato esperado`);
+        return parsed.data;
+      };
+      const [categories, users, locations] = await Promise.all([
+        load('/ITILCategory', categorySchema),
+        load('/User', userSchema),
+        load('/Location', locationSchema),
+      ]);
+      return {
+        categories: new Map(categories.map((c) => [c.id, c.completename ?? c.name])),
+        users: new Map(users.map((u) => [u.id, userDisplayName(u)])),
+        locations: new Map(
+          locations.map((l): [number, RecordLocation] => [l.id, { name: l.name, lat: l.latitude ?? null, lng: l.longitude ?? null }]),
+        ),
+      };
     },
   };
 }

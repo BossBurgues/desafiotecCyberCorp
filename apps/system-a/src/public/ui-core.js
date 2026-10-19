@@ -60,6 +60,20 @@ export function editableStatuses() {
   return [1, 2, 3, 4, 5, 6];
 }
 
+// Rótulos dos catálogos do GLPI (ITILCategory, Location, User). "—" quando o chamado não tem o campo.
+export function userLabel(user) {
+  if (!user) {
+    return '—';
+  }
+  const full = [user.firstname, user.realname].filter(Boolean).join(' ');
+  return full ? `${full} (${user.name})` : user.name;
+}
+
+export function catalogLabel(list, id, labelOf = (item) => item.completename ?? item.name) {
+  const item = id == null ? null : (list || []).find((x) => x.id === id);
+  return item ? labelOf(item) : '—';
+}
+
 // A UI só esconde; quem decide é o servidor (403).
 export function canDecide(profile) {
   return profile === PROFILES.TECNICO;

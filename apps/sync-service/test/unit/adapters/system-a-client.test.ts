@@ -103,4 +103,34 @@ describe('client do A (sync-bot)', () => {
     const { a } = client((url) => (url.pathname.endsWith('/initSession') ? json({ session_token: 's' }) : json([], 416)));
     expect(await a.listChangedSince('2026-10-18 09:58:00', 10, 2)).toEqual({ items: [], total: 10 });
   });
+  it('catálogos do GLPI viram o formato do B: categoria com o caminho, usuário com nome e login, local com coordenadas', async () => {
+    const { a } = client((url) => {
+      if (url.pathname.endsWith('/initSession')) return json({ session_token: 's1' });
+      if (url.pathname.endsWith('/ITILCategory')) return json([{ id: 2, name: 'Impressão', completename: 'Hardware > Impressão' }]);
+      if (url.pathname.endsWith('/User')) {
+        return json([
+          { id: 1, name: 'tecnico', firstname: 'Ana', realname: 'Souza', profile: 'tecnico' },
+          { id: 3, name: 'sync-bot', firstname: '', realname: '', profile: 'sync-bot' },
+        ]);
+      }
+      return json([
+        { id: 1, name: 'Matriz · 3º andar', completename: 'Matriz > 3º andar', latitude: -23.5, longitude: -46.6 },
+        { id: 4, name: 'Home office', completename: 'Home office', latitude: null, longitude: null },
+      ]);
+    });
+    const l = await a.getLookups();
+    expect((l.categories as Map<number, string>).get(2)).toBe('Hardware > Impressão');
+    expect((l.users as Map<number, string>).get(1)).toBe('Ana Souza (tecnico)');
+    expect((l.users as Map<number, string>).get(3)).toBe('sync-bot');
+    expect((l.locations as Map<number, unknown>).get(1)).toEqual({ name: 'Matriz · 3º andar', lat: -23.5, lng: -46.6 });
+    expect((l.locations as Map<number, unknown>).get(4)).toEqual({ name: 'Home office', lat: null, lng: null });
+  });
+
+  it('A sem os catálogos (404) devolve tabelas vazias; 5xx é AError transitório', async () => {
+    const empty = client((url) => (url.pathname.endsWith('/initSession') ? json({ session_token: 's1' }) : json(['ERROR_ITEM_NOT_FOUND', 'x'], 404)));
+    const l = await empty.a.getLookups();
+    expect((l.users as Map<number, string>).size).toBe(0);
+    const down = client((url) => (url.pathname.endsWith('/initSession') ? json({ session_token: 's1' }) : json({}, 503)));
+    await expect(down.a.getLookups()).rejects.toBeInstanceOf(AError);
+  });
 });

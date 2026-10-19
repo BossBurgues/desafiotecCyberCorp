@@ -13,13 +13,15 @@
 | `content` (HTML) | `description` (texto puro) | `htmlToText` remove scripts/estilos/tags, decodifica entidades, remove caracteres de controle, neutraliza `⟦`/`⟧` e anexa `\n\n⟦s:glpi-<id>⟧` |
 | `status` (`1..6`) | `state` (`State`) | Tabela `STATUS_TO_STATE` (`toState`) |
 | `priority` (`1..6`) | `severity` (`Severity`) | Tabela `PRIORITY_TO_SEVERITY` (`toSeverity`) |
-| `itilcategories_id` (`int \| null`) | `category` (`string \| null`) | Lookup em `lookups.categories`; ausente ou sem entrada → `null` |
-| `users_id_recipient` (`int \| null`) | `requester` (`string \| null`) | Lookup em `lookups.users`; ausente ou sem entrada → `null` |
-| `users_id_assign` (`int \| null`) | `assignee` (`string \| null`) | Lookup em `lookups.users`; ausente ou sem entrada → `null` |
-| `locations_id` (`int \| null`) | `location` (`{ name, lat, lng } \| null`) | Lookup em `lookups.locations`; ausente ou sem entrada → `null`; campos internos opcionais normalizados para `null` |
+| `itilcategories_id` (`int \| null`) | `category` (`string \| null`) | Nome completo da categoria no catálogo do A (`GET /ITILCategory`, ex.: "Hardware > Impressão"); ausente ou sem entrada → `null` |
+| `users_id_recipient` (`int \| null`) | `requester` (`string \| null`) | "Nome Sobrenome (login)" do usuário no A (`GET /User`); ausente ou sem entrada → `null` |
+| `users_id_assign` (`int \| null`) | `assignee` (`string \| null`) | Mesmo formato do requerente; ausente ou sem entrada → `null` |
+| `locations_id` (`int \| null`) | `location` (`{ name, lat, lng } \| null`) | Local do catálogo do A (`GET /Location`) com `latitude`/`longitude` → `lat`/`lng`; sem coordenadas → `null`; ausente ou sem entrada → `null` |
 | `date_mod` (`YYYY-MM-DD HH:MM:SS`) | `sourceUpdatedAt` (`YYYY-MM-DDTHH:MM:SSZ`) | Interpretado no fuso `A_TIMEZONE` e convertido para UTC por `glpiLocalToUtc` |
 | `attachments` (`[{ name, size, sha256 }]`) | `attachments` (`[{ name, size, sha256 }]`) | Cópia defensiva apenas dos 3 campos de metadados (sem binário) |
 | `date`, `solvedate`, `closedate` | — | Não enviados no `RecordInput` e fora do `hashTicket` |
+
+> **De onde vêm os nomes:** o sync lê os catálogos do A (`ITILCategory`, `User`, `Location`) como `sync-bot` e guarda em cache por `A_LOOKUPS_TTL_MS` (60 s); a conversão continua pura no `mapTicketToRecord` (`lookups`). Renomear um item do catálogo não reenvia os chamados antigos (o hash é calculado sobre os IDs do A): o novo nome chega ao B na próxima alteração do chamado.
 
 ## 2. Tabelas de status e prioridade (cenário G1)
 

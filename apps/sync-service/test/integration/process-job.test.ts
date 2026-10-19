@@ -81,6 +81,35 @@ describe.skipIf(!TEST_DATABASE_URL)('processJob: create/update idempotente com m
     expect([...B.records.values()][0]).toMatchObject({ title: 'Título novo', severity: 'CRITICAL' });
   });
 
+  it('conversão de campos: categoria, requerente, técnico e local do A chegam ao B como texto (catálogos do A)', async () => {
+    processJob = createProcessJob({
+      pool,
+      a: A.client,
+      b: B.client,
+      logger,
+      timeZone: TZ,
+      markerField: 'description',
+      uncertainScans: 2,
+      listPageSize: 100,
+      lookups: async () => ({
+        categories: new Map([[2, 'Hardware > Impressão']]),
+        users: new Map([
+          [1, 'Ana Souza (tecnico)'],
+          [2, 'Bruno Lima (estagiario)'],
+        ]),
+        locations: new Map([[1, { name: 'Matriz · 3º andar', lat: -23.5, lng: -46.6 }]]),
+      }),
+    });
+    A.put(ticket(1, { itilcategories_id: 2, users_id_recipient: 2, users_id_assign: 1, locations_id: 1 }));
+    await run();
+    expect([...B.records.values()][0]).toMatchObject({
+      category: 'Hardware > Impressão',
+      requester: 'Bruno Lima (estagiario)',
+      assignee: 'Ana Souza (tecnico)',
+      location: { name: 'Matriz · 3º andar', lat: -23.5, lng: -46.6 },
+    });
+  });
+
   it('chamado solucionado e depois fechado no A chega ao B como RESOLVED e CLOSED, no mesmo registro', async () => {
     await run();
     for (const [status, state, minute] of [[5, 'RESOLVED', '20'], [6, 'CLOSED', '30']] as const) {

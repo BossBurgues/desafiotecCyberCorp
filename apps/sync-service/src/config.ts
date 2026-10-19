@@ -33,6 +33,8 @@ const schema = z.object({
   A_SYNC_BOT_TOKEN: z.string().min(1),
   A_TIMEZONE: z.string().min(1).default('America/Sao_Paulo'),
   A_TIMEOUT_MS: ms(100, 60_000).default(5_000),
+  // Catálogos do A (categoria, usuários, locais) usados na conversão de campos: recarregados a cada intervalo
+  A_LOOKUPS_TTL_MS: ms(1_000, 3_600_000).default(60_000),
   // processJob (S3.6, ADR-004): onde vai o marcador e quantas varreduras sem achá-lo antes de recriar
   B_MARKER_FIELD: z.enum(['description', 'title']).default('description'),
   CREATE_UNCERTAIN_SCANS: z.coerce.number().int().min(1).max(20).default(2),
