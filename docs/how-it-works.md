@@ -1,6 +1,6 @@
 # Como funciona: passeio pelo código
 
-Guia para ler o código na ordem em que um chamado viaja do A para o B. Cada seção diz **onde está** e **qual garantia protege**. Os links abrem a função citada. O retorno B → A não foi implementado: o desenho está nos ADRs [006](adr/006-b-propoe-a-aprova-congelamento-sla.md), [007](adr/007-exclusao-em-2-passos.md), [009](adr/009-anti-eco.md) e [011](adr/011-concorrencia-a-x-b.md) e no [`out-of-scope.md`](out-of-scope.md), que respondem às duas perguntas do avaliador (anti-eco e concorrência A × B).
+Guia para ler o código na ordem em que um chamado viaja do A para o B. Cada seção diz **onde está** e **qual garantia protege**. Os links abrem a função citada. O retorno B → A está na versão leve (seção 11, [ADR-014](adr/014-b-para-a-leve.md)); o desenho completo, com aprovação, está nos ADRs [006](adr/006-b-propoe-a-aprova-congelamento-sla.md), [007](adr/007-exclusao-em-2-passos.md), [009](adr/009-anti-eco.md) e [011](adr/011-concorrencia-a-x-b.md) e no [`out-of-scope.md`](out-of-scope.md), que respondem às duas perguntas do avaliador (anti-eco e concorrência A × B).
 
 As três garantias: **sem duplicata** (um chamado vira um registro no B), **sem perda** (toda mudança do A chega) e **sem dado velho** (uma versão antiga nunca sobrescreve uma nova).
 
@@ -45,7 +45,7 @@ Duas portas de entrada, as duas terminam em `enqueue` (S3.4):
 
 ## 3. Fila: um job por chamado
 
-[`enqueue`](../apps/sync-service/src/infra/queue/queue.ts#L33):
+[`enqueue`](../apps/sync-service/src/infra/queue/queue.ts#L38):
 
 - O índice único parcial `sync_jobs_one_active_per_ticket` garante **um job ativo por chamado**. Dez eventos do mesmo chamado viram um job (**duplicata** e **dado velho**: nunca há dois envios concorrentes do mesmo chamado).
 - O job **não guarda o conteúdo** do chamado, só o ID. O worker sempre lê o estado atual do A (ADR-005), então aglutinar não perde nada.
@@ -55,9 +55,9 @@ Duas portas de entrada, as duas terminam em `enqueue` (S3.4):
 
 [`queue.ts`](../apps/sync-service/src/infra/queue/queue.ts) + [`runner.ts`](../apps/sync-service/src/infra/queue/runner.ts):
 
-1. [`claim`](../apps/sync-service/src/infra/queue/queue.ts#L49) pega jobs vencidos com `FOR UPDATE SKIP LOCKED` e dá a cada um um **lease** (`locked_until` + `lease_token`). Quem impede dois workers no mesmo job é o lock da linha com o `WHERE` reavaliado (só `pending` vencido ou `running` com **lease vencido**); o `SKIP LOCKED` evita que o segundo worker fique esperando (ver exercício 3).
+1. [`claim`](../apps/sync-service/src/infra/queue/queue.ts#L55) pega jobs vencidos com `FOR UPDATE SKIP LOCKED` e dá a cada um um **lease** (`locked_until` + `lease_token`). Quem impede dois workers no mesmo job é o lock da linha com o `WHERE` reavaliado (só `pending` vencido ou `running` com **lease vencido**); o `SKIP LOCKED` evita que o segundo worker fique esperando (ver exercício 3).
 2. [`runOnce`](../apps/sync-service/src/infra/queue/runner.ts#L34) chama o `processJob` (seção 5) e renova o lease a cada terço do prazo. Lease perdido aborta o processamento antes de escrever no B.
-3. Sucesso → [`complete`](../apps/sync-service/src/infra/queue/queue.ts#L86). Falha → [`fail`](../apps/sync-service/src/infra/queue/queue.ts#L104), que decide entre nova tentativa e DLQ:
+3. Sucesso → [`complete`](../apps/sync-service/src/infra/queue/queue.ts#L92). Falha → [`fail`](../apps/sync-service/src/infra/queue/queue.ts#L110), que decide entre nova tentativa e DLQ:
 
 ```mermaid
 flowchart LR
@@ -73,11 +73,11 @@ flowchart LR
 ```
 
 - Worker que caiu: o lease vence e outro worker retoma (**perda**, B3). O worker antigo, se acordar, não consegue concluir nem falhar o job: o token não é mais dele.
-- DLQ: `status = 'dead'` + `alerts_outbox`. [`reprocessDead`](../apps/sync-service/src/infra/queue/queue.ts#L172) cria um job novo, que relê o A (ADR-008, B10).
+- DLQ: `status = 'dead'` + `alerts_outbox`. [`reprocessDead`](../apps/sync-service/src/infra/queue/queue.ts#L178) cria um job novo, que relê o A (ADR-008, B10).
 
 ## 5. processJob: o chamado chega ao B uma vez só
 
-[`createProcessJob`](../apps/sync-service/src/application/process-job.ts#L85) (S3.6 e S3.8, ADR-004):
+[`createProcessJob`](../apps/sync-service/src/application/process-job.ts#L123) (S3.6 e S3.8, ADR-004):
 
 ```mermaid
 flowchart TD
@@ -100,10 +100,10 @@ flowchart TD
 ```
 
 - **Dado velho:** o job só tem o ID; o estado vem do A na hora (um job atrasado nunca escreve dado velho, C1).
-- **Duplicata:** create ambíguo (timeout, 5xx, 200 com erro: o B pode ter gravado) nunca é reenviado às cegas ([`create`](../apps/sync-service/src/application/process-job.ts#L275)). O chamado fica em `create_uncertain` e o próximo ciclo procura o marcador em todas as páginas da listagem ([`scanForMarker`](../apps/sync-service/src/application/process-job.ts#L352)). Achou → [`adopt`](../apps/sync-service/src/application/process-job.ts#L362). Só depois de `CREATE_UNCERTAIN_SCANS` (2) varreduras sem achar é que recria (A1, A2).
-- **Perda por "ack sem gravar" (S3.8, B5):** depois de todo create e update o sync relê o registro no B ([`verify`](../apps/sync-service/src/application/process-job.ts#L257), `VERIFY_AFTER_WRITE` ligado por padrão) e compara o hash do conteúdo. Só então grava `last_synced_hash`. Se o B respondeu 200 sem gravar, o hash antigo fica, o job volta com backoff, relê o A e reenvia o estado atual. Sem isso o próximo evento viraria no-op e a atualização sumiria para sempre.
-- **Registro sumiu do B (404):** o A é a fonte da verdade. [`recordMissing`](../apps/sync-service/src/application/process-job.ts#L215) procura o marcador na listagem (o registro pode ter outro ID) e adota; não achou → `create_uncertain`, e recria só depois de N varreduras. Um 404 logo depois de um 201 também vira `create_uncertain`, porque pode ser gravação atrasada.
-- **Atomicidade:** [`saveActive`](../apps/sync-service/src/application/process-job.ts#L392) grava mapeamento, hashes e `audit_log` numa transação só. `last_written_hash` é o hash do que escrevemos no B: seria a base do anti-eco no B → A (ADR-009).
+- **Duplicata:** create ambíguo (timeout, 5xx, 200 com erro: o B pode ter gravado) nunca é reenviado às cegas ([`create`](../apps/sync-service/src/application/process-job.ts#L438)). O chamado fica em `create_uncertain` e o próximo ciclo procura o marcador em todas as páginas da listagem ([`scanForMarker`](../apps/sync-service/src/application/process-job.ts#L515)). Achou → [`adopt`](../apps/sync-service/src/application/process-job.ts#L525). Só depois de `CREATE_UNCERTAIN_SCANS` (2) varreduras sem achar é que recria (A1, A2).
+- **Perda por "ack sem gravar" (S3.8, B5):** depois de todo create e update o sync relê o registro no B ([`verify`](../apps/sync-service/src/application/process-job.ts#L420), `VERIFY_AFTER_WRITE` ligado por padrão) e compara o hash do conteúdo. Só então grava `last_synced_hash`. Se o B respondeu 200 sem gravar, o hash antigo fica, o job volta com backoff, relê o A e reenvia o estado atual. Sem isso o próximo evento viraria no-op e a atualização sumiria para sempre.
+- **Registro sumiu do B (404):** o A é a fonte da verdade. [`recordMissing`](../apps/sync-service/src/application/process-job.ts#L378) procura o marcador na listagem (o registro pode ter outro ID) e adota; não achou → `create_uncertain`, e recria só depois de N varreduras. Um 404 logo depois de um 201 também vira `create_uncertain`, porque pode ser gravação atrasada.
+- **Atomicidade:** [`saveActive`](../apps/sync-service/src/application/process-job.ts#L563) grava mapeamento, hashes e `audit_log` numa transação só. `last_written_hash` é o hash do que escrevemos no B: seria a base do anti-eco no B → A (ADR-009).
 - O sync fala com o A como **sync-bot** (`src/adapters/system-a/client.ts`, `user_token`), que só lê chamados e escreve notas. Sessão expirada (401) é reaberta uma vez.
 - A conversão de campos (status, prioridade, HTML → texto, fuso → UTC) é domínio puro: [`mapTicketToRecord`](../apps/sync-service/src/domain/mapper.ts#L50), [`hashTicket`](../apps/sync-service/src/domain/hash.ts#L59) e [`hashRecord`](../apps/sync-service/src/domain/hash.ts#L78). Tabela completa em [`field-mapping.md`](field-mapping.md).
 
@@ -139,6 +139,8 @@ Testes de integração com Postgres de verdade e A/B em memória (`apps/sync-ser
 | Sem perda | lease vencido é retomado; disjuntor espera sem gastar tentativa | `claim`, `fail` | E: `b3-sync-cai-no-meio-do-job`, `b1-b-fora-jobs-esperam-e-drenam`, `e4-b-lento-disjuntor` |
 | Sem perda | verificação pós-escrita | `verify`, `recordMissing` | I: "B5: no retry depois do ack sem gravar…" e o bloco "verificação pós-escrita (S3.8)" |
 | Sem dado velho | o job só tem o ID; o worker relê o A | `createProcessJob` | I: "lê o estado atual do A…" · E: `c1-eventos-fora-de-ordem`, `b6-vinte-updates-terminam-no-ultimo` · I: B10 |
+| Sem ida e volta (B → A) | `last_written_hash` + `sync-bot` não dispara webhook + nenhuma escrita se o outro lado já está igual | `scanOnce`, `reconcile` | I: "(1) sem ida e volta…" em `b-to-a.test.ts` · E: `f4-b-fecha-volta-ao-a-sem-eco` |
+| A × B ao mesmo tempo | ler antes de escrever; o A vence; nota no A | `update`, `reconcile` | I: "(2) A e B mudam o estado ao mesmo tempo…" em `b-to-a.test.ts` |
 | Segurança | HMAC + anti-replay; login do dashboard | `verifySignature`, `checkBasicAuth` | I: H1 em `inbound.test.ts`, H2 em `dashboard.test.ts` |
 
 ## 10. Exercícios de quebra
@@ -153,3 +155,38 @@ Para se preparar para a banca: aplicar a quebra, rodar `TEST_DATABASE_URL=… np
 | 4 | Apagar a checagem de janela em `verifySignature` | "timestamp fora da janela de 5 min (replay) → 401…" (H1) | Sem o timestamp na janela, um evento capturado pode ser reenviado |
 | 5 | Tirar o `signal.throwIfAborted()` do início do `create` | "lease perdido antes de escrever: não chama o B" | Um worker que perdeu o lease ainda escreveria no B junto com o novo dono |
 | 6 | `checkBasicAuth` sempre aceita | os dois testes de 401 do H2 | Qualquer um ligaria o caos no meio da demo |
+
+## 11. B → A leve: o estado mudado no B volta ao A
+
+O opcional do avaliador ([ADR-014](adr/014-b-para-a-leve.md)). O operador do B resolve, fecha ou reabre; o A recebe o status e uma nota com quem alterou e a solução.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor O as Operador B
+  participant B as Sistema B
+  participant V as varredura do B
+  participant Q as sync_jobs
+  participant K as processJob
+  participant A as Sistema A
+  O->>B: Fechar (com solução), cabeçalho X-Operator
+  V->>B: lista os registros (a cada 30 s)
+  V->>Q: hash ≠ last_written_hash → job b_changed
+  K->>A: lê o chamado
+  K->>B: lê antes de escrever
+  K->>K: compara com last_written_record: o B mudou o estado, o A não
+  K->>A: sync-bot muda o status para 6 (sem webhook)
+  K->>Q: mapeamento com o hash novo do A e do B
+  K->>A: nota "Estado alterado no Sistema B por …: Em andamento → Fechado. Solução: …"
+  Note over K,A: o poller vê a mudança no A → hash igual → no-op
+```
+
+- **Varredura** ([`scanOnce`](../apps/sync-service/src/application/b-scanner.ts#L29)): para cada registro mapeado cujo hash não é o que o sync escreveu, enfileira um job `b_changed` na mesma fila do A → B (lease, retry, DLQ e auditoria valem igual).
+- **Ler antes de escrever** ([`update`](../apps/sync-service/src/application/process-job.ts#L210)): todo update relê o B antes do PUT. Uma edição no A nunca reabre o que o B acabou de fechar, mesmo antes da varredura.
+- **O que fazer com cada mudança** ([`reconcile`](../apps/sync-service/src/application/process-job.ts#L294)), comparando o B atual com o `last_written_record`:
+  - estado mudado só no B → vale o do B (o `sync-bot` aplica no A e escreve a nota);
+  - estado mudado nos dois lados → **o A vence**, nota no A dizendo o que o B tinha feito;
+  - outro campo mudado no B → o A restaura, com nota.
+- **Anti-eco:** (1) o que o sync escreveu tem o hash do `last_written_hash` e não vira job; (2) o A não manda webhook para escritas do `sync-bot`, e o mapeamento já tem o hash novo do A, então o evento do poller vira no-op; (3) se o B já está igual ao que seria escrito, não há PUT; (4) a nota vai depois de o mapeamento ser gravado, então não duplica se o job repetir.
+- **Risco residual:** o B mudar entre o GET e o PUT (milissegundos). Sem ETag no mock; com `If-Match`, o PUT receberia 412 e releria (ADR-011). A próxima varredura corrige.
+- `B_TO_A_ENABLED=false` desliga a varredura e a aplicação no A; o update continua lendo o B antes e não desfaz o estado que o B mudou.
