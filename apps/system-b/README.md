@@ -1,10 +1,10 @@
 # Sistema B: caixa-preta instável (C# / .NET 8)
 
-O sistema externo em que **não confiamos**. Implementa **apenas o contrato mínimo** (criar, ler por ID, atualizar por ID, listar), com formato de dados próprio, para provar que o sync não depende de recursos do B:
+O sistema externo em que **não confiamos**. Pelo PDF, ele **recebe** os chamados do Sistema A (o central) e precisa ficar atualizado. Implementa **apenas o contrato mínimo** (criar, ler por ID, atualizar por ID, listar), com formato de dados próprio, para provar que o sync não depende de recursos do B:
 
 - **sem** busca por referência externa e **sem** `Idempotency-Key`;
 - **caos configurável** (S2.2): latência, 5xx, timeout, "grava e devolve erro", "devolve sucesso e não grava", 200 com corpo de erro, 429, texto truncado, paginação instável e drift de formato;
-- comentários, autor da alteração e ETag como **capacidades opcionais** (desligáveis).
+- comentários, autor da alteração e ETag foram previstos como capacidades opcionais para o B → A, que ficou fora do escopo: **não estão implementados**.
 
 O projeto mira `net8.0`; o `global.json` aceita SDKs mais novos (`rollForward: latestMajor`).
 
@@ -26,13 +26,13 @@ dotnet test apps/system-b                            # testes xUnit (mesmo coman
 
 ## UI do Operador B (S2.4)
 
-`http://localhost:5002/ui/` — o apresentador age como o executor do B: **listar, ver, editar campos, mudar estado, resolver, fechar, reabrir e excluir**. Sem papéis nem login (o B é caixa-preta).
+`http://localhost:5002/ui/`: a tela do operador do sistema de terceiro, para ver o que chegou do A (com o marcador `⟦s:glpi-<id>⟧`). Ela também deixa editar, mudar estado, resolver, fechar, reabrir e excluir, porque o B é um sistema independente. **Nada disso volta ao A:** o retorno B → A é opcional e não foi implementado, e a próxima alteração do chamado no A sobrescreve o registro (o aviso no topo da lista diz isso). Sem papéis nem login (o B é caixa-preta).
 
 - Usa as rotas `/operator/records`, que ficam fora do contrato e **fora do caos**: a demo continua operável com o caos ligado.
-- Mostra o chamado do A ligado ao registro (lido do marcador `⟦s:glpi-<id>⟧`). Editar a descrição pode apagar o marcador de propósito: é o cenário em que o auditor do sync regrava.
+- Mostra o chamado do A ligado ao registro (lido do marcador `⟦s:glpi-<id>⟧`). Editar a descrição pode apagar o marcador de propósito. Hoje, a próxima alteração no A regrava a descrição com o marcador; o auditor que regravaria sozinho (S3.9) ficou fora do escopo.
 - O `PUT` é substituição completa, então a UI parte do registro atual e preserva localização, anexos e `sourceUpdatedAt`.
 - Mesmas regras da UI do A: lista fechada de arquivos, CSP `default-src 'self'` e nenhum HTML montado a partir de texto (teste `Nenhum_arquivo_da_UI_monta_HTML_a_partir_de_texto`).
-- **Comentar** depende da capacidade de comentários do B (S2.3, #25) e entra junto com ela.
+- **Comentar** dependia da capacidade de comentários do B (S2.3, #25), fora do escopo.
 
 ## Caos (S2.2)
 

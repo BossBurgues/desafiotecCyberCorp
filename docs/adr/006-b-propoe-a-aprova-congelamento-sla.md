@@ -1,6 +1,6 @@
 # ADR-006: O B propõe, o A aprova; status 5 e congelamento × SLA
 
-- **Status:** Aceito (aplica-se ao fluxo B→A — M3, opcional)
+- **Status:** Aceito (aplica-se só ao fluxo B→A — M3, opcional, não implementado; ver ADR-013)
 - **Data:** 16/10/2026
 - **Decisões do plano:** Q4, Q7, Q17–Q19, Q26–Q29 (seções 2, 4, 5 e 6 do `PLANO_DE_ACAO.md`)
 
