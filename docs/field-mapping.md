@@ -1,6 +1,6 @@
 # Mapeamento de campos · Sistema A (GLPI) → Sistema B
 
-> Detalha a seção 9 do `PLANO_DE_ACAO.md`, os ADRs [004](adr/004-marcador-idempotencia.md) (marcador), [005](adr/005-evento-sinal-data-hash.md) (data em UTC + hash de conteúdo) e [009](adr/009-anti-eco.md) (anti-eco), e os contratos `contracts/system-a.openapi.yaml` (`Ticket`) e `contracts/system-b.openapi.yaml` (`RecordInput`, `Record`).
+> Detalha a seção 9 do `PLANO_DE_ACAO.md`, os ADRs [004](adr/004-marcador-no-dado-e-teste-de-capacidade.md) (marcador), [005](adr/005-evento-e-sinal-date-mod-e-hash-utc.md) (data em UTC + hash de conteúdo) e [009](adr/009-anti-eco.md) (anti-eco), e os contratos `contracts/system-a.openapi.yaml` (`Ticket`) e `contracts/system-b.openapi.yaml` (`RecordInput`, `Record`).
 >
 > Implementação pura (sem I/O) em `apps/sync-service/src/domain/`.
 
@@ -33,10 +33,10 @@
 | `2` | Em atendimento (atribuído) | `IN_PROGRESS` | Já em tratamento pelo técnico |
 | `3` | Planejado | `IN_PROGRESS` | No GLPI, Planejado significa atribuído e agendado (já em tratamento) |
 | `4` | Pendente | `ON_HOLD` | Aguardando terceiro ou janela |
-| `5` | Solucionado (congelado no A) | `RESOLVED` | Solução proposta/aplicada no A |
-| `6` | Fechado (congelado no A) | `CLOSED` | Encerrado definitivamente no A |
+| `5` | Solucionado | `RESOLVED` | O Técnico solucionou no A |
+| `6` | Fechado | `CLOSED` | Encerrado no A |
 
-> **Por que 5 e 6 são mapeados normalmente no sentido A → B?** A regra "5 e 6 só via aprovação" (ADR-006) governa o que o **B pode propor ao A** e quem pode aprovar no A. Como o Sistema A é a fonte da verdade (ADR-001), quando o próprio A está em 5 ou 6 o Sistema B deve refletir `RESOLVED` ou `CLOSED`.
+> **5 e 6 são atualizações como as outras.** O A é o sistema central (PDF): o Técnico soluciona e fecha no A, e o B reflete `RESOLVED` ou `CLOSED`. A regra "5 e 6 só via aprovação" (ADR-006) e o congelamento pertencem ao B → A opcional, não implementado (ADR-013).
 
 ### 2.2 `priority` (A) → `severity` (B)
 

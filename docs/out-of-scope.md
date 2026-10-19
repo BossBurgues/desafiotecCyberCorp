@@ -9,6 +9,7 @@ O que ficou de fora do desafio e por quê. Cada item diz o que foi feito no luga
 
 1. **16/10:** o avaliador confirmou que o obrigatório é o **A → B**; o **B → A** é opcional.
 2. **18/10, revisão de escopo:** com o prazo de 22/10, a estratégia passou a ser **entregar o núcleo A → B à prova de caos, publicado e documentado**. Tudo o que não prova uma das três garantias virou desenho documentado. As três garantias (sem duplicata, sem atualização perdida, sem dado antigo sobre novo) nunca foram negociadas.
+3. **19/10, realinhamento ao PDF:** o PDF é a régua (ADR-013). O A é o sistema central e soluciona e fecha chamados; o B só recebe. O que tinha sobrado do desenho B → A nas UIs saiu ou ganhou aviso.
 
 O desenho de tudo o que saiu continua nos ADRs e no [plano](PLANO_DE_ACAO.md). As issues foram fechadas como *not planned* com a label `out-of-scope`.
 
@@ -27,6 +28,7 @@ O desenho de tudo o que saiu continua nos ADRs e no [plano](PLANO_DE_ACAO.md). A
 | Item | Por que ficou de fora | Como eu faria |
 |---|---|---|
 | **Retorno B → A** (o B propõe, o A aprova: resolver, excluir, reabrir; congelamento a partir do status 5; exclusão em 2 passos) | Opcional segundo o avaliador; não prova nenhuma das três garantias do A → B | Desenho completo nos ADRs **006** (proposta + aprovação + congelamento × SLA) e **007** (exclusão em 2 passos). O sync varreria o B, compararia com o `last_written_hash` e transformaria a mudança em proposta no A (status 5 + Solução pendente); só o Técnico aprova |
+| **Mudanças feitas direto no B** (o operador resolve, fecha, reabre, exclui ou edita) | Sem o B → A, nada disso volta ao A | Hoje a próxima alteração do chamado no A sobrescreve o B (o A vence), e a UI do B avisa. **Risco conhecido:** um chamado fechado no B é reaberto se o A for editado depois. Com o B → A: varrer o B, tratar a mudança como proposta (ADR-006) e ler antes de escrever (ADR-011) para não sobrescrever |
 | **Anti-eco (ida e volta A ↔ B)** | Só existe problema de eco quando há os dois sentidos | ADR-**009**: `last_written_hash` por registro do B (o que eu mesmo escrevi não é mudança do B), escritas do `sync-bot` não disparam sync A → B e o hash do A ignora `date_mod`. Prova: estabilização em 3 ciclos sem escrita extra |
 | **A e B alterando o mesmo chamado ao mesmo tempo** | Idem: só existe com os dois sentidos | ADR-**011**: o A vence; a mudança do B vira proposta obsoleta ou é revertida, sempre com nota; ler antes de escrever e `If-Match` quando o B oferecer ETag. O risco residual sem ETag fica documentado |
 | **Notas e comentários nos dois sentidos** | Não fazem parte do A → B obrigatório | Marcador por nota (`⟦n:id⟧`) + `note_mapping`, com a mesma regra dos chamados: em caso de dúvida, procurar o marcador antes de reenviar, nunca reenviar às cegas |
