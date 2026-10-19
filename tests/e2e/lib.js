@@ -83,7 +83,30 @@ export async function tecnico() {
       if (!r.ok) throw new Error(`PUT /Ticket/${id}: ${r.status}`);
       return json(r);
     },
+    async get(id) {
+      const r = await fetch(`${A_URL}/apirest.php/Ticket/${id}`, { headers });
+      if (!r.ok) throw new Error(`GET /Ticket/${id}: ${r.status}`);
+      return json(r);
+    },
+    async followups(id) {
+      const r = await fetch(`${A_URL}/apirest.php/Ticket/${id}/ITILFollowup`, { headers });
+      if (!r.ok) throw new Error(`GET /Ticket/${id}/ITILFollowup: ${r.status}`);
+      return json(r);
+    },
   };
+}
+
+/** O operador do B muda um registro pela UI dele (rotas /operator, fora do caos), com o nome como autor. */
+export async function operatorUpdate(recordId, changes, operator = 'Carla (suporte)') {
+  const cur = await (await fetch(`${B_URL}/operator/records/${recordId}`)).json();
+  const { id, createdAt, updatedAt, updatedBy, ...input } = cur;
+  const r = await fetch(`${B_URL}/operator/records/${recordId}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json', 'x-operator': operator },
+    body: JSON.stringify({ ...input, ...changes }),
+  });
+  if (!r.ok) throw new Error(`PUT /operator/records/${recordId}: ${r.status} ${JSON.stringify(await json(r))}`);
+  return json(r);
 }
 
 /** Todos os registros do B pela rota do operador (fora do caos), agrupados pelo ID do A do marcador. */
