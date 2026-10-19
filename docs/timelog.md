@@ -33,6 +33,7 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 18/10 | #84 [A6] · #98 [B10] · #121 [G4] cenários de integração | 1 | 0.5 | sprint M1 (2); mutação: sem SKIP LOCKED o A6 falha |
 | 18/10 | #38 [S3.10] Dashboard: fila, DLQ, mapeamentos, caos e /metrics | 2.5 | 2.5 | controles desligados por padrão até a S5.3 |
 | 18/10 | #46 [S5.3] Login no dashboard · #124 [H2] | 1.5 | 0.75 | HTTP Basic com comparação em tempo constante, sem dependência nova; sem senha o dashboard não sobe |
+| 18/10 | #40 [S4.2] CI com E2E · A1, A2, B1, B2, B3, B6, C1, E4 | 4 | 2.5 | 9 cenários em ~3 min; B com volume próprio no E2E (tmpfs apagava o B no B1) |
 
 ## Totais por milestone
 
