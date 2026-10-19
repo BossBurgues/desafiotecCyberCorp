@@ -41,8 +41,11 @@
 
       <section id="screen-tickets" class="screen" hidden>
         <div class="row-between">
-          <h1>Chamados</h1>
-          <button type="button" id="new-ticket-toggle">Novo chamado</button>
+          <h1 id="tickets-heading">Chamados</h1>
+          <div class="actions">
+            <button type="button" class="ghost" id="trash-toggle">Ver lixeira</button>
+            <button type="button" id="new-ticket-toggle">Novo chamado</button>
+          </div>
         </div>
 
         <form id="new-ticket-form" class="card" hidden>
@@ -69,6 +72,10 @@
               <select name="locations_id" id="new-ticket-location"></select>
             </label>
             <label>
+              Requerente
+              <select name="users_id_recipient" id="new-ticket-recipient"></select>
+            </label>
+            <label>
               Atribuído a
               <select name="users_id_assign" id="new-ticket-assign"></select>
             </label>
@@ -93,7 +100,7 @@
             </thead>
             <tbody id="tickets-body"></tbody>
           </table>
-          <p class="hint" id="tickets-empty" hidden>Nenhum chamado ainda.</p>
+          <p class="hint" id="tickets-empty" hidden>Nenhum chamado aqui.</p>
         </div>
         <p class="hint" id="tickets-updated"></p>
       </section>
@@ -109,6 +116,16 @@
           <p class="meta" id="detail-meta"></p>
           <p class="content" id="detail-content"></p>
         </article>
+
+        <section class="card" id="ticket-actions" hidden>
+          <h2>Ações</h2>
+          <div class="banner error" id="actions-error" role="alert" hidden></div>
+          <label>
+            Solução (obrigatória para solucionar; vira uma nota do chamado)
+            <textarea id="solution-text" rows="2"></textarea>
+          </label>
+          <div class="actions" id="action-buttons"></div>
+        </section>
 
         <form id="edit-form" class="card" hidden>
           <h2>Editar chamado</h2>
@@ -139,6 +156,10 @@
             <label>
               Local
               <select name="locations_id" id="edit-location"></select>
+            </label>
+            <label>
+              Requerente
+              <select name="users_id_recipient" id="edit-recipient"></select>
             </label>
             <label>
               Atribuído a

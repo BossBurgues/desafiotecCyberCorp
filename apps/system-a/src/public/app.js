@@ -14,6 +14,7 @@ const state = {
   detailId: null,
   ticket: null,
   catalog: null,
+  showTrash: false,
 };
 
 // Telas extras registradas pelas seções seguintes (detalhe, conversa, aprovações).
@@ -84,6 +85,8 @@ function saveSession(session) {
 function clearSession() {
   state.session = null;
   state.catalog = null;
+  state.showTrash = false;
+  renderedActionsKey = null;
   sessionStorage.removeItem(STORAGE_KEY);
   // Nada da sessão anterior (formulário aberto, aviso de erro) aparece para o próximo usuário.
   state.detailId = null;
@@ -267,13 +270,20 @@ function fillTicketRefs(prefix, ticket = {}) {
   fillRefOptions($(`${prefix}-location`), locations, (l) => l.name, ticket.locations_id ?? null);
   const tecnicos = users.filter((u) => u.profile === 'tecnico');
   fillRefOptions($(`${prefix}-assign`), tecnicos, core.userLabel, ticket.users_id_assign ?? null);
+  // Requerente: qualquer pessoa (o sync-bot é conta técnica). Chamado novo assume quem abre, como no GLPI
+  const people = users.filter((u) => u.profile !== 'sync-bot');
+  const recipient = Object.hasOwn(ticket, 'id') ? ticket.users_id_recipient ?? null : state.session.userId;
+  fillRefOptions($(`${prefix}-recipient`), people, core.userLabel, recipient);
 }
 
 const refValue = (select) => (select.value === '' ? null : Number(select.value));
-const REF_FIELDS = ['itilcategories_id', 'locations_id', 'users_id_assign'];
+const REF_FIELDS = ['itilcategories_id', 'locations_id', 'users_id_recipient', 'users_id_assign'];
 
 async function refreshTickets() {
-  const tickets = await api('GET', '/Ticket?range=0-49&sort=date_mod&order=DESC');
+  const trash = state.showTrash ? 1 : 0;
+  $('tickets-heading').textContent = trash ? 'Lixeira' : 'Chamados';
+  $('trash-toggle').textContent = trash ? 'Voltar aos chamados' : 'Ver lixeira';
+  const tickets = await api('GET', `/Ticket?range=0-49&sort=date_mod&order=DESC&is_deleted=${trash}`);
   const rows = (tickets || []).map((t) =>
     el(
       'tr',
@@ -415,6 +425,10 @@ async function start() {
   $('login-form').addEventListener('submit', onLogin);
   $('logout').addEventListener('click', onLogout);
   $('new-ticket-toggle').addEventListener('click', () => toggleNewTicket(true));
+  $('trash-toggle').addEventListener('click', () => {
+    state.showTrash = !state.showTrash;
+    refreshTickets().catch((err) => showBanner($('global-error'), describe(err)));
+  });
   $('new-ticket-cancel').addEventListener('click', () => toggleNewTicket(false));
   $('new-ticket-form').addEventListener('submit', onCreateTicket);
   window.addEventListener('hashchange', route);
@@ -443,6 +457,7 @@ function renderTicket(ticket) {
   const closedAt = ticket.closedate ? ` · fechado em ${ticket.closedate}` : ticket.solvedate ? ` · solucionado em ${ticket.solvedate}` : '';
   $('detail-meta').replaceChildren(
     badge(ticket.status),
+    ...(ticket.is_deleted === 1 ? [' ', el('span', { className: 'badge trash', text: 'Na lixeira' })] : []),
     ` · Prioridade ${core.priorityLabel(ticket.priority)} · aberto em ${ticket.date} · alterado em ${ticket.date_mod}${closedAt}`,
     el('br'),
     `Categoria: ${core.catalogLabel(categories, ticket.itilcategories_id)} · Local: ${core.catalogLabel(locations, ticket.locations_id, (l) => l.name)}` +
@@ -459,6 +474,7 @@ async function refreshDetail() {
   }
   state.ticket = ticket;
   renderTicket(ticket);
+  renderActions(ticket);
   for (const extension of detailExtensions) {
     await extension(ticket);
   }
@@ -521,6 +537,7 @@ async function onSaveTicket(event) {
   try {
     state.ticket = await api('PUT', `/Ticket/${ticket.id}`, { input });
     renderTicket(state.ticket);
+    renderActions(state.ticket);
     toggleEdit(false);
   } catch (err) {
     // 403/409: o aviso fica acima do formulário, que continua aberto com o que foi digitado.
@@ -539,11 +556,79 @@ views.detail = {
     }
     state.detailId = id;
     $('edit-toggle').hidden = !core.canEdit(state.session.profile);
+    $('ticket-actions').hidden = !core.canAct(state.session.profile);
     await ensureCatalog();
     await refreshDetail();
   },
   refresh: refreshDetail,
 };
+
+// ---------- ações do chamado (tela de trabalho do GLPI) ----------
+// Cada botão é um PUT (ou DELETE) da API que o A já tem; o sync leva o resultado ao B.
+
+let renderedActionsKey = null;
+
+function renderActions(ticket) {
+  if (!core.canAct(state.session?.profile)) {
+    return;
+  }
+  // O polling de 5 s não recria os botões à toa (o foco e o texto da solução ficam)
+  const key = `${ticket.id}:${ticket.status}:${ticket.users_id_assign}:${ticket.is_deleted}`;
+  $('edit-toggle').hidden = ticket.is_deleted === 1 || !core.canEdit(state.session.profile);
+  if (key === renderedActionsKey) {
+    return;
+  }
+  renderedActionsKey = key;
+  const buttons = core.ticketActions(ticket, state.session.userId).map((action) => {
+    const button = el('button', { type: 'button', text: action.label, 'data-action': action.id });
+    if (action.danger) {
+      button.className = 'danger';
+    }
+    button.disabled = !action.enabled;
+    button.hidden = Boolean(action.hidden);
+    button.addEventListener('click', () => runAction(action, button));
+    return button;
+  });
+  $('action-buttons').replaceChildren(...buttons);
+}
+
+async function runAction(action, button) {
+  const ticket = state.ticket;
+  const error = $('actions-error');
+  showBanner(error, '');
+  const solution = $('solution-text').value.trim();
+  if (action.id === 'solve' && !solution) {
+    showBanner(error, 'Escreva a solução antes de solucionar.');
+    $('solution-text').focus();
+    return;
+  }
+  if (action.id === 'delete' && !confirm(`Mandar o chamado #${ticket.id} para a lixeira? O registro sai do Sistema B; restaurar o recria.`)) {
+    return;
+  }
+  button.disabled = true;
+  try {
+    if (action.id === 'delete') {
+      await api('DELETE', `/Ticket/${ticket.id}`);
+    } else {
+      if (action.id === 'solve') {
+        // A solução fica na conversa do chamado, como o acompanhamento do GLPI
+        await api('POST', '/ITILFollowup', {
+          input: { itemtype: 'Ticket', items_id: ticket.id, content: core.solutionNote(solution) },
+        });
+      }
+      await api('PUT', `/Ticket/${ticket.id}`, { input: action.input });
+    }
+    if (action.id === 'solve') {
+      $('solution-text').value = '';
+    }
+    renderedActionsKey = null;
+    toggleEdit(false);
+    await refreshDetail();
+  } catch (err) {
+    showBanner(error, describe(err, 'mudar o chamado'));
+    button.disabled = false;
+  }
+}
 
 $('edit-toggle').addEventListener('click', () => toggleEdit($('edit-form').hidden));
 $('edit-cancel').addEventListener('click', () => toggleEdit(false));
@@ -691,6 +776,9 @@ const enterDetail = views.detail.enter;
 views.detail.enter = async (params) => {
   if (state.detailId !== params.id) {
     renderedPendingKey = null;
+    renderedActionsKey = null;
+    $('solution-text').value = '';
+    showBanner($('actions-error'), '');
     $('timeline').replaceChildren();
     $('detail-pending').replaceChildren();
   }

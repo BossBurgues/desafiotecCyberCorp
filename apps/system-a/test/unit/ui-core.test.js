@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   authorOf,
   buildTimeline,
+  canAct,
   canAddNote,
   canDecide,
   editableStatuses,
@@ -12,7 +13,9 @@ import {
   htmlToText,
   priorityLabel,
   statusLabel,
+  solutionNote,
   stripMarkers,
+  ticketActions,
 } from '../../src/public/ui-core.js';
 
 test('403 do Estagiário vira frase que cita o perfil e a ação', () => {
@@ -136,4 +139,31 @@ test('rótulos dos catálogos: nome completo do usuário com o login, e "—" se
   assert.equal(catalogLabel(cats, 2), 'Hardware > Impressão');
   assert.equal(catalogLabel(cats, null), '—');
   assert.equal(catalogLabel(cats, 9), '—');
+});
+
+test('ações do chamado: só o Técnico age, e cada ação vale só no status certo (regra da UI do B)', () => {
+  assert.equal(canAct('tecnico'), true);
+  assert.equal(canAct('estagiario'), false);
+  const enabled = (ticket) =>
+    ticketActions({ users_id_assign: null, is_deleted: 0, ...ticket }, 1)
+      .filter((a) => a.enabled)
+      .map((a) => a.id);
+  assert.deepEqual(enabled({ status: 1 }), ['assign', 'progress', 'pending', 'solve', 'close', 'delete']);
+  assert.deepEqual(enabled({ status: 2, users_id_assign: 1 }), ['pending', 'solve', 'close', 'delete']);
+  assert.deepEqual(enabled({ status: 4 }), ['assign', 'progress', 'solve', 'close', 'delete']);
+  assert.deepEqual(enabled({ status: 5 }), ['close', 'reopen', 'delete']);
+  assert.deepEqual(enabled({ status: 6 }), ['reopen', 'delete']);
+  assert.deepEqual(enabled({ status: 2, is_deleted: 1 }), ['restore']);
+});
+
+test('ações do chamado: o PUT de cada uma (atribuir põe em atendimento se estava Novo; reabrir volta a 2)', () => {
+  const byId = (status) => Object.fromEntries(ticketActions({ status, users_id_assign: null, is_deleted: 0 }, 1).map((a) => [a.id, a.input]));
+  assert.deepEqual(byId(1).assign, { users_id_assign: 1, status: 2 });
+  assert.deepEqual(byId(4).assign, { users_id_assign: 1 });
+  assert.deepEqual(byId(2).solve, { status: 5 });
+  assert.deepEqual(byId(5).close, { status: 6 });
+  assert.deepEqual(byId(6).reopen, { status: 2 });
+  assert.deepEqual(byId(2).restore, { is_deleted: 0 });
+  assert.equal(byId(2).delete, undefined);
+  assert.equal(solutionNote('  Troquei o toner. '), 'Solução: Troquei o toner.');
 });

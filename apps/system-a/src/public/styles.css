@@ -309,3 +309,14 @@ tbody tr:hover {
     display: none;
   }
 }
+
+/* Cartão "Ações": o que não vale no estado atual fica apagado, sem cursor de espera */
+#action-buttons button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.badge.trash {
+  background: var(--danger-bg);
+  color: var(--danger);
+}

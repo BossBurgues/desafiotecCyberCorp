@@ -88,6 +88,41 @@ export function canEdit(profile) {
   return profile === PROFILES.TECNICO || profile === PROFILES.ESTAGIARIO;
 }
 
+// Cartão "Ações" do detalhe: a tela de trabalho do GLPI. Só o Técnico vê; o servidor confere de novo (403).
+export function canAct(profile) {
+  return profile === PROFILES.TECNICO;
+}
+
+/**
+ * Ações do chamado e se cada uma vale no estado atual (mesma regra da UI do B: o botão do estado em que o chamado
+ * já está fica desabilitado; reabrir só em Solucionado/Fechado). Cada ação diz o PUT que faz; "solve" também grava
+ * a nota da solução antes. Na lixeira só restaurar vale.
+ */
+export function ticketActions(ticket, userId) {
+  const { status } = ticket;
+  const deleted = ticket.is_deleted === 1;
+  const open = !deleted && status < 5;
+  const assign = { users_id_assign: userId };
+  if (status === 1) {
+    assign.status = 2;
+  }
+  return [
+    { id: 'assign', label: 'Atribuir a mim', enabled: open && ticket.users_id_assign !== userId, input: assign },
+    { id: 'progress', label: 'Em atendimento', enabled: open && status !== 2, input: { status: 2 } },
+    { id: 'pending', label: 'Pendente', enabled: open && status !== 4, input: { status: 4 } },
+    { id: 'solve', label: 'Solucionar', enabled: open, input: { status: 5 } },
+    { id: 'close', label: 'Fechar', enabled: !deleted && status !== 6, input: { status: 6 } },
+    { id: 'reopen', label: 'Reabrir', enabled: !deleted && status >= 5, input: { status: 2 } },
+    // Excluir e Restaurar são o mesmo botão de lixeira: só um aparece
+    { id: 'delete', label: 'Excluir', enabled: !deleted, hidden: deleted, danger: true },
+    { id: 'restore', label: 'Restaurar', enabled: deleted, hidden: !deleted, input: { is_deleted: 0 } },
+  ];
+}
+
+export function solutionNote(text) {
+  return `Solução: ${String(text ?? '').trim()}`;
+}
+
 export function canCreate(profile) {
   return profile === PROFILES.TECNICO || profile === PROFILES.ESTAGIARIO;
 }
@@ -101,6 +136,8 @@ export function errorMessage({ status, code, message, profile, action } = {}) {
       return `Seu perfil (${profileLabel(profile)}) não pode ${action || 'fazer esta ação'}. Peça a um Técnico.`;
     case 'ERROR_TICKET_FROZEN':
       return 'Chamado congelado (Solucionado ou Fechado): só aceita notas. A edição não foi salva.';
+    case 'ERROR_TICKET_DELETED':
+      return 'O chamado está na lixeira: restaure antes de editar.';
     case 'ERROR_SESSION_TOKEN_INVALID':
     case 'ERROR_SESSION_TOKEN_MISSING':
       return 'Sua sessão expirou. Entre de novo.';
