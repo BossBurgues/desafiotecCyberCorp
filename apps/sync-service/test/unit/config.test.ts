@@ -33,6 +33,14 @@ describe('loadConfig', () => {
     });
   });
 
+  it('login do dashboard: opcional, mas a senha precisa de 12+ caracteres', () => {
+    expect(loadConfig(valid).DASHBOARD_PASSWORD).toBeUndefined();
+    expect(loadConfig({ ...valid, DASHBOARD_USER: 'operador', DASHBOARD_PASSWORD: 'uma-senha-longa' })).toMatchObject({
+      DASHBOARD_USER: 'operador',
+    });
+    expect(() => loadConfig({ ...valid, DASHBOARD_PASSWORD: 'curta' })).toThrow(ConfigError);
+  });
+
   it('converte números vindos do ambiente como texto', () => {
     expect(loadConfig({ ...valid, PORT: '8080', READY_CHECK_TIMEOUT_MS: '500' })).toMatchObject({
       PORT: 8080,

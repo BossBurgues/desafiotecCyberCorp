@@ -45,6 +45,9 @@ const schema = z.object({
   POLL_PAGE_SIZE: z.coerce.number().int().min(1).max(500).default(100),
   // Dashboard (S3.10): o painel de caos usa o admin do B; reprocessar e mexer no caos só com DASHBOARD_CONTROLS=true
   B_ADMIN_TOKEN: z.string().min(1).optional(),
+  // Login do dashboard (S5.3): sem os dois, o dashboard não é registrado (falha segura)
+  DASHBOARD_USER: z.string().min(1).optional(),
+  DASHBOARD_PASSWORD: z.string().min(12, 'a senha do dashboard precisa de pelo menos 12 caracteres').optional(),
   DASHBOARD_CONTROLS: z
     .enum(['true', 'false'])
     .default('false')
