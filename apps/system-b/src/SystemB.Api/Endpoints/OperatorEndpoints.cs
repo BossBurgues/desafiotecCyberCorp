@@ -14,7 +14,7 @@ public static class OperatorEndpoints
         g.MapGet("/", RecordsEndpoints.List);
         g.MapGet("/{id}", RecordsEndpoints.Get);
         g.MapPut("/{id}", RecordsEndpoints.Put);
-        g.MapDelete("/{id}", (string id, IRecordStore store) =>
-            store.Delete(id) ? Results.NoContent() : ErrorResults.NotFound($"Registro {id} não encontrado"));
+        // A exclusão do operador usa a mesma lápide da API: o sync vê o 410 com quem excluiu (ADR-015)
+        g.MapDelete("/{id}", RecordsEndpoints.Delete);
     }
 }

@@ -63,6 +63,7 @@ public static class RecordsEndpoints
         g.MapGet("/", List);
         g.MapGet("/{id}", Get);
         g.MapPut("/{id}", Put);
+        g.MapDelete("/{id}", Delete);
     }
 
     // Handlers compartilhados com as rotas do operador (/operator/records), que ficam fora do caos
@@ -86,7 +87,11 @@ public static class RecordsEndpoints
     public static IResult Get(string id, IRecordStore store) =>
         store.Get(id) is { } r
             ? Results.Json(r, JsonDefaults.Options)
-            : ErrorResults.NotFound($"Registro {id} não encontrado");
+            : ErrorResults.Missing(id, store);
+
+    /// <summary>Exclusão com lápide (capacidade opcional "delete", ADR-015): 204; já excluído 410; nunca existiu 404.</summary>
+    public static IResult Delete(string id, HttpRequest req, IRecordStore store, TimeProvider clock) =>
+        store.Delete(id, Now(clock), Author(req)) ? Results.NoContent() : ErrorResults.Missing(id, store);
 
     public static async Task<IResult> Put(string id, HttpRequest req, IRecordStore store, TimeProvider clock)
     {
@@ -95,9 +100,10 @@ public static class RecordsEndpoints
         var (input, problems) = RecordValidator.Validate(raw!);
         if (problems.Count > 0) return ErrorResults.Validation(problems);
 
+        // Registro excluído não ressuscita por PUT: 410 com a lápide; quem decide recriar é o cliente (POST)
         return store.Replace(id, input, Now(clock), Author(req)) is { } r
             ? Results.Json(r, JsonDefaults.Options)
-            : ErrorResults.NotFound($"Registro {id} não encontrado");
+            : ErrorResults.Missing(id, store);
     }
 }
 

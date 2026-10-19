@@ -50,6 +50,7 @@ async function api(path, options = {}) {
   const body = await res.json().catch(() => null);
   if (!res.ok) {
     const detail = body && body.message ? body.message : `HTTP ${res.status}`;
+    if (res.status === 410) throw new Error(`Excluído por ${body.deletedBy} em ${new Date(body.deletedAt).toLocaleString('pt-BR')}`);
     throw new Error(`${res.status === 404 ? 'Não encontrado' : 'Erro'}: ${detail}`);
   }
   return body;
@@ -198,7 +199,7 @@ function wire() {
   }
 
   $('delete').addEventListener('click', async () => {
-    if (!confirm(`Excluir ${current.id} do B? O sync verá o registro sumir e o recriará a partir do A.`)) return;
+    if (!confirm(`Excluir ${current.id} do B? O chamado vai para a lixeira do A (reversível).`)) return;
     try {
       await api(`/operator/records/${encodeURIComponent(current.id)}`, { method: 'DELETE' });
       flash = `${current.id} excluído.`;

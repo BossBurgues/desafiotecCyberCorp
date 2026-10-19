@@ -40,9 +40,31 @@ public class SqliteRecordStoreTests : IDisposable
         Assert.Equal("B-1", a.Id);
         Assert.Equal("B-2", b.Id);
 
-        Assert.True(store.Delete(b.Id));
+        Assert.True(store.Delete(b.Id, "t", "Operador B"));
         Assert.Equal("B-3", store.Create(Input("c"), "n").Id);
-        Assert.False(store.Delete(b.Id));
+        Assert.False(store.Delete(b.Id, "t", "Operador B"));
+        Assert.True(store.Purge(a.Id));
+        Assert.Equal("B-4", store.Create(Input("d"), "n").Id);
+    }
+
+    [Fact]
+    public void Excluir_deixa_lapide_some_da_leitura_e_da_listagem_e_purge_nao_deixa()
+    {
+        var store = new SqliteRecordStore(_path);
+        var a = store.Create(Input("a"), "n");
+        var b = store.Create(Input("b"), "n");
+
+        Assert.True(store.Delete(a.Id, "2026-10-19T10:00:00.000Z", "Maria"));
+        Assert.Null(store.Get(a.Id));
+        Assert.Null(store.Replace(a.Id, Input("x"), "t"));
+        Assert.Equal(new SystemB.Api.Models.Tombstone("Maria", "2026-10-19T10:00:00.000Z"), store.GetTombstone(a.Id));
+        Assert.Equal(1, store.Count());
+        Assert.Equal(b.Id, Assert.Single(store.List(0, 10)).Id);
+
+        Assert.Null(store.GetTombstone(b.Id));
+        Assert.True(store.Purge(b.Id));
+        Assert.Null(store.GetTombstone(b.Id));
+        Assert.Null(store.GetTombstone("B-999"));
     }
 
     [Fact]

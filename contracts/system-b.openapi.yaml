@@ -7,7 +7,7 @@ info:
     list paginado e um campo de texto devolvido como gravado (`description`, o B_MARKER_FIELD padrão).
 
     Não assumido (e por isso ausente deste arquivo): busca por referência externa (`externalId` / `search`),
-    `Idempotency-Key`, webhooks do B, timestamps confiáveis, autor da mudança, flag de excluído,
+    `Idempotency-Key`, webhooks do B, timestamps confiáveis,
     listagem consistente, códigos HTTP coerentes.
 
     Comportamentos hostis possíveis (modo caos): latência, timeout, 5xx, 429, 200 com erro no corpo,
@@ -87,7 +87,8 @@ paths:
       summary: Lê um registro do Sistema B pelo seu ID opaco
       description: |
         Usado na verificação pós-escrita, na leitura prévia antes do PUT (ADR-011) e nas varreduras
-        periódicas do auditor. Retorna **404** se o registro tiver sido excluído pelo Operador B (ADR-007).
+        periódicas da varredura. Excluído (pelo operador ou pela API) responde **410** com a lápide, se o B tiver a
+        capacidade `tombstone`; sem ela, **404**, igual a um registro perdido (ADR-015).
       responses:
         '200':
           description: Registro encontrado
@@ -103,6 +104,8 @@ paths:
                 $ref: '#/components/schemas/Record'
         '404':
           $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         default:
@@ -138,10 +141,31 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/Gone'
         '412':
           $ref: '#/components/responses/PreconditionFailed'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        default:
+          $ref: '#/components/responses/DefaultError'
+    delete:
+      operationId: deleteRecord
+      x-capability: delete
+      summary: Exclui o registro deixando uma lápide (capacidade opcional)
+      description: |
+        Usado quando o chamado vai para a lixeira do A (ADR-015). O registro some da leitura e da listagem; a lápide
+        guarda quem excluiu e quando. Excluir de novo responde 410 (o sync trata como já excluído). Sem esta
+        capacidade, o sync não apaga nada no B.
+      responses:
+        '204':
+          description: Excluído
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/Gone'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         default:
@@ -460,7 +484,39 @@ components:
         message:
           type: string
           example: Falha simulada no Sistema B
+    Gone:
+      type: object
+      additionalProperties: false
+      x-capability: tombstone
+      description: Lápide de um registro excluído (410). 404 continua sendo "nunca existiu ou se perdeu"
+      required:
+        - error
+        - message
+        - deletedBy
+        - deletedAt
+      properties:
+        error:
+          type: string
+          example: GONE
+        message:
+          type: string
+          example: Registro B-7 foi excluído
+        deletedBy:
+          type: string
+          description: Quem excluiu (o nome do operador ou `integração (sync)`)
+          example: Maria
+        deletedAt:
+          type: string
+          format: date-time
+          example: '2026-10-19T19:10:00.000Z'
   responses:
+    Gone:
+      x-capability: tombstone
+      description: "Registro excluído, com a lápide: o sync leva o chamado para a lixeira do A (ADR-015)"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Gone'
     BadRequest:
       description: Requisição malformada (erro permanente — até 3 tentativas antes de ir para a DLQ, ADR-008)
       content:
@@ -468,7 +524,7 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     NotFound:
-      description: Registro não encontrado (se já tinha mapeamento ativo, inicia o fluxo de exclusão em 2 passos — ADR-007)
+      description: Registro não encontrado (nunca existiu ou o B o perdeu). Com mapeamento ativo, o sync procura o marcador e recria (S3.8)
       content:
         application/json:
           schema:
