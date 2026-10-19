@@ -85,8 +85,8 @@ test('só o Técnico pode aprovar, recusar e adicionar nota', () => {
   assert.equal(canAddNote('estagiario'), false);
 });
 
-test('status 5 e 6 não estão entre os editáveis', () => {
-  assert.deepEqual(editableStatuses(), [1, 2, 3, 4]);
+test('o Técnico pode escolher todos os status do GLPI, inclusive Solucionado e Fechado', () => {
+  assert.deepEqual(editableStatuses(), [1, 2, 3, 4, 5, 6]);
 });
 
 test('todos os status e prioridades 1–6 têm rótulo', () => {
