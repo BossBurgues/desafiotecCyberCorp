@@ -222,7 +222,7 @@ describe.skipIf(!TEST_DATABASE_URL)('processJob: create/update idempotente com m
       const after = await getMapping(pool, 1);
       expect(after!.last_synced_hash).not.toBe(before!.last_synced_hash);
       expect(after!.last_written_hash).not.toBe(before!.last_written_hash);
-      expect(B.calls.get).toBe(2);
+      expect(B.calls.get).toBe(3); // verificação do create + ler antes de escrever + verificação do update
     });
 
     it('B responde 200 ao update sem gravar: hash não é gravado e o job volta para a fila', async () => {
@@ -317,7 +317,7 @@ describe.skipIf(!TEST_DATABASE_URL)('processJob: create/update idempotente com m
       });
       await syncedThenChanged('Sem leitura');
       await run();
-      expect(B.calls).toMatchObject({ create: 1, update: 1, get: 0 });
+      expect(B.calls).toMatchObject({ create: 1, update: 1, get: 1 }); // só o ler antes de escrever, nenhuma verificação
     });
   });
 

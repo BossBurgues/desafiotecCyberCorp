@@ -323,7 +323,7 @@ test('estagiário editando chamado inexistente recebe 403, não 404', async () =
   }
 });
 
-test('sync-bot abrindo ou editando chamado recebe 403', async () => {
+test('sync-bot não abre chamado nem edita nada além do status (B → A leve)', async () => {
   const app = buildTestServer();
   try {
     const tecnicoHeaders = await login(app, 'tecnico');
@@ -346,14 +346,25 @@ test('sync-bot abrindo ou editando chamado recebe 403', async () => {
     assert.equal(botCreate.statusCode, 403);
     assert.equal(botCreate.json()[0], 'ERROR_RIGHT_MISSING');
 
-    const botUpdate = await app.inject({
+    for (const input of [{ name: 'Bot editando o título' }, { status: 2, priority: 5 }]) {
+      const botUpdate = await app.inject({
+        method: 'PUT',
+        url: '/apirest.php/Ticket/1',
+        headers: botHeaders,
+        payload: { input },
+      });
+      assert.equal(botUpdate.statusCode, 403, JSON.stringify(input));
+      assert.equal(botUpdate.json()[0], 'ERROR_RIGHT_MISSING');
+    }
+
+    const botStatus = await app.inject({
       method: 'PUT',
       url: '/apirest.php/Ticket/1',
       headers: botHeaders,
-      payload: { input: { status: 2 } },
+      payload: { input: { status: 6 } },
     });
-    assert.equal(botUpdate.statusCode, 403);
-    assert.equal(botUpdate.json()[0], 'ERROR_RIGHT_MISSING');
+    assert.equal(botStatus.statusCode, 200);
+    assert.equal(botStatus.json().status, 6);
   } finally {
     await app.close();
   }

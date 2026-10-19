@@ -33,6 +33,8 @@ public record RecordInput
     public Location? Location { get; init; }
     public string? SourceUpdatedAt { get; init; }
     public List<Attachment> Attachments { get; init; } = [];
+    /// <summary>Texto da solução, escrito pelo operador do B ao resolver (capacidade opcional "resolution").</summary>
+    public string? Resolution { get; init; }
 }
 
 /// <summary>Registro como o B o devolve. Mesmos campos do RecordInput mais id e relógio do B.</summary>
@@ -49,13 +51,17 @@ public record Record
     public Location? Location { get; init; }
     public string? SourceUpdatedAt { get; init; }
     public List<Attachment> Attachments { get; init; } = [];
+    public string? Resolution { get; init; }
+    public string? UpdatedBy { get; init; }
     public required string CreatedAt { get; init; }
     public required string UpdatedAt { get; init; }
 
-    public static Record From(string id, RecordInput i, string createdAt, string updatedAt) => new()
+    /// <param name="updatedBy">Quem fez a última alteração (capacidade "updatedBy"): definido pelo servidor, nunca pelo cliente.</param>
+    public static Record From(string id, RecordInput i, string createdAt, string updatedAt, string? updatedBy = null) => new()
     {
         Id = id, Title = i.Title, Description = i.Description, State = i.State, Severity = i.Severity,
         Category = i.Category, Requester = i.Requester, Assignee = i.Assignee, Location = i.Location,
-        SourceUpdatedAt = i.SourceUpdatedAt, Attachments = i.Attachments, CreatedAt = createdAt, UpdatedAt = updatedAt,
+        SourceUpdatedAt = i.SourceUpdatedAt, Attachments = i.Attachments, Resolution = i.Resolution, UpdatedBy = updatedBy,
+        CreatedAt = createdAt, UpdatedAt = updatedAt,
     };
 }

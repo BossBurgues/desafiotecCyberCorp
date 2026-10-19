@@ -32,11 +32,20 @@ function show(message, kind = 'error') {
   target.hidden = false;
 }
 
+// Nome do operador: o B grava como "quem alterou" (updatedBy) e o sync leva para a nota no A
+const OPERATOR_KEY = 'systemb.operator';
+function operatorName() {
+  try {
+    return localStorage.getItem(OPERATOR_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
 async function api(path, options = {}) {
-  const res = await fetch(path, {
-    ...options,
-    headers: options.body ? { 'Content-Type': 'application/json' } : {},
-  });
+  const headers = options.body ? { 'Content-Type': 'application/json' } : {};
+  if (operatorName()) headers['X-Operator'] = operatorName();
+  const res = await fetch(path, { ...options, headers });
   if (res.status === 204) return null;
   const body = await res.json().catch(() => null);
   if (!res.ok) {
@@ -96,7 +105,7 @@ async function renderList() {
 
 function fillForm(r) {
   const f = $('edit-form').elements;
-  for (const name of ['title', 'description', 'state', 'severity', 'category', 'requester', 'assignee']) {
+  for (const name of ['title', 'description', 'state', 'severity', 'category', 'requester', 'assignee', 'resolution']) {
     f[name].value = r[name] ?? '';
   }
 }
@@ -108,7 +117,9 @@ async function renderDetail(id) {
   $('detail-state').replaceWith(Object.assign(badge(current.state), { id: 'detail-state' }));
   $('detail-meta').textContent =
     `Chamado do A: ${aTicket(current)} · criado ${new Date(current.createdAt).toLocaleString('pt-BR')}` +
-    ` · atualizado ${new Date(current.updatedAt).toLocaleString('pt-BR')}`;
+    ` · atualizado ${new Date(current.updatedAt).toLocaleString('pt-BR')}` +
+    (current.updatedBy ? ` por ${current.updatedBy}` : '');
+  $('quick-resolution').value = current.resolution ?? '';
   $('reopen').disabled = !['RESOLVED', 'CLOSED'].includes(current.state);
   for (const b of document.querySelectorAll('[data-state]')) {
     if (b.id !== 'reopen') b.disabled = b.dataset.state === current.state;
@@ -118,7 +129,7 @@ async function renderDetail(id) {
 
 // PUT é substituição completa: parte do registro atual para não apagar localização, anexos e sourceUpdatedAt
 function bodyFrom(record, changes) {
-  const { id, createdAt, updatedAt, ...input } = record;
+  const { id, createdAt, updatedAt, updatedBy, ...input } = record;
   const blankToNull = (v) => (v === '' ? null : v);
   return JSON.stringify({
     ...input,
@@ -126,6 +137,7 @@ function bodyFrom(record, changes) {
     category: blankToNull(changes.category ?? input.category),
     requester: blankToNull(changes.requester ?? input.requester),
     assignee: blankToNull(changes.assignee ?? input.assignee),
+    resolution: blankToNull(changes.resolution ?? input.resolution ?? null),
   });
 }
 
@@ -155,6 +167,15 @@ async function route() {
 }
 
 function wire() {
+  $('operator-name').value = operatorName();
+  $('operator-name').addEventListener('change', (e) => {
+    try {
+      localStorage.setItem(OPERATOR_KEY, e.target.value.trim());
+    } catch {
+      // sem armazenamento: o B grava "Operador B"
+    }
+  });
+
   fillSelect($('edit-form').elements.state, STATES);
   fillSelect($('edit-form').elements.severity, SEVERITIES);
 
@@ -169,11 +190,15 @@ function wire() {
   });
 
   for (const b of document.querySelectorAll('[data-state]')) {
-    b.addEventListener('click', () => save({ state: b.dataset.state }, `Estado alterado para ${STATES[b.dataset.state]}.`));
+    b.addEventListener('click', () => {
+      const changes = { state: b.dataset.state };
+      if (['RESOLVED', 'CLOSED'].includes(b.dataset.state)) changes.resolution = $('quick-resolution').value;
+      save(changes, `Estado alterado para ${STATES[b.dataset.state]}.`);
+    });
   }
 
   $('delete').addEventListener('click', async () => {
-    if (!confirm(`Excluir ${current.id} do B? O sync verá o registro sumir e pedirá aprovação no A.`)) return;
+    if (!confirm(`Excluir ${current.id} do B? O sync verá o registro sumir e o recriará a partir do A.`)) return;
     try {
       await api(`/operator/records/${encodeURIComponent(current.id)}`, { method: 'DELETE' });
       flash = `${current.id} excluído.`;
@@ -195,6 +220,7 @@ function wire() {
         category: f.category.value,
         requester: f.requester.value,
         assignee: f.assignee.value,
+        resolution: f.resolution.value,
       },
       'Campos salvos.',
     );

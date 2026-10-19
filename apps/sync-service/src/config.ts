@@ -33,6 +33,12 @@ const schema = z.object({
   A_SYNC_BOT_TOKEN: z.string().min(1),
   A_TIMEZONE: z.string().min(1).default('America/Sao_Paulo'),
   A_TIMEOUT_MS: ms(100, 60_000).default(5_000),
+  // B → A leve (ADR-014): varredura do B e aplicação no A do estado que o operador do B mudou
+  B_TO_A_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  B_SCAN_INTERVAL_MS: ms(1_000, 3_600_000).default(30_000),
   // Catálogos do A (categoria, usuários, locais) usados na conversão de campos: recarregados a cada intervalo
   A_LOOKUPS_TTL_MS: ms(1_000, 3_600_000).default(60_000),
   // processJob (S3.6, ADR-004): onde vai o marcador e quantas varreduras sem achá-lo antes de recriar

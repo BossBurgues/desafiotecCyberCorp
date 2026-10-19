@@ -1,6 +1,6 @@
 # ADR-009: Anti-eco (`last_written_hash`, `sync-bot`)
 
-- **Status:** Aceito (aplica-se ao fluxo B→A — M3, opcional)
+- **Status:** Aceito · implementado no B → A leve (ADR-014)
 - **Data:** 16/10/2026
 - **Decisões do plano:** Q22 (seções 2 e 5.1 do `PLANO_DE_ACAO.md`)
 

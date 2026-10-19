@@ -26,6 +26,15 @@ public sealed class SqliteRecordStore : IRecordStore
               updated_at TEXT NOT NULL)
             """;
         cmd.ExecuteNonQuery();
+
+        // Autor da última alteração (capacidade "updatedBy"), em coluna própria: o corpo é só o que o cliente mandou.
+        // Bancos criados antes da coluna ganham ela aqui (SQLite não tem ADD COLUMN IF NOT EXISTS)
+        cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('records') WHERE name = 'updated_by'";
+        if ((long)cmd.ExecuteScalar()! == 0)
+        {
+            cmd.CommandText = "ALTER TABLE records ADD COLUMN updated_by TEXT";
+            cmd.ExecuteNonQuery();
+        }
     }
 
     private SqliteConnection Open()
@@ -41,19 +50,21 @@ public sealed class SqliteRecordStore : IRecordStore
         r.GetString(0),
         JsonSerializer.Deserialize<RecordInput>(r.GetString(1), JsonDefaults.Options)!,
         r.GetString(2),
-        r.GetString(3));
+        r.GetString(3),
+        r.IsDBNull(4) ? null : r.GetString(4));
 
-    private const string Columns = "id, body, created_at, updated_at";
+    private const string Columns = "id, body, created_at, updated_at, updated_by";
 
-    public Models.Record Create(RecordInput input, string now)
+    public Models.Record Create(RecordInput input, string now, string? updatedBy = null)
     {
         using var conn = Open();
         using var tx = conn.BeginTransaction();
         using var insert = conn.CreateCommand();
         insert.Transaction = tx;
-        insert.CommandText = "INSERT INTO records(body, created_at, updated_at) VALUES($b, $n, $n)";
+        insert.CommandText = "INSERT INTO records(body, created_at, updated_at, updated_by) VALUES($b, $n, $n, $u)";
         insert.Parameters.AddWithValue("$b", Serialize(input));
         insert.Parameters.AddWithValue("$n", now);
+        insert.Parameters.AddWithValue("$u", (object?)updatedBy ?? DBNull.Value);
         insert.ExecuteNonQuery();
 
         using var idCmd = conn.CreateCommand();
@@ -68,7 +79,7 @@ public sealed class SqliteRecordStore : IRecordStore
         upd.ExecuteNonQuery();
 
         tx.Commit();
-        return Models.Record.From(id, input, now, now);
+        return Models.Record.From(id, input, now, now, updatedBy);
     }
 
     public Models.Record? Get(string id)
@@ -81,22 +92,23 @@ public sealed class SqliteRecordStore : IRecordStore
         return r.Read() ? Read(r) : null;
     }
 
-    public Models.Record? Replace(string id, RecordInput input, string now)
+    public Models.Record? Replace(string id, RecordInput input, string now, string? updatedBy = null)
     {
         using var conn = Open();
         using var tx = conn.BeginTransaction();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
-        cmd.CommandText = "UPDATE records SET body = $b, updated_at = $n WHERE id = $id RETURNING created_at";
+        cmd.CommandText = "UPDATE records SET body = $b, updated_at = $n, updated_by = $u WHERE id = $id RETURNING created_at";
         cmd.Parameters.AddWithValue("$b", Serialize(input));
         cmd.Parameters.AddWithValue("$n", now);
+        cmd.Parameters.AddWithValue("$u", (object?)updatedBy ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$id", id);
         string? createdAt;
         using (var r = cmd.ExecuteReader())
             createdAt = r.Read() ? r.GetString(0) : null;
         if (createdAt is null) return null;
         tx.Commit();
-        return Models.Record.From(id, input, createdAt, now);
+        return Models.Record.From(id, input, createdAt, now, updatedBy);
     }
 
     public IReadOnlyList<Models.Record> List(int offset, int limit, string? createdAtOrBefore = null)

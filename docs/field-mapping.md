@@ -23,6 +23,18 @@
 
 > **De onde vêm os nomes:** o sync lê os catálogos do A (`ITILCategory`, `User`, `Location`) como `sync-bot` e guarda em cache por `A_LOOKUPS_TTL_MS` (60 s); a conversão continua pura no `mapTicketToRecord` (`lookups`). Renomear um item do catálogo não reenvia os chamados antigos (o hash é calculado sobre os IDs do A): o novo nome chega ao B na próxima alteração do chamado.
 
+## 1.5 B → A leve: estado do B → status do A (ADR-014)
+
+| `state` no B | `status` no A | Observação |
+|---|---|---|
+| `OPEN` | `1` Novo | reabertura no B |
+| `IN_PROGRESS` | `2` Em atendimento | |
+| `ON_HOLD` | `4` Pendente | |
+| `RESOLVED` | `5` Solucionado | o A grava a `solvedate` |
+| `CLOSED` | `6` Fechado | o A grava a `closedate` |
+
+Ida e volta batem com a tabela A → B (`toState(toGlpiStatus(s)) === s`), então o chamado não oscila. Quem alterou (`updatedBy`) e a solução (`resolution`) do B vão para a nota do `sync-bot` no A. A solução é um campo do B: o sync a preserva ao atualizar o registro.
+
 ## 2. Tabelas de status e prioridade (cenário G1)
 
 ### 2.1 `status` (A) → `state` (B)

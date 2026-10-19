@@ -10,7 +10,7 @@ export {
 export { htmlToText } from './html-to-text.js';
 export { mapTicketToRecord } from './mapper.js';
 export { appendMarker, findMarker, markerFor } from './marker.js';
-export { PRIORITY_TO_SEVERITY, STATUS_TO_STATE, toSeverity, toState } from './status.js';
+export { PRIORITY_TO_SEVERITY, STATE_TO_STATUS, STATUS_TO_STATE, toGlpiStatus, toSeverity, toState } from './status.js';
 export {
   MAX_TITLE_CODE_POINTS,
   neutralizeMarkers,

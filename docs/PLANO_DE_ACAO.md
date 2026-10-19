@@ -24,15 +24,22 @@ O corte de 18/10 tirou o B → A do plano e das issues, mas o que já estava con
 | Papel | Pelo PDF | Na entrega |
 |---|---|---|
 | **Sistema A** (referência GLPI) | **O nosso sistema de chamados, o central.** É nele que o chamado é criado e atualizado | O Técnico cria, edita, **soluciona (5) e fecha (6)** (liberado no #172). O Estagiário só abre. O A é a fonte da verdade |
-| **Sistema B** | Outro sistema, outra API e outro formato, **não confiável** (lento, erro). Precisa receber e ficar atualizado | Recebe tudo do A. Tem um operador próprio (é um sistema de terceiro), mas o que ele faz **não volta ao A**: hoje é sobrescrito na próxima alteração do A (aviso na UI do B) |
+| **Sistema B** | Outro sistema, outra API e outro formato, **não confiável** (lento, erro). Precisa receber e ficar atualizado | Recebe tudo do A. Tem um operador próprio (sistema de terceiro): o **estado** que ele muda (resolver, fechar, reabrir) volta ao A pelo B → A leve (ADR-014); edições de outros campos são desfeitas pelo A |
 | **Sync** | O foco da avaliação | Núcleo A → B entregue e publicado |
-| **B → A** | Não está no PDF | Opcional, nos termos do avaliador (seção 1): se for feito, mostrar o anti-eco e a concorrência. Decisão registrada no ADR-013. Desenho nos ADRs 006, 007, 009 e 011; o que dá para reaproveitar está na seção 0.6 |
+| **B → A** | Não está no PDF | Opcional, nos termos do avaliador (seção 1). **Feito na versão leve** (ADR-014), com o anti-eco e a concorrência provados por teste; o completo (aprovação, congelamento) fica como desenho (ADRs 006 e 007) |
 
 As decisões da seção 2 ligadas ao B → A (Q4/Q7 "o B propõe, o A aprova", Q19, Q26, Q17/Q18/Q27, Q28, Q29, Q5/Q9/Q20) valem **só para o opcional**. No núcleo, o A muda o próprio status e o sync leva `RESOLVED`/`CLOSED` ao B como qualquer outra atualização.
 
-### 0.6 O que foi cortado e pode voltar (a validar)
+### 0.6 O que foi cortado e voltou (validação de 19/10)
 
-Ver a análise em `Docs/PlanosDeAcao/` (validação de 19/10). Critério: só volta o que cabe até 21/10 sem arriscar o núcleo publicado, e tem prioridade o que responde às duas perguntas do avaliador.
+Critério: só volta o que cabe até 21/10 sem arriscar o núcleo publicado, e tem prioridade o que o PDF pede e depois o que responde às duas perguntas do avaliador. Ponto de parada: o que não estivesse verde no fim de 20/10 ficava de fora.
+
+| Item | Decisão | Onde |
+|---|---|---|
+| 7 cenários cortados que já tinham teste (A5, A7, B12, C6, E3, G3, H5) | Reclassificados como concluídos | issues, épico E8 |
+| **A como GLPI** (catálogos de categoria, local e usuário; datas de solução/fechamento; formulário) + conversão completa dos campos | **Entrou** (o PDF pede o GLPI como referência e deixa a conversão por nossa conta) | PR #176 |
+| **B → A leve:** estado, quem alterou e solução voltam ao A; ler antes de escrever; varredura do B; anti-eco e o A vencendo conflitos | **Entrou** (opcional do avaliador, com as duas perguntas respondidas e provadas) | ADR-014, PR do M3 |
+| B → A completo (aprovação, congelamento, exclusão em 2 passos), notas A → B, M2, homologação, GitLab | Continua fora | `out-of-scope.md` |
 
 O plano original cresceu além do que o desafio pede. Com o prazo de 22/10, a estratégia passa a ser: **entregar o núcleo A → B à prova de caos, publicado e bem documentado**, e transformar o resto em **desenho documentado** (ADRs + `out-of-scope.md`). O próprio enunciado valoriza mais o raciocínio do que uma solução completa, e o avaliador confirmou que o B → A é opcional.
 
@@ -300,7 +307,7 @@ O registro some → `deletion_requested` + nota no A ("autor/motivo não informa
 | Técnico (A) | ✅ | ✅ | ✅ | ✅ (exceto congelado) | ✅ |
 | Estagiário (A) | ✅ | ✅ | ❌ | ❌ | ❌ |
 | sync-bot (A) | ✅ | — | ✅ (notas de sistema) | só aplica decisões do A | ❌ |
-| Operador B | UI do B: resolver, editar, excluir, reabrir. **Na entrega, nada disso volta ao A** (é sobrescrito na próxima alteração do A). *No opcional B → A:* vira proposta, nota ou reversão |
+| Operador B | UI do B: resolver, fechar, reabrir (com o nome e a solução) → **volta ao A** pelo B → A leve; editar outros campos → desfeito pelo A; excluir → o sync recria a partir do A |
 
 Ação negada → **403** ou **409**, visível na UI e registrada no `audit_log`.
 

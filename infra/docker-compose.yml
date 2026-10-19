@@ -107,6 +107,9 @@ services:
       B_MARKER_FIELD: ${B_MARKER_FIELD:-description}
       CREATE_UNCERTAIN_SCANS: ${CREATE_UNCERTAIN_SCANS:-2}
       VERIFY_AFTER_WRITE: ${VERIFY_AFTER_WRITE:-true}
+      # B → A leve (ADR-014): o estado mudado pelo operador do B volta ao A, com quem alterou e a solução
+      B_TO_A_ENABLED: ${B_TO_A_ENABLED:-true}
+      B_SCAN_INTERVAL_MS: ${B_SCAN_INTERVAL_MS:-30000}
       POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-10000}
       POLL_OVERLAP_MS: ${POLL_OVERLAP_MS:-120000}
       # Painel de caos do dashboard fala com o /admin do B pela rede interna

@@ -1,6 +1,6 @@
 # ADR-011: Concorrência A×B: o A vence, ler antes de escrever, If-Match opcional, risco residual
 
-- **Status:** Aceito (aplica-se ao fluxo B→A — M3, opcional)
+- **Status:** Aceito · implementado no B → A leve (ADR-014), sem ETag (risco residual documentado)
 - **Data:** 16/10/2026
 - **Decisões do plano:** Q4, Q7, Q18, Q19 (seções 2 e 5.2 do `PLANO_DE_ACAO.md`)
 

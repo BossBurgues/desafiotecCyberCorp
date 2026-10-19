@@ -6,12 +6,29 @@ import type { GlpiTicket, RecordInput } from '../src/domain/types.js';
 /** A em memória: chamados por ID, date_mod no fuso do A (o teste escolhe os valores). */
 export function fakeA(initial: GlpiTicket[] = []) {
   const tickets = new Map<number, GlpiTicket>(initial.map((t) => [t.id, t]));
+  /** Notas escritas pelo sync-bot (B → A leve), por chamado. */
+  const followups = new Map<number, string[]>();
+  /** Status aplicados pelo sync-bot, em ordem (para provar que não há ida e volta). */
+  const statusWrites: { id: number; status: number }[] = [];
   let reads = 0;
+  let minute = 0;
   const client: SystemAClient = {
     async getTicket(id) {
       reads++;
       const t = tickets.get(id);
       return t ? structuredClone(t) : null;
+    },
+    async updateStatus(id, status) {
+      const t = tickets.get(id);
+      if (!t) return null;
+      statusWrites.push({ id, status });
+      // O A renova o date_mod a cada escrita (como o GLPI)
+      const updated = { ...t, status, date_mod: `2026-10-18 11:${String(++minute).padStart(2, '0')}:00` };
+      tickets.set(id, updated);
+      return structuredClone(updated);
+    },
+    async addFollowup(id, content) {
+      followups.set(id, [...(followups.get(id) ?? []), content]);
     },
     async getLookups() {
       return { categories: new Map(), users: new Map(), locations: new Map() };
@@ -24,6 +41,8 @@ export function fakeA(initial: GlpiTicket[] = []) {
   return {
     client,
     tickets,
+    followups,
+    statusWrites,
     put(t: GlpiTicket) {
       tickets.set(t.id, t);
     },
