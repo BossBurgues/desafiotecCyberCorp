@@ -1,3 +1,4 @@
+import type { InjectOptions } from 'fastify';
 import type pg from 'pg';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../../src/infra/db/migrate.js';
@@ -19,12 +20,25 @@ describe.skipIf(!TEST_DATABASE_URL)('dashboard básico (S3.10)', () => {
   });
   afterEach(async () => drop());
 
-  const server = (overrides: Partial<DashboardOptions> = {}) =>
+  const AUTH = { user: 'operador', password: 'senha-de-teste-123' };
+  const basic = (user: string, password: string) => `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
+
+  /** Servidor sem login automático: para os testes do H2. */
+  const rawServer = (overrides: Partial<DashboardOptions> = {}) =>
     buildServer({
       logger,
       readiness: createReadiness({ timeoutMs: 100, checks: {} }),
-      plugins: [dashboardPlugin({ pool, breakerState: () => 'open', controlsEnabled: true, ...overrides })],
+      plugins: [dashboardPlugin({ pool, breakerState: () => 'open', controlsEnabled: true, auth: AUTH, ...overrides })],
     });
+
+  /** Servidor em que toda requisição já vai com o login certo (os testes da S3.10 não mudam). */
+  const server = (overrides: Partial<DashboardOptions> = {}) => {
+    const app = rawServer(overrides);
+    const inject = app.inject.bind(app);
+    app.inject = ((opts: InjectOptions) =>
+      inject({ ...opts, headers: { authorization: basic(AUTH.user, AUTH.password), ...opts.headers } })) as typeof app.inject;
+    return app;
+  };
 
   /** Um job em cada status, um deles na DLQ, dois mapeamentos e um alerta. */
   async function seed(): Promise<number> {
@@ -115,5 +129,52 @@ describe.skipIf(!TEST_DATABASE_URL)('dashboard básico (S3.10)', () => {
     expect(res.body).toContain('/api/dashboard/summary');
     // Nada vindo da API vira HTML: a página não usa innerHTML
     expect(res.body).not.toMatch(/innerHTML/);
+  });
+  describe('H2: login do dashboard (S5.3)', () => {
+    it('sem credenciais o dashboard, a API e o /metrics respondem 401 com WWW-Authenticate', async () => {
+      const app = rawServer();
+      for (const [method, url] of [
+        ['GET', '/dashboard'],
+        ['GET', '/api/dashboard/summary'],
+        ['GET', '/metrics'],
+        ['GET', '/api/dashboard/chaos'],
+        ['PUT', '/api/dashboard/chaos'],
+        ['POST', '/api/dashboard/chaos/reset'],
+        ['POST', '/api/dashboard/dlq/1/reprocess'],
+      ] as const) {
+        const res = await app.inject({ method, url });
+        expect(res.statusCode, `${method} ${url}`).toBe(401);
+        expect(res.headers['www-authenticate']).toMatch(/^Basic realm="sync-dashboard"/);
+      }
+    });
+
+    it('senha errada ou usuário errado responde 401', async () => {
+      const app = rawServer();
+      const wrong = [basic(AUTH.user, 'senha-errada-0000'), basic('outro', AUTH.password), 'Basic !!!', 'Bearer x'];
+      for (const authorization of wrong) {
+        expect((await app.inject({ method: 'GET', url: '/api/dashboard/summary', headers: { authorization } })).statusCode).toBe(401);
+      }
+    });
+
+    it('com credenciais corretas o resumo responde 200', async () => {
+      const res = await rawServer().inject({
+        method: 'GET',
+        url: '/api/dashboard/summary',
+        headers: { authorization: basic(AUTH.user, AUTH.password) },
+      });
+      expect(res.statusCode).toBe(200);
+    });
+
+    it('/health e /ready continuam sem login', async () => {
+      const app = rawServer();
+      expect((await app.inject({ method: 'GET', url: '/health' })).statusCode).toBe(200);
+      expect((await app.inject({ method: 'GET', url: '/ready' })).statusCode).not.toBe(401);
+    });
+
+    it('sem o plugin do dashboard (sem credenciais configuradas) as rotas respondem 404', async () => {
+      const app = buildServer({ logger, readiness: createReadiness({ timeoutMs: 100, checks: {} }), plugins: [] });
+      expect((await app.inject({ method: 'GET', url: '/dashboard' })).statusCode).toBe(404);
+      expect((await app.inject({ method: 'GET', url: '/metrics' })).statusCode).toBe(404);
+    });
   });
 });
