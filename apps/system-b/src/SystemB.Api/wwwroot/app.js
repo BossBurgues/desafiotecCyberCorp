@@ -7,7 +7,7 @@ const LIST_POLL_MS = 10_000;
 const STATES = { OPEN: 'Aberto', IN_PROGRESS: 'Em andamento', ON_HOLD: 'Em espera', RESOLVED: 'Resolvido', CLOSED: 'Fechado' };
 const SEVERITIES = { LOW: 'Baixa', MEDIUM: 'Média', HIGH: 'Alta', CRITICAL: 'Crítica' };
 const MARKER = /⟦s:glpi-(\d+)⟧/;
-const OPERATOR_KEY = 'systemb.operator';
+const SESSION_KEY = 'systemb.session';
 const INTRO_KEY = 'systemb.intro-dismissed';
 const SYNC_AUTHOR = 'integração (sync)';
 
@@ -68,15 +68,41 @@ function store(key, value) {
   }
 }
 
-// Nome do operador: o B grava como "quem alterou" (updatedBy) e o sync leva para o histórico no A
-const operatorName = () => stored(OPERATOR_KEY);
+// Sessão do operador: o token vai em X-Session-Token; o nome da conta é quem o B grava como "quem alterou"
+// (updatedBy), e o sync leva esse nome para o histórico no A. Fica na aba (sessionStorage), como no A.
+let session = null;
+
+function loadSession() {
+  try {
+    return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(value) {
+  session = value;
+  try {
+    if (value) sessionStorage.setItem(SESSION_KEY, JSON.stringify(value));
+    else sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    // sem armazenamento: a sessão vale até recarregar a página
+  }
+}
+
+class SessionExpired extends Error {}
 
 async function api(path, options = {}) {
   const headers = options.body ? { 'Content-Type': 'application/json' } : {};
-  if (operatorName()) headers['X-Operator'] = operatorName();
+  if (session?.token) headers['X-Session-Token'] = session.token;
   const res = await fetch(path, { ...options, headers });
   if (res.status === 204) return null;
   const body = await res.json().catch(() => null);
+  if (res.status === 401 && path.startsWith('/operator/records')) {
+    saveSession(null);
+    location.hash = '#/login';
+    throw new SessionExpired('Sua sessão expirou. Entre de novo.');
+  }
   if (!res.ok) {
     if (res.status === 410) throw new Error(`Registro excluído por ${body.deletedBy} em ${when(body.deletedAt)}.`);
     const detail = body && body.message ? body.message : `HTTP ${res.status}`;
@@ -308,9 +334,120 @@ async function onDelete() {
   }
 }
 
+// ---------- acesso: entrar, criar conta, sair ----------
+
+function initials(name) {
+  return (
+    String(name ?? '')
+      .replace(/\(.*?\)/g, '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0].toUpperCase())
+      .join('') || '?'
+  );
+}
+
+function renderWho() {
+  $('who').hidden = !session;
+  $('who-name').textContent = session?.name ?? '';
+  $('who-avatar').textContent = initials(session?.name);
+}
+
+async function signIn(login, password) {
+  const res = await api('/operator/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ login: login.trim().toLowerCase(), password }),
+  });
+  saveSession({ token: res.token, login: res.login, name: res.name });
+  renderWho();
+  view.all = [];
+  location.hash = '#/records';
+}
+
+async function onLogin(e) {
+  e.preventDefault();
+  const form = e.currentTarget;
+  banner('login-error', '');
+  const button = form.querySelector('button[type=submit]');
+  button.disabled = true;
+  try {
+    await signIn(form.login.value, form.password.value);
+    form.password.value = '';
+  } catch (err) {
+    banner('login-error', err.message.replace(/^Erro: /, ''));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function onRegister(e) {
+  e.preventDefault();
+  const form = e.currentTarget;
+  banner('register-error', '');
+  if (form.password.value !== form.confirm.value) {
+    banner('register-error', 'As duas senhas não são iguais.');
+    form.confirm.focus();
+    return;
+  }
+  const button = form.querySelector('button[type=submit]');
+  button.disabled = true;
+  try {
+    await api('/operator/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ login: form.login.value.trim().toLowerCase(), name: form.name.value.trim(), password: form.password.value }),
+    });
+    await signIn(form.login.value, form.password.value);
+    form.reset();
+  } catch (err) {
+    banner('register-error', err.message.replace(/^Erro: /, ''));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function onLogout() {
+  try {
+    await api('/operator/auth/logout', { method: 'POST' });
+  } catch {
+    // a sessão some da aba mesmo com o B fora do ar
+  }
+  saveSession(null);
+  renderWho();
+  view.all = [];
+  view.current = null;
+  $('detail').hidden = true;
+  location.hash = '#/login';
+}
+
+function showAuth(mode) {
+  const register = mode === 'register';
+  $('screen-auth').hidden = false;
+  $('screen-app').hidden = true;
+  $('login-form').hidden = register;
+  $('register-form').hidden = !register;
+  $('tab-login').setAttribute('aria-selected', String(!register));
+  $('tab-register').setAttribute('aria-selected', String(register));
+}
+
 // ---------- rota ----------
 
 async function route() {
+  if (!session) {
+    if (location.hash !== '#/login' && location.hash !== '#/register') {
+      location.hash = '#/login';
+      return;
+    }
+    showAuth(location.hash === '#/register' ? 'register' : 'login');
+    return;
+  }
+  if (location.hash === '#/login' || location.hash === '#/register') {
+    location.hash = '#/records';
+    return;
+  }
+  $('screen-auth').hidden = true;
+  $('screen-app').hidden = false;
   const m = /^#\/records\/(.+)$/.exec(location.hash);
   try {
     if (!view.all.length) await refreshList();
@@ -321,19 +458,23 @@ async function route() {
       closeDetail();
     }
   } catch (e) {
-    show(e.message);
+    if (!(e instanceof SessionExpired)) show(e.message);
   }
 }
 
 function wire() {
+  session = loadSession();
+  renderWho();
+  $('login-form').addEventListener('submit', onLogin);
+  $('register-form').addEventListener('submit', onRegister);
+  $('logout').addEventListener('click', onLogout);
+
   if (stored(INTRO_KEY)) $('intro').hidden = true;
   $('intro-close').addEventListener('click', () => {
     $('intro').hidden = true;
     store(INTRO_KEY, '1');
   });
 
-  $('operator-name').value = operatorName();
-  $('operator-name').addEventListener('change', (e) => store(OPERATOR_KEY, e.target.value.trim()));
 
   const filters = $('filters');
   fillSelect(filters.elements.state, STATES, 'Todos');
@@ -388,11 +529,11 @@ function wire() {
 
   // A lista acompanha o sync sozinha; o painel aberto não é recarregado (o que está sendo digitado fica)
   view.timer = setInterval(() => {
-    if (!document.hidden) refreshList().catch(() => undefined);
+    if (!document.hidden && session && !$('screen-app').hidden) refreshList().catch(() => undefined);
   }, LIST_POLL_MS);
 
   window.addEventListener('hashchange', route);
-  if (!location.hash) location.hash = '#/records';
+  if (!location.hash) location.hash = session ? '#/records' : '#/login';
   else route();
 }
 

@@ -9,7 +9,7 @@ public class OperatorDeleteTests : IDisposable
     private readonly SystemBFactory _f = new();
     private readonly HttpClient _c;
 
-    public OperatorDeleteTests() => _c = _f.CreateClient();
+    public OperatorDeleteTests() => _c = _f.CreateOperatorClient("Maria");
 
     public void Dispose() => _f.Dispose();
 
@@ -19,9 +19,7 @@ public class OperatorDeleteTests : IDisposable
         var keep = await _c.CreateId();
         var id = await _c.CreateId();
 
-        var del = new HttpRequestMessage(HttpMethod.Delete, $"/operator/records/{id}");
-        del.Headers.Add("X-Operator", "Maria");
-        Assert.Equal(HttpStatusCode.NoContent, (await _c.SendAsync(del)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await _c.DeleteAsync($"/operator/records/{id}")).StatusCode);
 
         var res = await _c.GetAsync($"/api/v2/records/{id}");
         Assert.Equal(HttpStatusCode.Gone, res.StatusCode);

@@ -34,8 +34,9 @@ builder.Services.ConfigureHttpJsonOptions(o =>
     foreach (var c in d.Converters) o.SerializerOptions.Converters.Add(c);
 });
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<IRecordStore>(_ =>
-    new SqliteRecordStore(builder.Configuration["B_DB_PATH"] ?? "./data/system-b.db"));
+var dbPath = builder.Configuration["B_DB_PATH"] ?? "./data/system-b.db";
+builder.Services.AddSingleton<IRecordStore>(_ => new SqliteRecordStore(dbPath));
+builder.Services.AddSingleton(_ => new SqliteOperatorStore(dbPath));
 // Criado quando o pipeline monta o middleware, na subida: B_CHAOS_* inválido derruba o processo antes de atender
 builder.Services.AddSingleton(sp => new ChaosEngine(ChaosOptions.FromConfiguration(sp.GetRequiredService<IConfiguration>())));
 
