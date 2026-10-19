@@ -20,24 +20,86 @@
     <div class="banner error" id="global-error" role="alert" hidden></div>
 
     <main>
-      <section id="screen-login" class="screen card narrow" hidden>
-        <h1>Entrar</h1>
-        <form id="login-form" autocomplete="on">
-          <label>
-            Usuário
-            <select name="login" required>
-              <option value="tecnico">tecnico (Técnico)</option>
-              <option value="estagiario">estagiario (Estagiário)</option>
-            </select>
-          </label>
-          <label>
-            Senha
-            <input type="password" name="password" required autocomplete="current-password" />
-          </label>
-          <div class="banner error" id="login-error" role="alert" hidden></div>
-          <button type="submit">Entrar</button>
-        </form>
-        <p class="hint">O <code>sync-bot</code> é conta técnica e não entra pela interface.</p>
+      <section id="screen-login" class="screen auth" hidden>
+        <div class="auth-card card">
+          <div class="auth-brand">
+            <span class="auth-mark" aria-hidden="true">A</span>
+            <div>
+              <p class="auth-title">Sistema A</p>
+              <p class="hint">Chamados · mock do GLPI</p>
+            </div>
+          </div>
+
+          <div class="auth-tabs" role="tablist" aria-label="Acesso">
+            <a href="#/login" role="tab" id="tab-login" aria-selected="true">Entrar</a>
+            <a href="#/register" role="tab" id="tab-register" aria-selected="false">Criar conta</a>
+          </div>
+
+          <form id="login-form" autocomplete="on">
+            <label>
+              Usuário
+              <input name="login" required autocomplete="username" autocapitalize="none" spellcheck="false" />
+            </label>
+            <label>
+              Senha
+              <input type="password" name="password" required autocomplete="current-password" />
+            </label>
+            <div class="banner error" id="login-error" role="alert" hidden></div>
+            <button type="submit" class="block">Entrar</button>
+            <p class="hint auth-foot">Não tem conta? <a href="#/register">Crie a sua</a>.</p>
+          </form>
+
+          <form id="register-form" autocomplete="on" hidden>
+            <div class="grid-2">
+              <label>
+                Nome
+                <input name="firstname" required maxlength="60" autocomplete="given-name" />
+              </label>
+              <label>
+                Sobrenome
+                <input name="realname" maxlength="60" autocomplete="family-name" />
+              </label>
+            </div>
+            <label>
+              Usuário
+              <span class="field-hint">3 a 32 caracteres: letras minúsculas, números, ponto, hífen ou sublinhado.</span>
+              <input name="login" required minlength="3" maxlength="32" pattern="[a-zA-Z0-9][a-zA-Z0-9._\-]{2,31}" autocomplete="username" autocapitalize="none" spellcheck="false" />
+            </label>
+            <div class="grid-2">
+              <label>
+                Senha
+                <span class="field-hint">Pelo menos 8 caracteres.</span>
+                <input type="password" name="password" required minlength="8" maxlength="128" autocomplete="new-password" />
+              </label>
+              <label>
+                Confirmar senha
+                <span class="field-hint">Igual à anterior.</span>
+                <input type="password" name="confirm" required minlength="8" maxlength="128" autocomplete="new-password" />
+              </label>
+            </div>
+            <fieldset class="levels">
+              <legend>Nível de acesso</legend>
+              <label class="level">
+                <input type="radio" name="profile" value="tecnico" required />
+                <span class="level-body">
+                  <strong>Técnico</strong>
+                  <span>Atende, edita, soluciona, fecha, reabre e exclui chamados. Escreve notas.</span>
+                </span>
+              </label>
+              <label class="level">
+                <input type="radio" name="profile" value="estagiario" />
+                <span class="level-body">
+                  <strong>Estagiário</strong>
+                  <span>Abre chamados e acompanha o andamento. Não edita nem escreve notas.</span>
+                </span>
+              </label>
+            </fieldset>
+            <div class="banner error" id="register-error" role="alert" hidden></div>
+            <button type="submit" class="block">Criar conta e entrar</button>
+            <p class="hint auth-foot">Já tem conta? <a href="#/login">Entre</a>.</p>
+          </form>
+        </div>
+        <p class="hint auth-note">O <code>sync-bot</code> é conta técnica e não entra pela interface.</p>
       </section>
 
       <section id="screen-tickets" class="screen workspace" hidden>

@@ -112,7 +112,7 @@ function clearSession() {
     form.reset();
   }
   $('ticket-search').value = '';
-  for (const banner of document.querySelectorAll('main .banner:not(#login-error)')) {
+  for (const banner of document.querySelectorAll('main .banner:not(#login-error):not(#register-error)')) {
     showBanner(banner, '');
   }
 }
@@ -188,6 +188,22 @@ function expireSession(err) {
 
 // ---------- login ----------
 
+async function signIn(login, password) {
+  const { session_token: token } = await api('GET', '/initSession', undefined, {
+    headers: { Authorization: basicAuth(login.trim().toLowerCase(), password) },
+  });
+  saveSession({ token });
+  const { session } = await api('GET', '/getFullSession');
+  saveSession({
+    token,
+    userId: session.glpiID,
+    login: session.glpiname,
+    profile: session.glpiactiveprofile.name,
+  });
+  renderWho();
+  location.hash = '#/tickets';
+}
+
 async function onLogin(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -195,26 +211,54 @@ async function onLogin(event) {
   showBanner($('login-error'), '');
   button.disabled = true;
   try {
-    const { session_token: token } = await api('GET', '/initSession', undefined, {
-      headers: { Authorization: basicAuth(form.login.value, form.password.value) },
-    });
-    saveSession({ token });
-    const { session } = await api('GET', '/getFullSession');
-    saveSession({
-      token,
-      userId: session.glpiID,
-      login: session.glpiname,
-      profile: session.glpiactiveprofile.name,
-    });
+    await signIn(form.login.value, form.password.value);
     form.password.value = '';
-    renderWho();
-    location.hash = '#/tickets';
   } catch (err) {
     clearSession();
     showBanner($('login-error'), describe(err));
   } finally {
     button.disabled = false;
   }
+}
+
+// Cadastro: a pessoa escolhe o nível e entra direto (o servidor valida tudo de novo)
+async function onRegister(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const error = $('register-error');
+  showBanner(error, '');
+  if (form.password.value !== form.confirm.value) {
+    showBanner(error, 'As duas senhas não são iguais.');
+    form.confirm.focus();
+    return;
+  }
+  const button = form.querySelector('button[type=submit]');
+  button.disabled = true;
+  try {
+    await api('POST', '/register', {
+      input: {
+        name: form.login.value.trim().toLowerCase(),
+        firstname: form.firstname.value.trim(),
+        realname: form.realname.value.trim(),
+        password: form.password.value,
+        profile: form.profile.value,
+      },
+    });
+    await signIn(form.login.value, form.password.value);
+    form.reset();
+  } catch (err) {
+    showBanner(error, err.code === 'ERROR_LOGIN_TAKEN' ? err.message : describe(err));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function showAuth(mode) {
+  const register = mode === 'register';
+  $('login-form').hidden = register;
+  $('register-form').hidden = !register;
+  $('tab-login').setAttribute('aria-selected', String(!register));
+  $('tab-register').setAttribute('aria-selected', String(register));
 }
 
 async function onLogout() {
@@ -707,7 +751,7 @@ function showScreen(id) {
 
 function resolveRoute() {
   const hash = location.hash || '#/tickets';
-  if (hash === '#/login') {
+  if (hash === '#/login' || hash === '#/register') {
     return null;
   }
   if (hash === '#/tickets/new') {
@@ -723,9 +767,11 @@ async function route() {
   if (!state.session?.profile) {
     currentView = null;
     showScreen('screen-login');
-    if (location.hash !== '#/login') {
+    if (location.hash !== '#/login' && location.hash !== '#/register') {
       location.hash = '#/login';
+      return;
     }
+    showAuth(location.hash === '#/register' ? 'register' : 'login');
     return;
   }
   const params = resolveRoute();
@@ -751,6 +797,7 @@ document.addEventListener('visibilitychange', () => {
 
 async function start() {
   $('login-form').addEventListener('submit', onLogin);
+  $('register-form').addEventListener('submit', onRegister);
   $('logout').addEventListener('click', onLogout);
   $('new-ticket-toggle').addEventListener('click', () => (location.hash = '#/tickets/new'));
   $('new-ticket-cancel').addEventListener('click', () => (location.hash = '#/tickets'));

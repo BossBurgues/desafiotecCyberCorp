@@ -76,6 +76,58 @@ paths:
                     description: Token de sessão a ser enviado no cabeçalho `Session-Token`
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /register:
+    post:
+      operationId: registerUser
+      summary: Cadastra um usuário pela tela de login (sem sessão, só com o App-Token)
+      description: |
+        Simplificação do mock: no GLPI quem cria usuários é o administrador. Aqui a pessoa se cadastra e escolhe o
+        nível (`tecnico` ou `estagiario`); o `sync-bot` nunca é criado por aqui. Depois, entra com `initSession`.
+      security:
+        - {}
+        - appToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input:
+                  type: object
+                  additionalProperties: false
+                  required: [name, firstname, password, profile]
+                  properties:
+                    name:
+                      type: string
+                      pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{2,31}$'
+                      description: Login (gravado em minúsculas)
+                    firstname: { type: string, minLength: 1, maxLength: 60 }
+                    realname: { type: string, maxLength: 60 }
+                    password: { type: string, minLength: 8, maxLength: 128, writeOnly: true }
+                    profile: { type: string, enum: [tecnico, estagiario] }
+      responses:
+        '201':
+          description: Usuário criado (sem senha nem token)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Dados inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlpiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Login já existe (`ERROR_LOGIN_TAKEN`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlpiError'
   /killSession:
     get:
       operationId: killSession

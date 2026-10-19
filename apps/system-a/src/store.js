@@ -117,6 +117,14 @@ export class TicketStore {
     if (hasIsDeleted === 0) {
       this.db.exec('ALTER TABLE tickets ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0');
     }
+
+    // Nome de exibição de quem se cadastra pela tela (os semeados ficam com o nome do catálogo, catalog.js)
+    const hasFirstname = this.db
+      .prepare("SELECT COUNT(*) AS n FROM pragma_table_info('users') WHERE name = 'firstname'")
+      .get().n;
+    if (hasFirstname === 0) {
+      this.db.exec('ALTER TABLE users ADD COLUMN firstname TEXT; ALTER TABLE users ADD COLUMN realname TEXT');
+    }
   }
 
   insert(ticket) {
@@ -311,11 +319,24 @@ export class TicketStore {
   }
 
   listUsers() {
-    return this.db.prepare('SELECT id, login, profile FROM users ORDER BY id').all();
+    return this.db.prepare('SELECT id, login, profile, firstname, realname FROM users ORDER BY id').all();
   }
 
   getUserById(id) {
-    return this.db.prepare('SELECT id, login, profile FROM users WHERE id = ?').get(id) || null;
+    return (
+      this.db.prepare('SELECT id, login, profile, firstname, realname FROM users WHERE id = ?').get(id) || null
+    );
+  }
+
+  /** Cadastro pela tela de login. null = o login já existe. */
+  createUser({ login, firstname, realname, profile, passwordHash }) {
+    const info = this.db
+      .prepare(
+        `INSERT OR IGNORE INTO users (login, profile, password_hash, api_token_hash, firstname, realname)
+         VALUES (?, ?, ?, NULL, ?, ?)`,
+      )
+      .run(login, profile, passwordHash, firstname, realname);
+    return info.changes === 0 ? null : this.getUserById(Number(info.lastInsertRowid));
   }
 
   findUserByLogin(login) {

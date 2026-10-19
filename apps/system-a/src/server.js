@@ -6,6 +6,7 @@ import {
   ForbiddenError,
   PROFILES,
   can,
+  hashPassword,
   hashToken,
   loadAuthConfig,
   parseAuthorization,
@@ -14,6 +15,7 @@ import {
   verifyPassword,
 } from './auth.js';
 import { CATEGORIES, LOCATIONS, findById, publicUser } from './catalog.js';
+import { validateRegistration } from './users.js';
 import { DEFAULT_DB_PATH, TicketStore } from './store.js';
 import {
   DEFAULT_TIMEZONE,
@@ -267,6 +269,11 @@ export function buildServer({
         if (routeUrl === '/apirest.php/initSession') {
           return;
         }
+        // Cadastro: ainda não há sessão, mas só quem tem o App-Token (a UI) chega aqui
+        if (routeUrl === '/apirest.php/register') {
+          validateAppTokenHeader(request.headers['app-token'], appTokens);
+          return;
+        }
         validateAppTokenHeader(request.headers['app-token'], appTokens);
         const { token, user } = validateSessionTokenHeader(
           request.headers['session-token'],
@@ -320,6 +327,20 @@ export function buildServer({
         }
         const sessionToken = store.createSession(user.id, now);
         return { session_token: sessionToken };
+      });
+
+      // Cadastro pela tela de login (simplificação do mock: no GLPI quem cria usuários é o administrador).
+      // A pessoa escolhe o nível (Técnico ou Estagiário); o sync-bot nunca é criado por aqui.
+      api.post('/register', async (request, reply) => {
+        const data = validateRegistration(request.body?.input);
+        const created = store.createUser({ ...data, passwordHash: hashPassword(data.password) });
+        if (!created) {
+          const err = new Error(`O login ${data.login} já existe. Escolha outro ou entre com ele.`);
+          err.glpiCode = 'ERROR_LOGIN_TAKEN';
+          err.statusCode = 409;
+          throw err;
+        }
+        return reply.code(201).send(publicUser(created));
       });
 
       api.get('/killSession', async (request, reply) => {

@@ -108,7 +108,7 @@ curl http://localhost:3001/health   # {"status":"ok"}
 
 ## Interface web (S1.6 · #21)
 
-Com o servidor de pé, abra **http://localhost:3001/ui/** (`GET /` redireciona para lá) e entre como `tecnico` ou `estagiario` com as senhas do `.env`. O `sync-bot` é conta técnica e não entra pela interface (Q31).
+Com o servidor de pé, abra **http://localhost:3001/ui/** (`GET /` redireciona para lá) e entre como `tecnico` ou `estagiario` com as senhas do `.env`, ou **crie uma conta** na aba "Criar conta": nome, sobrenome, usuário, senha e o **nível de acesso** (Técnico ou Estagiário). O cadastro chama `POST /apirest.php/register` (só com o App-Token da UI) e entra em seguida. O `sync-bot` é conta técnica e não entra pela interface nem é criado por aqui (Q31).
 
 - **Sem build e sem framework:** HTML + CSS + JavaScript em módulos ES em `src/public/`. A lógica que não toca o DOM fica em `ui-core.js`, importado pelo navegador e pelos testes (`node --test`).
 - **Servida pelo próprio A, mesma origem da API (sem CORS):** lista fechada de 4 arquivos lidos na subida (`index.html`, `app.js`, `ui-core.js`, `styles.css`); qualquer outro nome em `/ui/` é `404` (sem *path traversal*). Falta de arquivo impede o servidor de subir.
@@ -170,6 +170,7 @@ Quando `A_WEBHOOK_ENABLED=true`, toda criação (`POST /apirest.php/Ticket`) ou 
 | `POST` | `/apirest.php/Ticket` | Cria chamado a partir de `{ "input": { ... } }` (`201`). `name` e `content` obrigatórios; `status` assume `1`, `priority` assume `3` e `users_id_recipient` assume o usuário da sessão quando omitidos |
 | `GET` | `/apirest.php/Ticket/:id` | Lê chamado por ID (`200`) ou retorna `404` `["ERROR_ITEM_NOT_FOUND", "..."]` |
 | `GET` | `/apirest.php/Ticket` | Lista chamados com `range=<início>-<fim>` (padrão `0-49`, máx. `500`), `sort=date_mod\|id`, `order=ASC\|DESC` e filtro opcional `date_mod_gte=YYYY-MM-DD HH:MM:SS` e `is_deleted=0` ou `1` (padrão `0`: fora da lixeira). Retorna cabeçalho `Content-Range` (`200` ou `206`) |
+| `POST` | `/apirest.php/register` | Cadastro pela tela de entrada, sem sessão (só com o App-Token): `{ "input": { "name": "<login>", "firstname", "realname", "password", "profile": "tecnico" \| "estagiario" } }` → `201` com o usuário (sem senha). Login repetido `409 ERROR_LOGIN_TAKEN`; dados inválidos `400`. Simplificação do mock: no GLPI quem cria usuários é o administrador |
 | `DELETE` | `/apirest.php/Ticket/:id` | Manda para a **lixeira** (`is_deleted = 1`, como o `DELETE` sem `force_purge` do GLPI): `200 [{"<id>": true, "message": ""}]`. Restaurar: `PUT {"input": {"is_deleted": 0}}`. Na lixeira, qualquer outra edição responde `409 ERROR_TICKET_DELETED`. Técnico e `sync-bot`; Estagiário `403` |
 | `GET` | `/health` | Saúde do Sistema A, sem autenticação (`200 {"status":"ok"}` ou `503`) |
 | `PUT` | `/apirest.php/Ticket/:id` | Atualiza campos parciais via `{ "input": { ... } }`, recalcula `date_mod` no fuso `A_TIMEZONE` e emite o evento interno `ticket.changed` com `{ ticketId, action, dateMod, actor }` |
