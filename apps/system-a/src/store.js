@@ -29,6 +29,7 @@ function rowToTicket(row) {
     date_mod: row.date_mod,
     solvedate: row.solvedate,
     closedate: row.closedate,
+    is_deleted: row.is_deleted ?? 0,
   };
   if (row.attachments_json !== null && row.attachments_json !== undefined) {
     ticket.attachments = JSON.parse(row.attachments_json);
@@ -108,6 +109,14 @@ export class TicketStore {
       CREATE TRIGGER IF NOT EXISTS access_denials_no_delete BEFORE DELETE ON access_denials
       BEGIN SELECT RAISE(ABORT, 'access_denials é append-only'); END;
     `);
+
+    // Lixeira do GLPI (ADR-015): bancos criados antes da coluna ganham ela aqui (SQLite não tem ADD COLUMN IF NOT EXISTS)
+    const hasIsDeleted = this.db
+      .prepare("SELECT COUNT(*) AS n FROM pragma_table_info('tickets') WHERE name = 'is_deleted'")
+      .get().n;
+    if (hasIsDeleted === 0) {
+      this.db.exec('ALTER TABLE tickets ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0');
+    }
   }
 
   insert(ticket) {
@@ -192,6 +201,7 @@ export class TicketStore {
       date_mod: fields.date_mod !== undefined ? fields.date_mod : current.date_mod,
       solvedate: fields.solvedate !== undefined ? fields.solvedate : current.solvedate,
       closedate: fields.closedate !== undefined ? fields.closedate : current.closedate,
+      is_deleted: fields.is_deleted !== undefined ? fields.is_deleted : current.is_deleted,
       attachments_json:
         fields.attachments !== undefined
           ? JSON.stringify(fields.attachments)
@@ -212,6 +222,7 @@ export class TicketStore {
             date_mod = @date_mod,
             solvedate = @solvedate,
             closedate = @closedate,
+            is_deleted = @is_deleted,
             attachments_json = @attachments_json
         WHERE id = @id
       `)
@@ -222,38 +233,27 @@ export class TicketStore {
 
   // Desempate por id garante ordem estável quando dois chamados empatam no mesmo segundo de date_mod.
   // Ambos date_mod e date_mod_gte estão em YYYY-MM-DD HH:MM:SS no fuso do A, permitindo comparação lexical direta.
-  list({ offset = 0, limit = 50, sort = 'date_mod', order = 'ASC', dateModGte = null } = {}) {
+  // Como no GLPI, a listagem mostra os chamados fora da lixeira; isDeleted = 1 mostra só os da lixeira.
+  list({ offset = 0, limit = 50, sort = 'date_mod', order = 'ASC', dateModGte = null, isDeleted = 0 } = {}) {
     const safeSort = sort === 'id' ? 'id' : 'date_mod';
     const safeOrder = order === 'DESC' ? 'DESC' : 'ASC';
     const orderBy =
       safeSort === 'date_mod'
         ? `date_mod ${safeOrder}, id ${safeOrder}`
         : `id ${safeOrder}`;
-
-    if (dateModGte !== null && dateModGte !== undefined) {
-      const rows = this.db
-        .prepare(
-          `SELECT * FROM tickets WHERE date_mod >= ? ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
-        )
-        .all(dateModGte, limit, offset);
-      return rows.map(rowToTicket);
-    }
-
     const rows = this.db
-      .prepare(`SELECT * FROM tickets ORDER BY ${orderBy} LIMIT ? OFFSET ?`)
-      .all(limit, offset);
-
+      .prepare(
+        `SELECT * FROM tickets WHERE is_deleted = ? AND (? IS NULL OR date_mod >= ?)
+         ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
+      )
+      .all(isDeleted, dateModGte ?? null, dateModGte ?? null, limit, offset);
     return rows.map(rowToTicket);
   }
 
-  count({ dateModGte = null } = {}) {
-    if (dateModGte !== null && dateModGte !== undefined) {
-      const row = this.db
-        .prepare('SELECT COUNT(*) AS total FROM tickets WHERE date_mod >= ?')
-        .get(dateModGte);
-      return row.total;
-    }
-    const row = this.db.prepare('SELECT COUNT(*) AS total FROM tickets').get();
+  count({ dateModGte = null, isDeleted = 0 } = {}) {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS total FROM tickets WHERE is_deleted = ? AND (? IS NULL OR date_mod >= ?)')
+      .get(isDeleted, dateModGte ?? null, dateModGte ?? null);
     return row.total;
   }
 

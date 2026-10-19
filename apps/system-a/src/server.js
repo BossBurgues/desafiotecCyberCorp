@@ -30,6 +30,17 @@ import {
 import { UI_SECURITY_HEADERS, detectFeatures, loadUiAssets } from './ui.js';
 import { createWebhookDispatcher, loadWebhookConfig } from './webhooks.js';
 
+// O sync-bot mexe só no estado (B → A leve) e na lixeira (exclusão feita no B, ADR-015); o resto é do Técnico
+const SYNC_BOT_FIELDS = new Set(['status', 'is_deleted']);
+
+class TicketDeletedError extends Error {
+  constructor(id) {
+    super(`Chamado ${id} está na lixeira: restaure antes de editar.`);
+    this.glpiCode = 'ERROR_TICKET_DELETED';
+    this.statusCode = 409;
+  }
+}
+
 const SESSION_ONLY_ROUTES = new Set([
   '/apirest.php/initSession',
   '/apirest.php/killSession',
@@ -329,10 +340,10 @@ export function buildServer({
         '/Ticket',
         { config: { action: ACTIONS.TICKET_READ } },
         async (request, reply) => {
-          const { offset, start, limit, sort, order, dateModGte } = parseListQuery(request.query);
-          const total = store.count({ dateModGte });
+          const { offset, start, limit, sort, order, dateModGte, isDeleted } = parseListQuery(request.query);
+          const total = store.count({ dateModGte, isDeleted });
           const items =
-            start >= total ? [] : store.list({ offset, limit, sort, order, dateModGte });
+            start >= total ? [] : store.list({ offset, limit, sort, order, dateModGte, isDeleted });
           const { statusCode, contentRange } = buildListMeta({
             start,
             count: items.length,
@@ -462,26 +473,52 @@ export function buildServer({
           }
           if (request.user.profile === PROFILES.SYNC_BOT) {
             const keys = Object.keys(request.body?.input ?? {});
-            if (keys.length !== 1 || keys[0] !== 'status') {
-              throw new ForbiddenError(request.user.profile, `${ACTIONS.TICKET_UPDATE} (só o campo status)`);
+            if (keys.length === 0 || keys.some((k) => !SYNC_BOT_FIELDS.has(k))) {
+              throw new ForbiddenError(request.user.profile, `${ACTIONS.TICKET_UPDATE} (só status e is_deleted)`);
             }
           }
           const patch = lifecycleDates(prepareTicketUpdate(request.body, { now, timeZone }), existing);
+          // Na lixeira, como no GLPI, o chamado só pode ser restaurado (is_deleted: 0) antes de qualquer outra edição
+          if (existing.is_deleted === 1 && patch.is_deleted !== 0) {
+            throw new TicketDeletedError(id);
+          }
           assertReferences(patch, store);
-          const updated = store.update(id, patch);
-          emitter.emit('ticket.changed', {
-            ticketId: updated.id,
-            action: 'updated',
-            dateMod: updated.date_mod,
-            actor: {
-              id: request.user.id,
-              login: request.user.login,
-              profile: request.user.profile,
-            },
-          });
-          return updated;
+          return applyUpdate(request, id, patch);
         },
       );
+
+      // Excluir = mandar para a lixeira (como o DELETE sem force_purge da API do GLPI). Reversível: PUT is_deleted 0
+      api.delete(
+        '/Ticket/:id',
+        { config: { action: ACTIONS.TICKET_UPDATE } },
+        async (request) => {
+          const id = parseTicketId(request.params.id);
+          const existing = store.getById(id);
+          if (!existing) {
+            throw new TicketNotFoundError(`Chamado ${id} não encontrado.`);
+          }
+          if (existing.is_deleted !== 1) {
+            applyUpdate(request, id, prepareTicketUpdate({ input: { is_deleted: 1 } }, { now, timeZone }));
+          }
+          return [{ [id]: true, message: '' }];
+        },
+      );
+
+      // Grava e avisa o sync. A exclusão e a restauração saem como "updated": o evento é só um sinal e o worker relê o A
+      function applyUpdate(request, id, patch) {
+        const updated = store.update(id, patch);
+        emitter.emit('ticket.changed', {
+          ticketId: updated.id,
+          action: 'updated',
+          dateMod: updated.date_mod,
+          actor: {
+            id: request.user.id,
+            login: request.user.login,
+            profile: request.user.profile,
+          },
+        });
+        return updated;
+      }
     },
     { prefix: '/apirest.php' },
   );

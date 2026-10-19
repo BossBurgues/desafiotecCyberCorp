@@ -69,6 +69,7 @@ test('POST /apirest.php/Ticket cria chamado (201) e GET /apirest.php/Ticket/:id 
       date_mod: '2026-10-18 14:03:22',
       solvedate: null,
       closedate: null,
+      is_deleted: 0,
     });
 
     const getRes = await app.inject({

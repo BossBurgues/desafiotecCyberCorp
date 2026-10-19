@@ -14,6 +14,7 @@ const ALLOWED_INPUT_FIELDS = new Set([
   'users_id_assign',
   'solvedate',
   'closedate',
+  'is_deleted',
   'attachments',
 ]);
 
@@ -184,6 +185,16 @@ export function validateTicketInput(input, { partial = false } = {}) {
     }
   }
 
+  if (Object.hasOwn(input, 'is_deleted')) {
+    if (partial !== true) {
+      throw new TicketValidationError('Chamado novo não nasce na lixeira: is_deleted só vale na edição.');
+    }
+    if (input.is_deleted !== 0 && input.is_deleted !== 1) {
+      throw new TicketValidationError('O campo is_deleted deve ser 0 ou 1.');
+    }
+    normalized.is_deleted = input.is_deleted;
+  }
+
   if (Object.hasOwn(input, 'attachments')) {
     if (!Array.isArray(input.attachments)) {
       throw new TicketValidationError('O campo attachments deve ser uma lista.');
@@ -283,7 +294,14 @@ export function parseListQuery(query = {}) {
     dateModGte = query.date_mod_gte;
   }
 
-  return { offset: start, start, end, limit, sort, order, dateModGte };
+  // Lixeira do GLPI: 0 (padrão) lista os chamados ativos; 1 lista só os excluídos
+  const isDeletedStr = query.is_deleted !== undefined ? String(query.is_deleted) : '0';
+  if (isDeletedStr !== '0' && isDeletedStr !== '1') {
+    throw new TicketValidationError('O parâmetro is_deleted deve ser 0 ou 1.');
+  }
+  const isDeleted = Number(isDeletedStr);
+
+  return { offset: start, start, end, limit, sort, order, dateModGte, isDeleted };
 }
 
 export function buildListMeta({ start, count, total }) {
