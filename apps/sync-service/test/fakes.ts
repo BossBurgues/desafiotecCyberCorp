@@ -13,6 +13,9 @@ export function fakeA(initial: GlpiTicket[] = []) {
       const t = tickets.get(id);
       return t ? structuredClone(t) : null;
     },
+    async getLookups() {
+      return { categories: new Map(), users: new Map(), locations: new Map() };
+    },
     async listChangedSince(gte, start, limit): Promise<TicketPage> {
       const all = [...tickets.values()].filter((t) => t.date_mod >= gte).sort((x, y) => x.date_mod.localeCompare(y.date_mod) || x.id - y.id);
       return { items: all.slice(start, start + limit).map((t) => structuredClone(t)), total: all.length };

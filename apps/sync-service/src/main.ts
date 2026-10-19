@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { createSystemAClient } from './adapters/system-a/client.js';
+import { cachedLookups } from './adapters/system-a/lookups-cache.js';
 import { createSystemBClient } from './adapters/system-b/client.js';
 import { startPoller } from './application/poller.js';
 import { createProcessJob } from './application/process-job.js';
@@ -67,6 +68,7 @@ async function main(): Promise<void> {
     uncertainScans: config.CREATE_UNCERTAIN_SCANS,
     listPageSize: config.B_LIST_PAGE_SIZE,
     verifyAfterWrite: config.VERIFY_AFTER_WRITE,
+    lookups: cachedLookups(() => a.getLookups(), config.A_LOOKUPS_TTL_MS),
   });
   const policy = {
     baseMs: config.QUEUE_BACKOFF_BASE_MS,

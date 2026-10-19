@@ -21,7 +21,8 @@ export interface ProcessJobDeps {
   listPageSize: number;
   /** Relê o registro no B depois de cada escrita e só grava o hash se o B gravou de verdade (S3.8). Padrão: true. */
   verifyAfterWrite?: boolean;
-  lookups?: Lookups;
+  /** Catálogos do A (categoria, usuários, locais) para converter os IDs; fixos ou carregados sob demanda (com cache). */
+  lookups?: Lookups | (() => Promise<Lookups>);
 }
 
 export interface MappingRow {
@@ -104,10 +105,11 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
       return;
     }
 
+    const lookups = typeof deps.lookups === 'function' ? await deps.lookups() : deps.lookups;
     const input = mapTicketToRecord(ticket, {
       timeZone: deps.timeZone,
       markerField: deps.markerField,
-      ...(deps.lookups ? { lookups: deps.lookups } : {}),
+      ...(lookups ? { lookups } : {}),
     });
     const ticketHash = hashTicket(ticket);
 
