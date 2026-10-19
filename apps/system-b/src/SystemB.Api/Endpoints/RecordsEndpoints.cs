@@ -11,6 +11,19 @@ public static class RecordsEndpoints
     private static string Now(TimeProvider clock) =>
         clock.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
 
+    public const string OperatorHeader = "X-Operator";
+
+    /// <summary>
+    /// Quem alterou (capacidade "updatedBy"): na API do sync é a integração; nas rotas do operador, o nome que a UI manda
+    /// no cabeçalho X-Operator. O valor do corpo é ignorado: o cliente não escolhe o próprio autor.
+    /// </summary>
+    private static string Author(HttpRequest req)
+    {
+        if (!req.Path.StartsWithSegments("/operator")) return "integração (sync)";
+        var name = req.Headers[OperatorHeader].ToString().Trim();
+        return name.Length == 0 ? "Operador B" : name.Length > 80 ? name[..80] : name;
+    }
+
     /// <summary>Lê e desserializa o corpo; qualquer falha de formato vira 400.</summary>
     private static async Task<(RecordInput? Input, IResult? Error)> ReadInput(HttpRequest req)
     {
@@ -43,7 +56,7 @@ public static class RecordsEndpoints
             var (input, problems) = RecordValidator.Validate(raw!);
             if (problems.Count > 0) return ErrorResults.Validation(problems);
 
-            var created = store.Create(input, Now(clock));
+            var created = store.Create(input, Now(clock), Author(req));
             return new CreatedJson(Results.Json(created, JsonDefaults.Options, statusCode: 201), $"/api/v2/records/{created.Id}");
         });
 
@@ -82,7 +95,7 @@ public static class RecordsEndpoints
         var (input, problems) = RecordValidator.Validate(raw!);
         if (problems.Count > 0) return ErrorResults.Validation(problems);
 
-        return store.Replace(id, input, Now(clock)) is { } r
+        return store.Replace(id, input, Now(clock), Author(req)) is { } r
             ? Results.Json(r, JsonDefaults.Options)
             : ErrorResults.NotFound($"Registro {id} não encontrado");
     }

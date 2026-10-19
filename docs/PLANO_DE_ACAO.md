@@ -4,6 +4,7 @@
 - **Board/Roadmap:** https://github.com/users/BossBurgues/projects/2
 - **Desafio recebido:** 16/10/2026 · **Entrega-alvo:** 22/10/2026 · **Reserva:** 23/10/2026
 - **Apresentação:** 30 min (demo + decisões + cenários)
+- **Base:** o enunciado em PDF (`Docs/Desafio/Desafio técnico — Sincronizador de chamados.pdf`) + o esclarecimento do avaliador sobre o B → A (seção 1). **Em qualquer conflito, vale o PDF** (seção 0.5).
 
 > **Como usar este plano (pessoa ou LLM executora)**
 > 1. Trabalhe **issue por issue** no GitHub, respeitando as dependências *blocked by*. Uma issue só começa quando todas as que a bloqueiam estão fechadas.
@@ -14,7 +15,31 @@
 
 ---
 
-## 0. ⚠️ Escopo revisado em 18/10 (prevalece sobre o resto do documento)
+## 0. ⚠️ Escopo revisado em 18/10 e realinhado ao PDF em 19/10 (prevalece sobre o resto do documento)
+
+### 0.5 Realinhamento de 19/10: o PDF é a régua
+
+O corte de 18/10 tirou o B → A do plano e das issues, mas o que já estava construído continuou com o desenho "o B executa, o A aprova": a UI do B resolvia, fechava, reabria e excluía, e o A não podia solucionar nem fechar. O resultado parecia o contrário do PDF. A regra a partir de 19/10:
+
+| Papel | Pelo PDF | Na entrega |
+|---|---|---|
+| **Sistema A** (referência GLPI) | **O nosso sistema de chamados, o central.** É nele que o chamado é criado e atualizado | O Técnico cria, edita, **soluciona (5) e fecha (6)** (liberado no #172). O Estagiário só abre. O A é a fonte da verdade |
+| **Sistema B** | Outro sistema, outra API e outro formato, **não confiável** (lento, erro). Precisa receber e ficar atualizado | Recebe tudo do A. Tem um operador próprio (sistema de terceiro): o **estado** que ele muda (resolver, fechar, reabrir) volta ao A pelo B → A leve (ADR-014); edições de outros campos são desfeitas pelo A |
+| **Sync** | O foco da avaliação | Núcleo A → B entregue e publicado |
+| **B → A** | Não está no PDF | Opcional, nos termos do avaliador (seção 1). **Feito na versão leve** (ADR-014), com o anti-eco e a concorrência provados por teste; o completo (aprovação, congelamento) fica como desenho (ADRs 006 e 007) |
+
+As decisões da seção 2 ligadas ao B → A (Q4/Q7 "o B propõe, o A aprova", Q19, Q26, Q17/Q18/Q27, Q28, Q29, Q5/Q9/Q20) valem **só para o opcional**. No núcleo, o A muda o próprio status e o sync leva `RESOLVED`/`CLOSED` ao B como qualquer outra atualização.
+
+### 0.6 O que foi cortado e voltou (validação de 19/10)
+
+Critério: só volta o que cabe até 21/10 sem arriscar o núcleo publicado, e tem prioridade o que o PDF pede e depois o que responde às duas perguntas do avaliador. Ponto de parada: o que não estivesse verde no fim de 20/10 ficava de fora.
+
+| Item | Decisão | Onde |
+|---|---|---|
+| 7 cenários cortados que já tinham teste (A5, A7, B12, C6, E3, G3, H5) | Reclassificados como concluídos | issues, épico E8 |
+| **A como GLPI** (catálogos de categoria, local e usuário; datas de solução/fechamento; formulário) + conversão completa dos campos | **Entrou** (o PDF pede o GLPI como referência e deixa a conversão por nossa conta) | PR #176 |
+| **B → A leve:** estado, quem alterou e solução voltam ao A; ler antes de escrever; varredura do B; anti-eco e o A vencendo conflitos | **Entrou** (opcional do avaliador, com as duas perguntas respondidas e provadas) | ADR-014, PR do M3 |
+| B → A completo (aprovação, congelamento, exclusão em 2 passos), notas A → B, M2, homologação, GitLab | Continua fora | `out-of-scope.md` |
 
 O plano original cresceu além do que o desafio pede. Com o prazo de 22/10, a estratégia passa a ser: **entregar o núcleo A → B à prova de caos, publicado e bem documentado**, e transformar o resto em **desenho documentado** (ADRs + `out-of-scope.md`). O próprio enunciado valoriza mais o raciocínio do que uma solução completa, e o avaliador confirmou que o B → A é opcional.
 
@@ -33,16 +58,17 @@ Também é aproveitado o **desenho completo do B → A** (ADRs 006, 007, 009 e 0
 
 ### 0.2 O que falta (o novo escopo inteiro)
 
-| # | Issue | Por que fica |
-|---|---|---|
-| 1 | **S3.4 + S3.6** (PR #163) | O coração: sem eles não há sincronização |
-| 2 | **S3.8** Verificação pós-escrita + 404 | Barata e fecha o "B diz que gravou e não gravou" (perda) |
-| 3 | **S3.10** Dashboard: fila, DLQ com reprocessar, controles de caos | É a tela da demo de caos |
-| 4 | **S5.3** Login no dashboard (movida para a M1) | A URL é pública e o caos não pode ficar aberto |
-| 5 | **S4.2** CI com E2E | Prova as garantias a cada PR |
-| 6 | **S4.3 + S4.4** VM + deploy, **um único ambiente** (produção, a partir da `Prod`) | Entregável obrigatório: URL publicada. A `Dev` fica só com a CI |
-| 7 | **14 cenários** do núcleo | A1, A2, A4, A6, B1, B2, B3, B5, B6, B10, C1, E4, H1, H2 |
-| 8 | **M5:** README, how-it-works final, runbook curto, timelog, roteiro + vídeo, entrega | Entregáveis do enunciado |
+| # | Issue | Por que fica | Situação em 19/10 |
+|---|---|---|---|
+| 1 | **S3.4 + S3.6** (PR #163) | O coração: sem eles não há sincronização | ✅ |
+| 2 | **S3.8** Verificação pós-escrita + 404 | Barata e fecha o "B diz que gravou e não gravou" (perda) | ✅ #167 |
+| 3 | **S3.10** Dashboard: fila, DLQ com reprocessar, controles de caos | É a tela da demo de caos | ✅ #166 |
+| 4 | **S5.3** Login no dashboard (movida para a M1) | A URL é pública e o caos não pode ficar aberto | ✅ #166 |
+| 5 | **S4.2** CI com E2E | Prova as garantias a cada PR | ✅ #166 (9 cenários) |
+| 6 | **S4.3 + S4.4** VM + deploy, **um único ambiente** (produção, a partir da `Prod`) | Entregável obrigatório: URL publicada. A `Dev` fica só com a CI | ✅ #166, #169, #170 (rollback testado) |
+| 7 | **14 cenários** do núcleo | A1, A2, A4, A6, B1, B2, B3, B5, B6, B10, C1, E4, H1, H2 | ✅ + B11, G1, G2, G4 |
+| 8 | **Realinhamento ao PDF** (seção 0.5): A soluciona/fecha; UIs sem sobras do B → A | O A é o central no PDF | ✅ #172 · docs em andamento |
+| 9 | **M5:** README, how-it-works final, runbook curto, timelog, roteiro + vídeo, entrega | Entregáveis do enunciado | 🟡 README, how-it-works e runbook ✅ (#168, #171); faltam timelog, roteiro, vídeo e e-mail |
 
 ### 0.3 O que sai (fechado como *not planned*, label `out-of-scope`, explicado no `out-of-scope.md`)
 
@@ -57,14 +83,14 @@ Também é aproveitado o **desenho completo do B → A** (ADRs 006, 007, 009 e 0
 
 ### 0.4 Novo cronograma
 
-| Dia | Entrega |
-|---|---|
-| 18/10 (dom) | Merge do PR #163 (S3.4 + S3.6) |
-| 19/10 (seg) | S3.8 · S3.10 + S5.3 · cenários do núcleo em E2E (S4.2) |
-| 20/10 (ter) | S4.3 + S4.4: **URL publicada** · ensaio da demo de caos |
-| 21/10 (qua) | M5: README, how-it-works, runbook, timelog, roteiro e vídeo |
-| 22/10 (qui) | **Entrega** |
-| 23/10 (sex) | Reserva |
+| Dia | Entrega | Situação |
+|---|---|---|
+| 18/10 (dom) | Merge do PR #163 (S3.4 + S3.6) | ✅ |
+| 19/10 (seg) | S3.8 · S3.10 + S5.3 · E2E (S4.2) · **URL publicada** (S4.3 + S4.4, adiantadas) · README e how-it-works · realinhamento ao PDF | ✅ |
+| 20/10 (ter) | Docs alinhadas ao PDF · validação do que foi cortado (0.6) e, se aprovado, o opcional escolhido · roteiro da demo · ensaio na URL | ⏳ |
+| 21/10 (qua) | Última release (nenhuma em 22/10) · timelog final · vídeo de backup | ⏳ |
+| 22/10 (qui) | **Entrega:** e-mail com o repositório, a URL e as credenciais de demo | ⏳ |
+| 23/10 (sex) | Reserva | — |
 
 **Regra de corte:** se a URL não estiver no ar no fim de 20/10, o E2E na CI (S4.2) vira teste local documentado e todo o esforço vai para o deploy.
 
@@ -97,10 +123,10 @@ Toda criação ou atualização de chamado no **Sistema A** (estilo GLPI) precis
 | Q11 | Geolocalização | Localização do chamado sincronizada (texto + coordenadas) + IP/origem das ações registrado na auditoria |
 | Q3/Q8 | O que assumimos do B | **Nada além do contrato mínimo**: criar, ler por ID, atualizar por ID, listar (paginado, sem garantias) e um campo de texto devolvido como foi gravado |
 | Q30/Q35 | Idempotência sem ajuda do B | **Marcador nosso no dado** (`⟦s:glpi-42⟧`) + mapeamento local + **nunca reenviar um create às cegas** + teste de capacidade na inicialização + regravar o marcador se for apagado |
-| Q4/Q7 | Direção | O A é a fonte da verdade. **O B propõe, o A aprova** ("o estagiário executa, o diretor aprova") |
+| Q4/Q7 | Direção | O A é a fonte da verdade (PDF). *Opcional B → A:* **o B propõe, o A aprova** ("o estagiário executa, o diretor aprova") |
 | Q19 | Classificação de mudanças do B | Resolver, excluir ou reabrir → **proposta**. Comentário → **nota no A**. Outros status → **informativo**. Edição de campo → **revertida + nota** |
-| Q26 | Representar a proposta | Fiel ao GLPI: Solução pendente + **status 5 (Solucionado)** + `solvedate` = momento da detecção (UTC). Aprovar → 6 (Fechado). Recusar → 2 (Em atendimento) |
-| Q17/Q18/Q27 | Congelamento | A partir do status 5, o chamado é **imutável: só aceita nota** (protege o SLA). Edição bloqueada → **409 + registro**, nunca silenciosa. O campo em proposta não é sobrescrito no B |
+| Q26 | Representar a proposta *(opcional B → A)* | Fiel ao GLPI: Solução pendente + **status 5 (Solucionado)** + `solvedate` = momento da detecção (UTC). Aprovar → 6 (Fechado). Recusar → 2 (Em atendimento) |
+| Q17/Q18/Q27 | Congelamento *(opcional B → A; não implementado)* | A partir do status 5, o chamado é **imutável: só aceita nota** (protege o SLA). Edição bloqueada → **409 + registro**, nunca silenciosa. O campo em proposta não é sobrescrito no B |
 | Q28 | Congelamento × perda | O congelamento barra **escritas novas**, nunca a **entrega** do que o A já aceitou antes |
 | Q18 | Propostas antigas | A proposta guarda `based_on_hash`. Se o A mudou o mesmo campo → **obsoleta (superseded)**. Proposta nova substitui a anterior |
 | Q29 | Depois de fechado | Comentários do B viram nota "pós-fechamento" e não reabrem. Reabertura no B → **proposta** com aviso de impacto no SLA |
@@ -281,11 +307,11 @@ O registro some → `deletion_requested` + nota no A ("autor/motivo não informa
 | Técnico (A) | ✅ | ✅ | ✅ | ✅ (exceto congelado) | ✅ |
 | Estagiário (A) | ✅ | ✅ | ❌ | ❌ | ❌ |
 | sync-bot (A) | ✅ | — | ✅ (notas de sistema) | só aplica decisões do A | ❌ |
-| Operador B | UI do B: resolver, comentar, editar, excluir, reabrir (tudo vira proposta, nota ou reversão) |
+| Operador B | UI do B: resolver, fechar, reabrir (com o nome e a solução) → **volta ao A** pelo B → A leve; editar outros campos → desfeito pelo A; excluir → o sync recria a partir do A |
 
 Ação negada → **403** ou **409**, visível na UI e registrada no `audit_log`.
 
-**Ciclo de vida no A (status GLPI):** 1 Novo · 2 Em atendimento · 3 Planejado · 4 Pendente · **5 Solucionado (congelado, aguardando aprovação)** · **6 Fechado (congelado)**.
+**Ciclo de vida no A (status GLPI):** 1 Novo · 2 Em atendimento · 3 Planejado · 4 Pendente · **5 Solucionado** · **6 Fechado**. O Técnico escolhe qualquer um (como no GLPI). *No opcional B → A*, o 5 vindo do B seria "aguardando aprovação" e o 5/6 congelariam o chamado.
 
 ---
 
@@ -325,7 +351,7 @@ O mock do B **não implementa** nada além do contrato mínimo + comentários, p
 | `id` | marcador `⟦s:glpi-<id>⟧` | no campo `B_MARKER_FIELD` |
 | `name` | `title` | trim, máximo de 200 |
 | `content` | `description` | HTML → texto seguro |
-| `status` 1–6 | `state` OPEN/IN_PROGRESS/ON_HOLD/RESOLVED/CLOSED | tabela; 5 e 6 só via fluxo de aprovação |
+| `status` 1–6 | `state` OPEN/IN_PROGRESS/ON_HOLD/RESOLVED/CLOSED | tabela (`docs/field-mapping.md`); 5 → RESOLVED, 6 → CLOSED |
 | `priority` 1–6 | `severity` LOW/MEDIUM/HIGH/CRITICAL | 1–2 LOW, 3 MEDIUM, 4 HIGH, 5–6 CRITICAL |
 | `itilcategories_id` | `category` | texto via tabela de-para (mock) |
 | requerente/técnico | `requester`/`assignee` | nome/e-mail via de-para (mock) |
@@ -497,6 +523,8 @@ No fim de cada milestone, o PR `Dev` → `Prod` só exige a **CI verde na `Dev`*
 
 ## 15. Cronograma
 
+> Cronograma original de 16/10, mantido como histórico. **O cronograma vigente é o da seção 0.4.**
+
 | Dia | Foco | Milestone |
 |---|---|---|
 | 16/10 (sex) | Planejamento ✅ · estrutura do repo · CI esqueleto · ADRs · contratos | M0 ✅ concluído em 18/10 (release #144) |
@@ -537,10 +565,13 @@ No fim de cada milestone, o PR `Dev` → `Prod` só exige a **CI verde na `Dev`*
 | Tempo | Bloco |
 |---|---|
 | 0–3 | Problema, as 3 proibições, diagrama |
-| 3–12 | Demo: o Estagiário abre → aparece no B → o Técnico edita → o B resolve → proposta → aprova. Conversa do chamado |
-| 12–20 | **Caos ao vivo:** 50% de erro + commit-then-fail → fila, breaker, recuperação → contagem no B prova zero duplicatas |
-| 20–25 | Decisões e trade-offs (caixa-preta, marcador, aprovação, congelamento × SLA), CI com 61 cenários |
-| 25–30 | Fora do escopo + perguntas |
+| 3–10 | Demo no A (o central): o Estagiário abre → aparece no B com o marcador → o Técnico edita, soluciona e fecha → o B acompanha cada mudança |
+| 10–18 | **Caos ao vivo:** 50% de erro + grava-e-falha → fila, disjuntor, recuperação → contagem no B prova zero duplicatas e a última versão |
+| 18–24 | Como foi provado: CI com os 9 cenários E2E + integração; um exercício de quebra ao vivo |
+| 24–27 | Decisões e trade-offs (caixa-preta, marcador, evento é sinal, fila no Postgres, verificação pós-escrita) e o B → A opcional: como o desenho evita o eco e trata a concorrência (ou o que foi implementado, se a 0.6 aprovar) |
+| 27–30 | Fora do escopo + perguntas |
+
+Roteiro detalhado, com falas e valores de caos: `docs/demo-script.md` (S9.7).
 
 Plano B: vídeo gravado do mesmo roteiro.
 
@@ -563,11 +594,13 @@ Plano B: vídeo gravado do mesmo roteiro.
 
 ## 19. Checklist de entrega
 
-- [ ] Repositório com histórico contínuo (Conventional Commits)
-- [ ] README (rodar, URLs, suposições, horas) + docs + ADRs
-- [ ] URL pública com HTTPS (A, B, dashboard)
-- [ ] `out-of-scope.md` com justificativas
-- [ ] `timelog.md`
-- [ ] CI verde + deploy automático
+Cada item corresponde a um pedido do PDF ("O que esperamos" e "Prazo e regras").
+
+- [x] Repositório com histórico contínuo (Conventional Commits)
+- [ ] README (rodar, URLs, suposições, horas) + docs + ADRs *(falta o total de horas)*
+- [x] URL pública com HTTPS (A, B, dashboard)
+- [x] `out-of-scope.md` com justificativas
+- [ ] `timelog.md` (o PDF pede: "conte quanto tempo você gastou")
+- [x] CI verde + deploy automático
 - [ ] Vídeo de backup da demo
 - [ ] E-mail com o link do repositório + a URL

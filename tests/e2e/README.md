@@ -27,6 +27,8 @@ A asserção central é `expectSyncedOnce`: cada chamado aparece **exatamente um
 | `b6-vinte-updates-terminam-no-ultimo` | B6 | 20 edições seguidas → o B termina na 20ª |
 | `c1-eventos-fora-de-ordem` | C1 | evento velho reentregue depois do novo → o B fica no novo (ADR-005) |
 | `e4-b-lento-disjuntor` | E4 | B com 10 s de latência → disjuntor abre, tudo sincroniza na volta |
+| `f4-b-fecha-volta-ao-a-sem-eco` | F4 (B → A leve) | O operador do B fecha com solução → o A fica Fechado com a nota; depois, nenhum lado recebe escrita extra |
+| `g1-conversao-de-campos-do-glpi` | G1 | Categoria, local, requerente e técnico do A chegam como texto no B; solucionar e fechar viram `RESOLVED` e `CLOSED` |
 
 Cobertos por testes de integração do sync (sem E2E): A4 e H1 (`inbound.test.ts`), A6, B10 e G4 (`scenarios.test.ts`), H2 (`dashboard.test.ts`).
 

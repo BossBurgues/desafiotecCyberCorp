@@ -4,6 +4,7 @@ import {
   ACTIONS,
   AuthError,
   ForbiddenError,
+  PROFILES,
   can,
   hashToken,
   loadAuthConfig,
@@ -12,6 +13,7 @@ import {
   validateSessionTokenHeader,
   verifyPassword,
 } from './auth.js';
+import { CATEGORIES, LOCATIONS, findById, publicUser } from './catalog.js';
 import { DEFAULT_DB_PATH, TicketStore } from './store.js';
 import {
   DEFAULT_TIMEZONE,
@@ -20,6 +22,7 @@ import {
   createTicketEmitter,
   glpiError,
   parseListQuery,
+  formatLocalDateTime,
   parseTicketId,
   prepareNewTicket,
   prepareTicketUpdate,
@@ -32,6 +35,54 @@ const SESSION_ONLY_ROUTES = new Set([
   '/apirest.php/killSession',
   '/apirest.php/getFullSession',
 ]);
+
+/**
+ * Como no GLPI: entrar em Solucionado (5) grava `solvedate`; entrar em Fechado (6) grava `closedate` (e a
+ * `solvedate`, se faltar); reabrir (sair de 5/6 para um status aberto) limpa as duas. Quem mandar as datas explicitamente vence.
+ */
+function lifecycleDates(patch, existing) {
+  if (!Object.hasOwn(patch, 'status')) {
+    return patch;
+  }
+  const out = { ...patch };
+  const at = patch.date_mod;
+  if (patch.status === 5 && existing?.status !== 5) {
+    out.solvedate ??= at;
+    out.closedate ??= null;
+  } else if (patch.status === 6 && existing?.status !== 6) {
+    out.closedate ??= at;
+    if (!existing?.solvedate && !Object.hasOwn(patch, 'solvedate')) {
+      out.solvedate = at;
+    }
+  } else if (patch.status < 5 && existing?.status >= 5) {
+    // reaberto: deixa de estar solucionado/fechado
+    out.solvedate ??= null;
+    out.closedate ??= null;
+  }
+  return out;
+}
+
+/** Os IDs do chamado precisam existir nos catálogos (como as chaves estrangeiras do GLPI). */
+function assertReferences(fields, store) {
+  const fail = (msg) => {
+    const err = new Error(msg);
+    err.glpiCode = 'ERROR_INVALID_INPUT';
+    err.statusCode = 400;
+    throw err;
+  };
+  if (fields.itilcategories_id != null && !findById(CATEGORIES, fields.itilcategories_id)) {
+    fail(`Categoria ${fields.itilcategories_id} não existe.`);
+  }
+  if (fields.locations_id != null && !findById(LOCATIONS, fields.locations_id)) {
+    fail(`Local ${fields.locations_id} não existe.`);
+  }
+  if (fields.users_id_recipient != null && !store.getUserById(fields.users_id_recipient)) {
+    fail(`Usuário ${fields.users_id_recipient} não existe.`);
+  }
+  if (fields.users_id_assign != null && store.getUserById(fields.users_id_assign)?.profile !== 'tecnico') {
+    fail(`O chamado só pode ser atribuído a um Técnico (usuário ${fields.users_id_assign}).`);
+  }
+}
 
 function parsePositiveIdOrNull(rawId) {
   if (rawId === undefined || rawId === null) {
@@ -152,6 +203,10 @@ export function buildServer({
   app.addHook('onSend', async (request, reply, payload) => {
     if (request.url === '/ui' || request.url.startsWith('/ui/')) {
       reply.headers(UI_SECURITY_HEADERS);
+      // Revalida a cada carga: depois de um deploy o navegador nunca fica com o app.js antigo (o config.json já é no-store)
+      if (!reply.hasHeader('cache-control')) {
+        reply.header('cache-control', 'no-cache');
+      }
     }
     return payload;
   });
@@ -291,11 +346,15 @@ export function buildServer({
         '/Ticket',
         { config: { action: ACTIONS.TICKET_CREATE } },
         async (request, reply) => {
-          const ticketData = prepareNewTicket(request.body, {
-            now,
-            timeZone,
-            defaultRecipientId: request.user.id,
-          });
+          const ticketData = lifecycleDates(
+            prepareNewTicket(request.body, {
+              now,
+              timeZone,
+              defaultRecipientId: request.user.id,
+            }),
+            null,
+          );
+          assertReferences(ticketData, store);
           const created = store.insert(ticketData);
           emitter.emit('ticket.changed', {
             ticketId: created.id,
@@ -310,6 +369,74 @@ export function buildServer({
           return reply.code(201).send(created);
         },
       );
+
+      // Acompanhamentos (S1.4): notas da conversa do chamado. O sync-bot escreve aqui o que veio do B (B → A leve)
+      api.get(
+        '/Ticket/:id/ITILFollowup',
+        { config: { action: ACTIONS.TICKET_READ } },
+        async (request) => {
+          const id = parseTicketId(request.params.id);
+          if (!store.getById(id)) {
+            throw new TicketNotFoundError(`Chamado ${id} não encontrado.`);
+          }
+          return store.listFollowups(id);
+        },
+      );
+
+      api.post(
+        '/ITILFollowup',
+        { config: { action: ACTIONS.FOLLOWUP_CREATE } },
+        async (request, reply) => {
+          const input = request.body?.input;
+          const bad = (msg) => {
+            const err = new Error(msg);
+            err.glpiCode = 'ERROR_INVALID_INPUT';
+            err.statusCode = 400;
+            throw err;
+          };
+          if (!input || typeof input !== 'object' || Array.isArray(input)) bad('O corpo deve ter "input".');
+          for (const key of Object.keys(input)) {
+            if (!['itemtype', 'items_id', 'content', 'is_private'].includes(key)) bad(`Campo não permitido no input: ${key}.`);
+          }
+          if (input.itemtype !== 'Ticket') bad('itemtype deve ser "Ticket".');
+          if (!Number.isInteger(input.items_id) || input.items_id < 1) bad('items_id deve ser um inteiro >= 1.');
+          if (typeof input.content !== 'string' || input.content.trim() === '') bad('content é obrigatório.');
+          const isPrivate = input.is_private ?? 0;
+          if (isPrivate !== 0 && isPrivate !== 1) bad('is_private deve ser 0 ou 1.');
+          if (!store.getById(input.items_id)) {
+            throw new TicketNotFoundError(`Chamado ${input.items_id} não encontrado.`);
+          }
+          const at = formatLocalDateTime(typeof now === 'function' ? now() : now, timeZone);
+          const created = store.insertFollowup({
+            items_id: input.items_id,
+            users_id: request.user.id,
+            content: input.content,
+            is_private: isPrivate,
+            date: at,
+            date_mod: at,
+          });
+          return reply.code(201).send(created);
+        },
+      );
+
+      // Catálogos (somente leitura): o mesmo direito de ler chamados, inclusive para o sync-bot
+      const catalogRoute = (path, list) => {
+        api.get(path, { config: { action: ACTIONS.TICKET_READ } }, async () => list());
+        api.get(`${path}/:id`, { config: { action: ACTIONS.TICKET_READ } }, async (request) => {
+          const id = parseTicketId(request.params.id);
+          const item = list().find((x) => x.id === id);
+          if (!item) {
+            const err = new Error(`${path.slice(1)} ${id} não encontrado.`);
+            err.glpiCode = 'ERROR_ITEM_NOT_FOUND';
+            err.statusCode = 404;
+            throw err;
+          }
+          return item;
+        });
+      };
+      catalogRoute('/ITILCategory', () => CATEGORIES);
+      catalogRoute('/Location', () => LOCATIONS);
+      catalogRoute('/User', () => store.listUsers().map(publicUser));
 
       api.get(
         '/Ticket/:id',
@@ -333,7 +460,14 @@ export function buildServer({
           if (!existing) {
             throw new TicketNotFoundError(`Chamado ${id} não encontrado.`);
           }
-          const patch = prepareTicketUpdate(request.body, { now, timeZone });
+          if (request.user.profile === PROFILES.SYNC_BOT) {
+            const keys = Object.keys(request.body?.input ?? {});
+            if (keys.length !== 1 || keys[0] !== 'status') {
+              throw new ForbiddenError(request.user.profile, `${ACTIONS.TICKET_UPDATE} (só o campo status)`);
+            }
+          }
+          const patch = lifecycleDates(prepareTicketUpdate(request.body, { now, timeZone }), existing);
+          assertReferences(patch, store);
           const updated = store.update(id, patch);
           emitter.emit('ticket.changed', {
             ticketId: updated.id,

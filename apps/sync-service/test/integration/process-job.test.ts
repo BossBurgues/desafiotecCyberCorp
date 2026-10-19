@@ -81,6 +81,35 @@ describe.skipIf(!TEST_DATABASE_URL)('processJob: create/update idempotente com m
     expect([...B.records.values()][0]).toMatchObject({ title: 'Título novo', severity: 'CRITICAL' });
   });
 
+  it('conversão de campos: categoria, requerente, técnico e local do A chegam ao B como texto (catálogos do A)', async () => {
+    processJob = createProcessJob({
+      pool,
+      a: A.client,
+      b: B.client,
+      logger,
+      timeZone: TZ,
+      markerField: 'description',
+      uncertainScans: 2,
+      listPageSize: 100,
+      lookups: async () => ({
+        categories: new Map([[2, 'Hardware > Impressão']]),
+        users: new Map([
+          [1, 'Ana Souza (tecnico)'],
+          [2, 'Bruno Lima (estagiario)'],
+        ]),
+        locations: new Map([[1, { name: 'Matriz · 3º andar', lat: -23.5, lng: -46.6 }]]),
+      }),
+    });
+    A.put(ticket(1, { itilcategories_id: 2, users_id_recipient: 2, users_id_assign: 1, locations_id: 1 }));
+    await run();
+    expect([...B.records.values()][0]).toMatchObject({
+      category: 'Hardware > Impressão',
+      requester: 'Bruno Lima (estagiario)',
+      assignee: 'Ana Souza (tecnico)',
+      location: { name: 'Matriz · 3º andar', lat: -23.5, lng: -46.6 },
+    });
+  });
+
   it('chamado solucionado e depois fechado no A chega ao B como RESOLVED e CLOSED, no mesmo registro', async () => {
     await run();
     for (const [status, state, minute] of [[5, 'RESOLVED', '20'], [6, 'CLOSED', '30']] as const) {
@@ -193,7 +222,7 @@ describe.skipIf(!TEST_DATABASE_URL)('processJob: create/update idempotente com m
       const after = await getMapping(pool, 1);
       expect(after!.last_synced_hash).not.toBe(before!.last_synced_hash);
       expect(after!.last_written_hash).not.toBe(before!.last_written_hash);
-      expect(B.calls.get).toBe(2);
+      expect(B.calls.get).toBe(3); // verificação do create + ler antes de escrever + verificação do update
     });
 
     it('B responde 200 ao update sem gravar: hash não é gravado e o job volta para a fila', async () => {
@@ -288,7 +317,7 @@ describe.skipIf(!TEST_DATABASE_URL)('processJob: create/update idempotente com m
       });
       await syncedThenChanged('Sem leitura');
       await run();
-      expect(B.calls).toMatchObject({ create: 1, update: 1, get: 0 });
+      expect(B.calls).toMatchObject({ create: 1, update: 1, get: 1 }); // só o ler antes de escrever, nenhuma verificação
     });
   });
 

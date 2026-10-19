@@ -97,11 +97,11 @@ test('config.json traz o token da UI, não o A_APP_TOKEN, e no-store', async () 
   }
 });
 
-test('features fica falso sem as rotas de nota e solução', async () => {
+test('features: conversa ligada (rota de acompanhamentos existe) e aprovações desligadas (sem a rota de solução)', async () => {
   const app = buildTestServer();
   try {
     const res = await app.inject({ method: 'GET', url: '/ui/config.json' });
-    assert.deepEqual(res.json().features, { followups: false, solutions: false });
+    assert.deepEqual(res.json().features, { followups: true, solutions: false });
   } finally {
     await app.close();
   }
@@ -110,8 +110,7 @@ test('features fica falso sem as rotas de nota e solução', async () => {
 test('features liga quando a rota existe', async () => {
   const app = buildTestServer();
   try {
-    // Mesmo caminho que a S1.4/S1.5 vão registrar.
-    app.get('/apirest.php/Ticket/:id/ITILFollowup', async () => []);
+    // Mesmo caminho que a S1.5 registraria (a de acompanhamentos já existe).
     app.put('/apirest.php/ITILSolution/:id', async () => ({}));
     await app.ready();
     const res = await app.inject({ method: 'GET', url: '/ui/config.json' });

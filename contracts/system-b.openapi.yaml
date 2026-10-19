@@ -305,11 +305,16 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Attachment'
+        resolution:
+          type: [string, 'null']
+          maxLength: 2000
+          x-capability: resolution
+          description: "Texto da solução escrito pelo operador do B ao resolver (capacidade opcional; o sync leva para a nota no A no B → A leve e preserva o valor ao atualizar o registro)"
         updatedBy:
           type: [string, 'null']
           readOnly: true
           x-capability: updatedBy
-          description: "Autor da última alteração no B (capacidade opcional; sem ela, a nota diz 'não informado pelo B' — seção 5.2, ADR-011)"
+          description: "Autor da última alteração no B, definido pelo servidor (o operador pelo cabeçalho X-Operator nas rotas dele; 'integração (sync)' na API). Capacidade opcional; sem ela, a nota no A diz 'não informado pelo B' (ADR-011)"
         createdAt:
           type: string
           format: date-time
@@ -375,6 +380,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Attachment'
+        resolution:
+          type: [string, 'null']
+          maxLength: 2000
+          x-capability: resolution
     RecordPage:
       type: object
       additionalProperties: false

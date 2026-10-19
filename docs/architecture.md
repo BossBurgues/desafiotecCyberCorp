@@ -144,7 +144,11 @@ sequenceDiagram
   Note over W,B: o "modo seguro" (teste de capacidade do marcador na subida, S3.7)<br/>ficou fora do escopo: ver out-of-scope.md
 ```
 
-## Fluxo B → A: proposta e aprovação (desenho, não implementado)
+## Fluxo B → A leve (implementado, ADR-014)
+
+O operador do B resolve, fecha ou reabre; a varredura do B detecta pelo `last_written_hash`, o `processJob` compara com o `last_written_record`, aplica o status no A pelo `sync-bot` e escreve a nota com quem alterou e a solução. Se o A também mudou o estado, o A vence. Detalhe e diagrama em [`how-it-works.md`](how-it-works.md), seção 11.
+
+## Fluxo B → A completo: proposta e aprovação (desenho, não implementado)
 
 Escopo opcional do avaliador, fora da entrega (`out-of-scope.md`). O desenho responde às duas perguntas dele: anti-eco (ADR-009) e concorrência A × B (ADR-011). O A continua sendo a fonte da verdade: o B propõe, o A aprova (ADR-006).
 

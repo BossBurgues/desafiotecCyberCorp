@@ -30,6 +30,7 @@ export const recordSchema = z.strictObject({
   location: location.nullable().optional(),
   sourceUpdatedAt: dateTime.nullable().optional(),
   attachments: z.array(attachment).optional(),
+  resolution: z.string().max(2000).nullable().optional(),
   updatedBy: nullableString,
   createdAt: dateTime.optional(),
   updatedAt: dateTime.optional(),

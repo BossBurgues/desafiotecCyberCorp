@@ -16,5 +16,7 @@ Um arquivo por decisão: `NNN-titulo.md`, com **Contexto**, **Decisão**, **Cons
 | [010](010-hospedagem-oracle-compose.md) | Hospedagem Oracle + Compose; plano B Render + Neon | Aceito |
 | [011](011-concorrencia-a-x-b.md) | Concorrência A×B: o A vence, ler antes de escrever, If-Match opcional | Aceito (B→A opcional) |
 | [012](012-sem-mirror-no-gitlab.md) | Repositório e CI só no GitHub, sem mirror no GitLab | Aceito |
+| [013](013-pdf-como-base-a-central.md) | O PDF é a base: o A é o central (soluciona e fecha), o B só recebe | Aceito (complementado pelo 014) |
+| [014](014-b-para-a-leve.md) | B → A leve: o estado mudado no B volta ao A, com anti-eco e o A vencendo conflitos | Aceito |
 
 Para mudar uma decisão, copie o [modelo](000-modelo.md) e marque o ADR antigo como *Substituído por ADR-XXX*.

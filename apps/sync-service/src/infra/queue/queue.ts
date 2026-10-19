@@ -25,6 +25,11 @@ export interface FailureInfo {
 export type FailOutcome = { status: 'pending'; delayMs: number } | { status: 'dead' } | { status: 'lost_lease' };
 
 export const DEFAULT_JOB_KIND = 'sync_ticket';
+/**
+ * B → A leve: a varredura do B achou um registro diferente do que o sync escreveu. O job relê os dois lados mesmo
+ * que o A não tenha mudado. Aglutinado com um job comum do mesmo chamado, o job passa a ser deste tipo (é mais amplo).
+ */
+export const B_CHANGED_JOB_KIND = 'b_changed';
 
 /**
  * Enfileira o chamado. Já existe job ativo → aglutina (o worker sempre lê o estado atual do A, então um job basta).
@@ -34,7 +39,8 @@ export async function enqueue(db: Db, ticketId: number, kind = DEFAULT_JOB_KIND)
   const { rows } = await db.query<{ id: string; coalesced: boolean }>(
     `INSERT INTO sync_jobs (ticket_id, kind) VALUES ($1, $2)
      ON CONFLICT (ticket_id) WHERE status IN ('pending', 'running')
-     DO UPDATE SET rerun = sync_jobs.rerun OR sync_jobs.status = 'running', updated_at = now()
+     DO UPDATE SET rerun = sync_jobs.rerun OR sync_jobs.status = 'running', updated_at = now(),
+       kind = CASE WHEN EXCLUDED.kind = 'b_changed' THEN EXCLUDED.kind ELSE sync_jobs.kind END
      RETURNING id, (xmax <> 0) AS coalesced`,
     [ticketId, kind],
   );

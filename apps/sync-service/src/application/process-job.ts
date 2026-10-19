@@ -3,11 +3,11 @@ import type { Logger } from 'pino';
 import type { SystemAClient } from '../adapters/system-a/client.js';
 import { BError } from '../adapters/system-b/errors.js';
 import type { BRecordResponse, SystemBClient } from '../adapters/system-b/client.js';
-import { findMarker, hashRecord, hashTicket, mapTicketToRecord } from '../domain/index.js';
-import type { GlpiTicket, Lookups, MarkerField, RecordInput } from '../domain/types.js';
+import { findMarker, hashRecord, hashTicket, mapTicketToRecord, toGlpiStatus } from '../domain/index.js';
+import type { GlpiTicket, Lookups, MarkerField, RecordInput, RecordState } from '../domain/types.js';
 import { recordAudit } from '../infra/audit.js';
 import type { JobProcessor } from '../infra/queue/runner.js';
-import type { Job } from '../infra/queue/queue.js';
+import { B_CHANGED_JOB_KIND, type Job } from '../infra/queue/queue.js';
 
 export interface ProcessJobDeps {
   pool: Pool;
@@ -21,7 +21,13 @@ export interface ProcessJobDeps {
   listPageSize: number;
   /** Relê o registro no B depois de cada escrita e só grava o hash se o B gravou de verdade (S3.8). Padrão: true. */
   verifyAfterWrite?: boolean;
-  lookups?: Lookups;
+  /** Catálogos do A (categoria, usuários, locais) para converter os IDs; fixos ou carregados sob demanda (com cache). */
+  lookups?: Lookups | (() => Promise<Lookups>);
+  /**
+   * B → A leve (ADR-014). Ligado: o estado que o operador do B mudou (resolver, fechar, reabrir) é aplicado no A pelo
+   * sync-bot, com uma nota de quem alterou e da solução. Desligado: o sync só não desfaz o estado que o B mudou.
+   */
+  bToA?: boolean;
 }
 
 export interface MappingRow {
@@ -30,7 +36,39 @@ export interface MappingRow {
   state: 'active' | 'create_uncertain' | 'quarantine' | 'deletion_requested' | 'archived';
   last_synced_hash: string | null;
   last_written_hash: string | null;
+  /** O que o sync escreveu por último no B (migration 004). Comparado com o B atual, diz o que o B mudou. */
+  last_written_record: RecordInput | null;
   uncertain_scans: number;
+}
+
+/** Campos que o sync escreve e que o B → A compara para saber o que o próprio B mudou. */
+const SYNCED_FIELDS = ['title', 'description', 'state', 'severity', 'category', 'requester', 'assignee', 'location'] as const;
+const FIELD_LABEL: Record<(typeof SYNCED_FIELDS)[number], string> = {
+  title: 'o título',
+  description: 'a descrição',
+  state: 'o estado',
+  severity: 'a severidade',
+  category: 'a categoria',
+  requester: 'o requerente',
+  assignee: 'o responsável',
+  location: 'o local',
+};
+const STATE_LABEL: Record<RecordState, string> = {
+  OPEN: 'Aberto',
+  IN_PROGRESS: 'Em andamento',
+  ON_HOLD: 'Em espera',
+  RESOLVED: 'Resolvido',
+  CLOSED: 'Fechado',
+};
+
+function sameValue(x: unknown, y: unknown): boolean {
+  return JSON.stringify(x ?? null) === JSON.stringify(y ?? null);
+}
+
+/** Só os campos do RecordInput: o que o sync de fato escreveu (sem id, horários e autor do B). */
+function asInput(r: RecordInput): RecordInput {
+  const keys = ['title', 'description', 'state', 'severity', 'category', 'requester', 'assignee', 'location', 'sourceUpdatedAt', 'attachments', 'resolution'] as const;
+  return Object.fromEntries(keys.filter((k) => r[k] !== undefined).map((k) => [k, r[k]])) as unknown as RecordInput;
 }
 
 /**
@@ -64,7 +102,7 @@ const ACTOR = 'sync';
 
 export async function getMapping(pool: Pick<Pool, 'query'>, ticketId: number): Promise<MappingRow | null> {
   const { rows } = await pool.query<MappingRow & { a_ticket_id: string }>(
-    `SELECT a_ticket_id, b_record_id, state, last_synced_hash, last_written_hash, uncertain_scans
+    `SELECT a_ticket_id, b_record_id, state, last_synced_hash, last_written_hash, last_written_record, uncertain_scans
      FROM ticket_mapping WHERE a_ticket_id = $1`,
     [ticketId],
   );
@@ -85,6 +123,7 @@ export async function getMapping(pool: Pick<Pool, 'query'>, ticketId: number): P
 export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
   const { pool, a, b } = deps;
   const verifyAfterWrite = deps.verifyAfterWrite ?? true;
+  const bToA = deps.bToA ?? false;
 
   return async (job: Job, signal: AbortSignal) => {
     const correlationId = `job-${job.id}-${job.attempts}`;
@@ -104,11 +143,10 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
       return;
     }
 
-    const input = mapTicketToRecord(ticket, {
-      timeZone: deps.timeZone,
-      markerField: deps.markerField,
-      ...(deps.lookups ? { lookups: deps.lookups } : {}),
-    });
+    const lookups = typeof deps.lookups === 'function' ? await deps.lookups() : deps.lookups;
+    const toRecord = (t: GlpiTicket) =>
+      mapTicketToRecord(t, { timeZone: deps.timeZone, markerField: deps.markerField, ...(lookups ? { lookups } : {}) });
+    const input = toRecord(ticket);
     const ticketHash = hashTicket(ticket);
 
     let mapping = await getMapping(pool, ticket.id);
@@ -151,7 +189,8 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
       return;
     }
 
-    if (mapping.last_synced_hash === ticketHash) {
+    // b_changed: a varredura do B viu um registro diferente do que escrevemos; o job olha o B mesmo com o A parado
+    if (mapping.last_synced_hash === ticketHash && job.kind !== B_CHANGED_JOB_KIND) {
       log.debug('hash igual ao último sincronizado: nada a fazer');
       await recordAudit(pool, {
         ticketId: ticket.id,
@@ -165,7 +204,7 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
       return;
     }
 
-    await update(ticket, input, ticketHash, mapping, signal, correlationId, log);
+    await update(ticket, input, ticketHash, mapping, signal, correlationId, log, true, toRecord);
   };
 
   async function update(
@@ -177,34 +216,158 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     correlationId: string,
     log: Logger,
     allowMissing = true,
+    toRecord: (t: GlpiTicket) => RecordInput = (t) => mapTicketToRecord(t, { timeZone: deps.timeZone, markerField: deps.markerField }),
   ): Promise<void> {
     signal.throwIfAborted();
     const started = Date.now();
-    let recordId: string;
-    try {
-      recordId = (await b.updateRecord(mapping.b_record_id!, input, { correlationId })).id;
-    } catch (err) {
-      if (allowMissing && err instanceof BError && err.reason === 'not_found') {
+
+    // Ler antes de escrever (ADR-011, ADR-014): o B pode ter mudado o registro desde a nossa última escrita
+    const current = await b.getRecord(mapping.b_record_id!, { correlationId });
+    if (!current) {
+      if (allowMissing) {
         await recordMissing(ticket, input, ticketHash, mapping, signal, correlationId, log);
         return;
       }
-      throw err;
+      throw new BError('not_found', `GET /records/${mapping.b_record_id}: 404 logo depois de adotar`);
     }
-    const outcome = await verify(ticket.id, recordId, input, correlationId);
-    if (outcome === 'missing' && allowMissing) {
-      await recordMissing(ticket, input, ticketHash, mapping, signal, correlationId, log);
-      return;
+
+    let toWrite = input;
+    let finalTicket = ticket;
+    let notes: string[] = [];
+    if (mapping.last_written_hash && hashRecord(current as RecordInput) !== mapping.last_written_hash) {
+      ({ ticket: finalTicket, input: toWrite, notes } = await reconcile(ticket, input, current, mapping, correlationId, log, toRecord));
     }
-    if (outcome !== 'ok') {
-      log.warn({ b_record_id: recordId, outcome }, 'B confirmou o update sem gravar: o hash fica como estava e o job volta');
-      throw new VerifyMismatchError(ticket.id, recordId);
+    // A solução é um campo do B (o operador escreve): o PUT substitui o registro inteiro, então ela vai junto
+    if (current.resolution != null && toWrite.resolution === undefined) toWrite = { ...toWrite, resolution: current.resolution };
+    const finalHash = hashTicket(finalTicket);
+
+    signal.throwIfAborted();
+    let recordId = current.id;
+    // O B já está igual ao que escreveríamos (ex.: só o B mudou o estado, e ele vale): nenhuma escrita, nenhum eco
+    if (hashRecord(current as RecordInput) !== hashRecord(toWrite) || !sameValue(current.resolution, toWrite.resolution)) {
+      try {
+        recordId = (await b.updateRecord(mapping.b_record_id!, toWrite, { correlationId })).id;
+      } catch (err) {
+        if (allowMissing && err instanceof BError && err.reason === 'not_found') {
+          await recordMissing(finalTicket, toWrite, finalHash, mapping, signal, correlationId, log);
+          return;
+        }
+        throw err;
+      }
+      const outcome = await verify(ticket.id, recordId, toWrite, correlationId);
+      if (outcome === 'missing' && allowMissing) {
+        await recordMissing(finalTicket, toWrite, finalHash, mapping, signal, correlationId, log);
+        return;
+      }
+      if (outcome !== 'ok') {
+        log.warn({ b_record_id: recordId, outcome }, 'B confirmou o update sem gravar: o hash fica como estava e o job volta');
+        throw new VerifyMismatchError(ticket.id, recordId);
+      }
     }
-    await saveActive(ticket, input, ticketHash, recordId, {
+    await saveActive(finalTicket, toWrite, finalHash, recordId, {
       action: 'update',
       correlationId,
       latencyMs: Date.now() - started,
     });
     log.info({ b_record_id: recordId }, 'chamado atualizado no B');
+
+    // A nota vai por último, depois do mapeamento gravado: se o job repetir, a mudança já foi registrada e a nota não
+    // duplica. Se a nota falhar, a mudança continua aplicada (a nota é o registro, não a garantia)
+    if (bToA && notes.length > 0) {
+      try {
+        await a.addFollowup(ticket.id, `${notes.join('\n')} ⟦from-b:${current.id}⟧`);
+      } catch (err) {
+        log.warn({ err }, 'B → A: mudança aplicada, mas a nota no A falhou');
+      }
+    }
+  }
+
+  /**
+   * B → A leve (ADR-014). O B mudou o registro desde a nossa última escrita; o que fazer com cada mudança:
+   * - estado mudado só no B (resolver, fechar, reabrir): vale o do B. Com o B → A ligado, o sync-bot aplica no A;
+   *   desligado, o sync só não reabre o B;
+   * - estado mudado nos dois lados ao mesmo tempo: o A vence (ADR-011), com nota;
+   * - outros campos mudados no B: o A é a fonte da verdade e o valor é restaurado, com nota.
+   * Anti-eco (ADR-009): o mapeamento grava o hash do A depois da escrita do sync-bot, então o evento que essa escrita
+   * gera no A vira no-op; e o B não recebe escrita se já está igual ao que escreveríamos.
+   */
+  async function reconcile(
+    ticket: GlpiTicket,
+    input: RecordInput,
+    current: BRecordResponse,
+    mapping: MappingRow,
+    correlationId: string,
+    log: Logger,
+    toRecord: (t: GlpiTicket) => RecordInput,
+  ): Promise<{ ticket: GlpiTicket; input: RecordInput; notes: string[] }> {
+    const last = mapping.last_written_record;
+    if (!last) return { ticket, input, notes: [] };
+    const changed = SYNCED_FIELDS.filter((f) => !sameValue(current[f], last[f]));
+    if (changed.length === 0) return { ticket, input, notes: [] };
+
+    const who = current.updatedBy ?? 'autor não informado pelo B';
+    const notes: string[] = [];
+    let outTicket = ticket;
+    let outInput = input;
+
+    if (changed.includes('state') && current.state !== input.state) {
+      const aChangedState = input.state !== last.state;
+      if (!aChangedState) {
+        if (bToA) {
+          const updated = await a.updateStatus(ticket.id, toGlpiStatus(current.state));
+          if (updated) {
+            outTicket = updated;
+            outInput = toRecord(updated);
+          }
+          notes.push(
+            `Estado alterado no Sistema B por ${who}: ${STATE_LABEL[last.state]} → ${STATE_LABEL[current.state]}.` +
+              (current.resolution ? ` Solução: ${current.resolution}` : ''),
+          );
+        } else {
+          outInput = { ...outInput, state: current.state };
+        }
+        await recordAudit(pool, {
+          ticketId: ticket.id,
+          direction: 'b_to_a',
+          action: 'b_state',
+          actor: ACTOR,
+          correlationId,
+          request: { from: last.state, to: current.state, by: current.updatedBy ?? null },
+          outcome: bToA ? 'applied_to_a' : 'kept_in_b',
+        });
+        log.info({ from: last.state, to: current.state, by: who }, bToA ? 'B → A: estado do B aplicado no A' : 'estado mudado no B mantido');
+      } else {
+        notes.push(
+          `O Sistema B também mudou o estado para ${STATE_LABEL[current.state]} (por ${who}), ao mesmo tempo que o A mudou para ` +
+            `${STATE_LABEL[input.state]}: prevaleceu o A.`,
+        );
+        await recordAudit(pool, {
+          ticketId: ticket.id,
+          direction: 'b_to_a',
+          action: 'conflict',
+          actor: ACTOR,
+          correlationId,
+          request: { a: input.state, b: current.state, by: current.updatedBy ?? null },
+          outcome: 'a_wins',
+        });
+        log.warn({ a: input.state, b: current.state }, 'A e B mudaram o estado ao mesmo tempo: o A vence');
+      }
+    }
+
+    const reverted = changed.filter((f) => f !== 'state');
+    if (reverted.length > 0) {
+      notes.push(`O Sistema B alterou ${reverted.map((f) => FIELD_LABEL[f]).join(', ')} (por ${who}); o A é a fonte da verdade e o valor foi restaurado.`);
+      await recordAudit(pool, {
+        ticketId: ticket.id,
+        direction: 'b_to_a',
+        action: 'b_edit',
+        actor: ACTOR,
+        correlationId,
+        request: { fields: reverted, by: current.updatedBy ?? null },
+        outcome: 'reverted',
+      });
+    }
+    return { ticket: outTicket, input: outInput, notes };
   }
 
   /**
@@ -365,9 +528,9 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
       await client.query('BEGIN');
       await client.query(
         `UPDATE ticket_mapping SET b_record_id = $2, state = 'active', last_synced_hash = NULL,
-           last_written_hash = $3, uncertain_scans = 0, uncertain_since = NULL, updated_at = now()
+           last_written_hash = $3, last_written_record = $4, uncertain_scans = 0, uncertain_since = NULL, updated_at = now()
          WHERE a_ticket_id = $1`,
-        [mapping.a_ticket_id, found.id, hashRecord(found as RecordInput)],
+        [mapping.a_ticket_id, found.id, hashRecord(found as RecordInput), JSON.stringify(asInput(found as RecordInput))],
       );
       await recordAudit(client, {
         ticketId: mapping.a_ticket_id,
@@ -385,7 +548,15 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     } finally {
       client.release();
     }
-    return { ...mapping, b_record_id: found.id, state: 'active', last_synced_hash: null, uncertain_scans: 0 };
+    return {
+      ...mapping,
+      b_record_id: found.id,
+      state: 'active',
+      last_synced_hash: null,
+      last_written_hash: hashRecord(found as RecordInput),
+      last_written_record: asInput(found as RecordInput),
+      uncertain_scans: 0,
+    };
   }
 
   /** Mapeamento + auditoria numa transação só: ou os dois ficam, ou nenhum (o job repete e o hash decide). */
@@ -401,8 +572,8 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     try {
       await client.query('BEGIN');
       await client.query(
-        `INSERT INTO ticket_mapping (a_ticket_id, b_record_id, state, last_synced_hash, last_written_hash, last_synced_date_mod_utc)
-         VALUES ($1, $2, 'active', $3, $4, $5)
+        `INSERT INTO ticket_mapping (a_ticket_id, b_record_id, state, last_synced_hash, last_written_hash, last_synced_date_mod_utc, last_written_record)
+         VALUES ($1, $2, 'active', $3, $4, $5, $6)
          ON CONFLICT (a_ticket_id) DO UPDATE SET
            b_record_history = CASE
              WHEN ticket_mapping.b_record_id IS NOT NULL AND ticket_mapping.b_record_id <> EXCLUDED.b_record_id
@@ -412,9 +583,10 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
            state = 'active',
            last_synced_hash = EXCLUDED.last_synced_hash,
            last_written_hash = EXCLUDED.last_written_hash,
+           last_written_record = EXCLUDED.last_written_record,
            last_synced_date_mod_utc = EXCLUDED.last_synced_date_mod_utc,
            uncertain_scans = 0, uncertain_since = NULL, updated_at = now()`,
-        [ticket.id, bRecordId, ticketHash, writtenHash, input.sourceUpdatedAt ?? null],
+        [ticket.id, bRecordId, ticketHash, writtenHash, input.sourceUpdatedAt ?? null, JSON.stringify(asInput(input))],
       );
       await recordAudit(client, {
         ticketId: ticket.id,

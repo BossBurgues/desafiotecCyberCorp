@@ -32,7 +32,7 @@ test('matriz de permissões avalia as 18 combinações de perfil × ação confo
 
     [PROFILES.SYNC_BOT, ACTIONS.TICKET_READ, true],
     [PROFILES.SYNC_BOT, ACTIONS.TICKET_CREATE, false],
-    [PROFILES.SYNC_BOT, ACTIONS.TICKET_UPDATE, false],
+    [PROFILES.SYNC_BOT, ACTIONS.TICKET_UPDATE, true], // só o status (conferido na rota)
     [PROFILES.SYNC_BOT, ACTIONS.FOLLOWUP_CREATE, true],
     [PROFILES.SYNC_BOT, ACTIONS.SOLUTION_CREATE, true],
     [PROFILES.SYNC_BOT, ACTIONS.SOLUTION_DECIDE, false],

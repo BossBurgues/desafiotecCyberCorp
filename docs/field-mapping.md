@@ -1,6 +1,6 @@
 # Mapeamento de campos · Sistema A (GLPI) → Sistema B
 
-> Detalha a seção 9 do `PLANO_DE_ACAO.md`, os ADRs [004](adr/004-marcador-idempotencia.md) (marcador), [005](adr/005-evento-sinal-data-hash.md) (data em UTC + hash de conteúdo) e [009](adr/009-anti-eco.md) (anti-eco), e os contratos `contracts/system-a.openapi.yaml` (`Ticket`) e `contracts/system-b.openapi.yaml` (`RecordInput`, `Record`).
+> Detalha a seção 9 do `PLANO_DE_ACAO.md`, os ADRs [004](adr/004-marcador-no-dado-e-teste-de-capacidade.md) (marcador), [005](adr/005-evento-e-sinal-date-mod-e-hash-utc.md) (data em UTC + hash de conteúdo) e [009](adr/009-anti-eco.md) (anti-eco), e os contratos `contracts/system-a.openapi.yaml` (`Ticket`) e `contracts/system-b.openapi.yaml` (`RecordInput`, `Record`).
 >
 > Implementação pura (sem I/O) em `apps/sync-service/src/domain/`.
 
@@ -13,13 +13,27 @@
 | `content` (HTML) | `description` (texto puro) | `htmlToText` remove scripts/estilos/tags, decodifica entidades, remove caracteres de controle, neutraliza `⟦`/`⟧` e anexa `\n\n⟦s:glpi-<id>⟧` |
 | `status` (`1..6`) | `state` (`State`) | Tabela `STATUS_TO_STATE` (`toState`) |
 | `priority` (`1..6`) | `severity` (`Severity`) | Tabela `PRIORITY_TO_SEVERITY` (`toSeverity`) |
-| `itilcategories_id` (`int \| null`) | `category` (`string \| null`) | Lookup em `lookups.categories`; ausente ou sem entrada → `null` |
-| `users_id_recipient` (`int \| null`) | `requester` (`string \| null`) | Lookup em `lookups.users`; ausente ou sem entrada → `null` |
-| `users_id_assign` (`int \| null`) | `assignee` (`string \| null`) | Lookup em `lookups.users`; ausente ou sem entrada → `null` |
-| `locations_id` (`int \| null`) | `location` (`{ name, lat, lng } \| null`) | Lookup em `lookups.locations`; ausente ou sem entrada → `null`; campos internos opcionais normalizados para `null` |
+| `itilcategories_id` (`int \| null`) | `category` (`string \| null`) | Nome completo da categoria no catálogo do A (`GET /ITILCategory`, ex.: "Hardware > Impressão"); ausente ou sem entrada → `null` |
+| `users_id_recipient` (`int \| null`) | `requester` (`string \| null`) | "Nome Sobrenome (login)" do usuário no A (`GET /User`); ausente ou sem entrada → `null` |
+| `users_id_assign` (`int \| null`) | `assignee` (`string \| null`) | Mesmo formato do requerente; ausente ou sem entrada → `null` |
+| `locations_id` (`int \| null`) | `location` (`{ name, lat, lng } \| null`) | Local do catálogo do A (`GET /Location`) com `latitude`/`longitude` → `lat`/`lng`; sem coordenadas → `null`; ausente ou sem entrada → `null` |
 | `date_mod` (`YYYY-MM-DD HH:MM:SS`) | `sourceUpdatedAt` (`YYYY-MM-DDTHH:MM:SSZ`) | Interpretado no fuso `A_TIMEZONE` e convertido para UTC por `glpiLocalToUtc` |
 | `attachments` (`[{ name, size, sha256 }]`) | `attachments` (`[{ name, size, sha256 }]`) | Cópia defensiva apenas dos 3 campos de metadados (sem binário) |
 | `date`, `solvedate`, `closedate` | — | Não enviados no `RecordInput` e fora do `hashTicket` |
+
+> **De onde vêm os nomes:** o sync lê os catálogos do A (`ITILCategory`, `User`, `Location`) como `sync-bot` e guarda em cache por `A_LOOKUPS_TTL_MS` (60 s); a conversão continua pura no `mapTicketToRecord` (`lookups`). Renomear um item do catálogo não reenvia os chamados antigos (o hash é calculado sobre os IDs do A): o novo nome chega ao B na próxima alteração do chamado.
+
+## 1.5 B → A leve: estado do B → status do A (ADR-014)
+
+| `state` no B | `status` no A | Observação |
+|---|---|---|
+| `OPEN` | `1` Novo | reabertura no B |
+| `IN_PROGRESS` | `2` Em atendimento | |
+| `ON_HOLD` | `4` Pendente | |
+| `RESOLVED` | `5` Solucionado | o A grava a `solvedate` |
+| `CLOSED` | `6` Fechado | o A grava a `closedate` |
+
+Ida e volta batem com a tabela A → B (`toState(toGlpiStatus(s)) === s`), então o chamado não oscila. Quem alterou (`updatedBy`) e a solução (`resolution`) do B vão para a nota do `sync-bot` no A. A solução é um campo do B: o sync a preserva ao atualizar o registro.
 
 ## 2. Tabelas de status e prioridade (cenário G1)
 
@@ -31,10 +45,10 @@
 | `2` | Em atendimento (atribuído) | `IN_PROGRESS` | Já em tratamento pelo técnico |
 | `3` | Planejado | `IN_PROGRESS` | No GLPI, Planejado significa atribuído e agendado (já em tratamento) |
 | `4` | Pendente | `ON_HOLD` | Aguardando terceiro ou janela |
-| `5` | Solucionado (congelado no A) | `RESOLVED` | Solução proposta/aplicada no A |
-| `6` | Fechado (congelado no A) | `CLOSED` | Encerrado definitivamente no A |
+| `5` | Solucionado | `RESOLVED` | O Técnico solucionou no A |
+| `6` | Fechado | `CLOSED` | Encerrado no A |
 
-> **Por que 5 e 6 são mapeados normalmente no sentido A → B?** A regra "5 e 6 só via aprovação" (ADR-006) governa o que o **B pode propor ao A** e quem pode aprovar no A. Como o Sistema A é a fonte da verdade (ADR-001), quando o próprio A está em 5 ou 6 o Sistema B deve refletir `RESOLVED` ou `CLOSED`.
+> **5 e 6 são atualizações como as outras.** O A é o sistema central (PDF): o Técnico soluciona e fecha no A, e o B reflete `RESOLVED` ou `CLOSED`. A regra "5 e 6 só via aprovação" (ADR-006) e o congelamento pertencem ao B → A opcional, não implementado (ADR-013).
 
 ### 2.2 `priority` (A) → `severity` (B)
 

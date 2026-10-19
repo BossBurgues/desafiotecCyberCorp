@@ -30,6 +30,22 @@ export function toState(status: unknown): RecordState {
   return STATUS_TO_STATE[status];
 }
 
+/**
+ * B → A leve: o estado que o operador do B escolheu vira o status do GLPI. Ida e volta batem com STATUS_TO_STATE
+ * (toState(toGlpiStatus(s)) === s), então o chamado não fica oscilando entre os dois lados.
+ */
+export const STATE_TO_STATUS = {
+  OPEN: 1,
+  IN_PROGRESS: 2,
+  ON_HOLD: 4,
+  RESOLVED: 5,
+  CLOSED: 6,
+} as const satisfies Record<RecordState, TicketStatus>;
+
+export function toGlpiStatus(state: RecordState): TicketStatus {
+  return STATE_TO_STATUS[state];
+}
+
 export function toSeverity(priority: unknown): RecordSeverity {
   if (!isOneToSix(priority)) {
     throw new MappingError('priority', priority, 'prioridade do chamado deve ser inteiro entre 1 e 6.');

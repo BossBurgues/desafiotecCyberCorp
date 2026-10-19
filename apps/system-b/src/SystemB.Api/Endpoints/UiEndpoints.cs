@@ -26,6 +26,8 @@ public static class UiEndpoints
             ctx.Response.Headers.ContentSecurityPolicy = Csp;
             ctx.Response.Headers.XContentTypeOptions = "nosniff";
             ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
+            // Revalida a cada carga: depois de um deploy o navegador nunca fica com o app.js antigo
+            ctx.Response.Headers.CacheControl = "no-cache";
             return Results.Bytes(body, Files[name]);
         }
 

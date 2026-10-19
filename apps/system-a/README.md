@@ -118,13 +118,12 @@ Com o servidor de pé, abra **http://localhost:3001/ui/** (`GET /` redireciona p
 | Na tela | Técnico | Estagiário |
 |---|---|---|
 | Lista, detalhe, novo chamado | ✅ | ✅ |
-| Botão **Editar** (status 1–4 e prioridade) | ✅ | aparece; o servidor responde `403` e a UI mostra a frase (D7) |
+| Botão **Editar** (título, descrição, status 1–6 e prioridade) | ✅ | aparece; o servidor responde `403` e a UI mostra a frase (D7) |
 | Adicionar nota | ✅ | escondido |
-| **Aprovar / Recusar** solução pendente (recusa exige motivo) | ✅ | escondido; vê "Aguardando aprovação de um Técnico" |
 
-Solucionado (5) e Fechado (6) não aparecem no seletor de status: só chegam pelo fluxo de aprovação (Q26).
+O A é o sistema central (PDF): o Técnico soluciona (5) e fecha (6) como no GLPI, e o sync leva `RESOLVED`/`CLOSED` ao B. A regra "5 e 6 só via aprovação" (Q26) pertence ao B → A opcional, que não foi implementado.
 
-**Conversa e aprovações ligam sozinhas.** `GET /ui/config.json` devolve `{ appToken, features: { followups, solutions } }`, calculado das rotas registradas no `onReady`. Enquanto `GET /apirest.php/Ticket/:id/ITILFollowup` (S1.4 · #19) ou `PUT /apirest.php/ITILSolution/:id` (S1.5 · #20) não existirem, a tela mostra o aviso cinza no lugar da seção. Na conversa, o autor aparece como 👤 Técnico/Estagiário, 🤖 `sync-bot` ou 🏢 Operador B (nota do `sync-bot` com `⟦from-b:…⟧`); os marcadores `⟦…⟧` não são exibidos.
+**Conversa (B → A leve, ADR-014) e aprovações (não implementadas).** `GET /ui/config.json` devolve `{ appToken, features: { followups, solutions } }`, calculado das rotas registradas no `onReady`. A rota de acompanhamentos existe, então a **conversa** aparece no detalhe: o Técnico escreve notas, e o `sync-bot` registra o que veio do B (estado, quem alterou e solução), mostrado como 🏢 Operador B. A rota de soluções com aprovação (S1.5) não existe, então essa seção não aparece.
 
 **Mensagens de erro** (`errorMessage` em `ui-core.js`): `403 ERROR_RIGHT_MISSING` → "Seu perfil (Estagiário) não pode … Peça a um Técnico."; `409 ERROR_TICKET_FROZEN` → "Chamado congelado … só aceita notas. A edição não foi salva."; sessão inválida → "Sua sessão expirou" e volta ao login; `ERROR_GLPI_LOGIN` → "Usuário ou senha incorretos."; falha de rede → "Sistema A fora do ar"; código desconhecido → mensagem do servidor + código. O formulário de edição não fecha nem perde o que foi digitado.
 
@@ -161,8 +160,18 @@ Quando `A_WEBHOOK_ENABLED=true`, toda criação (`POST /apirest.php/Ticket`) ou 
 | `GET` | `/apirest.php/Ticket` | Lista chamados com `range=<início>-<fim>` (padrão `0-49`, máx. `500`), `sort=date_mod\|id`, `order=ASC\|DESC` e filtro opcional `date_mod_gte=YYYY-MM-DD HH:MM:SS`. Retorna cabeçalho `Content-Range` (`200` ou `206`) |
 | `GET` | `/health` | Saúde do Sistema A, sem autenticação (`200 {"status":"ok"}` ou `503`) |
 | `PUT` | `/apirest.php/Ticket/:id` | Atualiza campos parciais via `{ "input": { ... } }`, recalcula `date_mod` no fuso `A_TIMEZONE` e emite o evento interno `ticket.changed` com `{ ticketId, action, dateMod, actor }` |
+| `GET` | `/apirest.php/ITILCategory`, `/ITILCategory/:id` | Catálogo de categorias (`id`, `name`, `completename`) |
+| `GET` | `/apirest.php/Location`, `/Location/:id` | Catálogo de locais (`id`, `name`, `completename`, `latitude`, `longitude`; coordenadas podem ser `null`) |
+| `GET` | `/apirest.php/User`, `/User/:id` | Usuários (`id`, `name` = login, `firstname`, `realname`, `profile`), **sem senha nem token** |
 
 Erros seguem o formato do GLPI: `["ERROR_CODIGO", "Mensagem legível"]`.
+
+### O A como GLPI (realinhamento de 19/10, ADR-013)
+
+- **Catálogos** (`src/catalog.js`): categorias, locais e usuários, como os cadastros do GLPI. São fixos no mock; o mesmo direito de ler chamados vale para eles (inclusive o `sync-bot`, que os usa para converter os IDs em texto para o B).
+- **Referências conferidas:** `itilcategories_id`, `locations_id` e `users_id_recipient` precisam existir, e `users_id_assign` precisa ser um Técnico; senão `400 ERROR_INVALID_INPUT`.
+- **Datas do ciclo de vida:** entrar em Solucionado (5) grava `solvedate`; entrar em Fechado (6) grava `closedate` (e a `solvedate`, se faltar); reabrir (sair de 5/6 para um status aberto) limpa as duas.
+- **Interface:** o formulário de novo chamado e o de edição têm Categoria, Local e "Atribuído a" (Técnicos); o detalhe mostra categoria, local, requerente, técnico e a data de solução ou fechamento.
 
 ## Simplificações em relação ao GLPI real
 
@@ -173,9 +182,13 @@ Erros seguem o formato do GLPI: `["ERROR_CODIGO", "Mensagem legível"]`.
 - **Interface web (S1.6):** o `App-Token` da UI (`A_UI_APP_TOKEN`) chega ao navegador, então é público por natureza; o que protege é a senha e a sessão. Ele é separado do `A_APP_TOKEN` do sync para poder ser trocado sozinho. Sem atualização por *push* (polling de 5 s/10 s) e sem testes de navegador automatizados (QA manual; a lógica fica coberta em `ui-core.test.js`).
 - **Webhook sem fila nem retry no A:** não há retentativa local no Sistema A porque o polling periódico com sobreposição é a garantia de entrega (ADR-005, cenário B2); o descarte de `A_WEBHOOK_DROP_RATE` é feito por sorteio uniforme em cada disparo.
 
-## O que entra nas próximas issues do Épico E1
+## B → A leve (ADR-014) e o que ficou de fora
+
+- **Acompanhamentos:** `GET /apirest.php/Ticket/:id/ITILFollowup` e `POST /apirest.php/ITILFollowup` (`{ input: { itemtype: "Ticket", items_id, content, is_private } }`). Técnico e `sync-bot` escrevem; Estagiário recebe `403`.
+- **O `sync-bot` muda só o status:** `PUT /Ticket/:id` com qualquer outro campo vindo dele responde `403 ERROR_RIGHT_MISSING`. É assim que o estado mudado no B chega ao A, sem webhook de volta (anti-eco).
+
+Previsto no contrato do A, mas não implementado (B → A completo, `docs/out-of-scope.md`):
 
 | Capacidade do contrato | Issue |
 |---|---|
-| Acompanhamentos (`/Ticket/:id/ITILFollowup` e `POST /ITILFollowup`) | **S1.4 (#19)** |
-| Soluções (`ITILSolution`), preenchimento automático de `solvedate`/`closedate` e congelamento `409 ERROR_TICKET_FROZEN` nos status 5 e 6 | **S1.5 (#20)** |
+| Soluções (`ITILSolution`), preenchimento automático de `solvedate`/`closedate` e congelamento `409 ERROR_TICKET_FROZEN` nos status 5 e 6 | S1.5 (#20), *not planned* |
