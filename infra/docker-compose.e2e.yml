@@ -14,10 +14,11 @@ services:
 
   system-a:
     environment:
-      A_WEBHOOK_DROP_RATE: '30' # perde 30% dos webhooks: o polling precisa cobrir (cenário B2)
-    volumes: !reset []
-    tmpfs:
-      - /data:uid=1000,gid=1000
+      A_WEBHOOK_DROP_RATE: '30' # perde 30% dos webhooks: o polling precisa cobrir
+    # Volume próprio do projeto cybercorp-e2e: o cenário B2 recria o A sem webhook e os chamados têm de continuar lá.
+    # `down -v` no fim apaga tudo (A e B)
+    volumes: !override
+      - system-a-e2e:/data
 
   system-b:
     environment:
@@ -33,9 +34,10 @@ services:
       B_CHAOS_PAGE_REPEAT_RATE: '0.05'
       B_CHAOS_PAGE_SKIP_RATE: '0.05'
       B_CHAOS_LIST_DELAY_MS: '3000'
-    volumes: !reset []
-    tmpfs:
-      - /data:uid=1654,gid=1654
+    # Volume próprio (não tmpfs): no B1 o B é parado e religado, e uma queda de verdade não apaga os dados dele.
+    # Com tmpfs o B voltaria vazio e reusaria os IDs, um cenário de restauração de backup que está fora do escopo
+    volumes: !override
+      - system-b-e2e:/data
 
   sync-service:
     environment:
@@ -45,8 +47,15 @@ services:
       B_BREAKER_OPEN_MS: 5000 # o teste não espera 30 s para ver a meia-abertura
       POLL_INTERVAL_MS: 1000
       QUEUE_BACKOFF_MAX_MS: 5000 # retries curtos: a CI não espera 5 min de backoff
+      QUEUE_LEASE_MS: 5000 # B3: o lease de um sync derrubado vence rápido
       DASHBOARD_CONTROLS: 'true' # os cenários reprocessam a DLQ e mexem no caos pelo dashboard
+      DASHBOARD_USER: 'e2e'
+      DASHBOARD_PASSWORD: 'e2e-senha-fixa-123' # só existe no ambiente descartável do E2E
 
   # Os testes falam direto com os serviços pelas portas locais; o Caddy (HTTPS) fica de fora
   caddy:
     profiles: [caddy]
+
+volumes:
+  system-a-e2e:
+  system-b-e2e:
