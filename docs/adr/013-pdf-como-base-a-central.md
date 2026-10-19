@@ -1,6 +1,6 @@
 # ADR-013: O PDF é a base; o A é o sistema central e o B só recebe
 
-- **Status:** Aceito
+- **Status:** Aceito (complementado pelo ADR-014: o estado que o operador do B muda volta ao A, sem aprovação)
 - **Data:** 19/10/2026
 - **Decisões do plano:** Q4/Q7, Q26, Q17/Q18/Q27 (seções 0.5, 2 e 6 do `PLANO_DE_ACAO.md`)
 
