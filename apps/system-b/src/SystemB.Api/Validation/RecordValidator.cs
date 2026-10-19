@@ -6,6 +6,7 @@ namespace SystemB.Api.Validation;
 public static partial class RecordValidator
 {
     public const int TitleMaxLength = 200;
+    public const int ResolutionMaxLength = 2000;
 
     [GeneratedRegex("^[0-9a-f]{64}$")]
     private static partial Regex Sha256Pattern();
@@ -20,6 +21,7 @@ public static partial class RecordValidator
         else if (title.Length > TitleMaxLength) errors.Add($"title excede {TitleMaxLength} caracteres");
 
         if (input.Description is null) errors.Add("description é obrigatório");
+        if (input.Resolution is { Length: > ResolutionMaxLength }) errors.Add($"resolution excede {ResolutionMaxLength} caracteres");
 
         if (input.Location is { } loc)
         {

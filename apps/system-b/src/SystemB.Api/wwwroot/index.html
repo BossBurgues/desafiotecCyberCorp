@@ -23,8 +23,8 @@
           <button type="button" class="ghost" id="refresh">Atualizar</button>
         </div>
         <p class="hint">
-          O B só recebe do A. Mudanças feitas aqui (resolver, fechar, excluir, editar) não voltam ao A e são
-          sobrescritas na próxima alteração do chamado no A. O retorno B → A ficou fora do escopo (docs/out-of-scope.md).
+          O B recebe os chamados do A. Resolver, fechar e reabrir aqui voltam ao A (com quem alterou e a solução); editar
+          outros campos é desfeito pelo A, que é a fonte da verdade. Excluir faz o sync recriar o registro a partir do A.
         </p>
         <div class="card table-wrap">
           <table>
@@ -59,6 +59,16 @@
 
         <div class="card actions">
           <h2>Ações rápidas</h2>
+          <div class="grid">
+            <label>
+              Seu nome (vai para o A como "quem alterou")
+              <input id="operator-name" maxlength="80" placeholder="Operador B" />
+            </label>
+            <label>
+              Solução (enviada junto ao resolver ou fechar)
+              <textarea id="quick-resolution" rows="2" maxlength="2000"></textarea>
+            </label>
+          </div>
           <div class="buttons">
             <button type="button" data-state="IN_PROGRESS">Em andamento</button>
             <button type="button" data-state="ON_HOLD">Em espera</button>
@@ -102,6 +112,10 @@
               <input name="assignee" />
             </label>
           </div>
+          <label>
+            Solução
+            <textarea name="resolution" rows="3" maxlength="2000"></textarea>
+          </label>
           <button type="submit">Salvar</button>
         </form>
       </section>
