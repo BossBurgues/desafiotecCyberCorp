@@ -13,82 +13,123 @@
       <span class="tag">sem papéis</span>
     </header>
 
-    <div class="banner error" id="global-error" role="alert" hidden></div>
-    <div class="banner ok" id="global-ok" role="status" hidden></div>
-
     <main>
-      <section id="screen-list" class="screen" hidden>
-        <div class="row-between">
-          <h1>Registros</h1>
-          <button type="button" class="ghost" id="refresh">Atualizar</button>
-        </div>
-        <p class="hint">
-          O B recebe os chamados do A. Resolver, fechar e reabrir aqui voltam ao A (com quem alterou e a solução); editar
-          outros campos é desfeito pelo A, que é a fonte da verdade. Excluir leva o chamado para a lixeira do A (reversível);
-          se o A mudou o chamado depois da última sincronização, o A vence e o registro volta.
+      <div class="notice" id="intro" role="note">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 11v5"></path>
+          <path d="M12 8v.01"></path>
+        </svg>
+        <p>
+          O B recebe os chamados do A. Resolver, fechar e reabrir aqui voltam ao A, com quem alterou e a solução. Editar
+          outros campos é desfeito pelo A, que é a fonte da verdade. Excluir leva o chamado para a lixeira do A; se o A
+          mudou o chamado depois da última sincronização, o A vence e o registro volta.
         </p>
-        <div class="card table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>ID no B</th>
-                <th>Chamado do A</th>
-                <th>Título</th>
-                <th>Estado</th>
-                <th>Severidade</th>
-                <th>Atualizado (B)</th>
-              </tr>
-            </thead>
-            <tbody id="records-body"></tbody>
-          </table>
-          <p class="empty" id="records-empty" hidden>Nenhum registro no B.</p>
-        </div>
-        <div class="pager">
-          <button type="button" class="ghost" id="prev-page">Anterior</button>
-          <span id="page-label"></span>
-          <button type="button" class="ghost" id="next-page">Próxima</button>
-        </div>
-      </section>
+        <button type="button" class="icon-button" id="intro-close" aria-label="Dispensar aviso">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+        </button>
+      </div>
 
-      <section id="screen-detail" class="screen" hidden>
-        <p><a href="#/records">← Registros</a></p>
-        <div class="row-between">
-          <h1 id="detail-title"></h1>
-          <span class="badge" id="detail-state"></span>
-        </div>
-        <p class="meta" id="detail-meta"></p>
+      <div class="banner error" id="global-error" role="alert" hidden></div>
+      <div class="banner ok" id="global-ok" role="status" hidden></div>
 
-        <div class="card actions">
-          <h2>Ações rápidas</h2>
+      <div class="row-between page-head">
+        <h1>Registros</h1>
+        <button type="button" class="ghost" id="refresh">Atualizar</button>
+      </div>
+
+      <form class="card filters" id="filters" role="search">
+        <label class="grow">
+          Pesquisar
+          <input type="search" name="q" placeholder="ID no B, título ou chamado do A" autocomplete="off" />
+        </label>
+        <label>
+          Estado
+          <select name="state"></select>
+        </label>
+        <label>
+          Severidade
+          <select name="severity"></select>
+        </label>
+        <label class="small">
+          Chamado do A
+          <input name="ticket" inputmode="numeric" placeholder="#" autocomplete="off" />
+        </label>
+        <div class="filter-actions">
+          <button type="submit">Filtrar</button>
+          <button type="button" class="link" id="clear-filters">Limpar filtros</button>
+        </div>
+      </form>
+
+      <div class="summary">
+        <span id="summary-count"></span>
+        <ul class="chips" id="filter-chips" aria-label="Filtros ativos"></ul>
+      </div>
+
+      <div class="card table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">ID no B</th>
+              <th scope="col">Chamado do A</th>
+              <th scope="col">Título</th>
+              <th scope="col">Estado</th>
+              <th scope="col">Severidade</th>
+              <th scope="col">Atualizado (B)</th>
+            </tr>
+          </thead>
+          <tbody id="records-body"></tbody>
+        </table>
+        <p class="empty" id="records-empty" hidden></p>
+      </div>
+      <div class="pager">
+        <button type="button" class="ghost" id="prev-page">Anterior</button>
+        <span id="page-label"></span>
+        <button type="button" class="ghost" id="next-page">Próxima</button>
+      </div>
+
+      <section class="card detail" id="detail" hidden aria-labelledby="detail-title">
+        <div class="detail-head">
+          <div>
+            <h2 id="detail-title"></h2>
+            <p class="meta" id="detail-meta"></p>
+          </div>
+          <div class="detail-head-side">
+            <span class="badge" id="detail-state"></span>
+            <button type="button" class="icon-button" id="detail-close" aria-label="Fechar o painel do registro">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="banner error" id="detail-error" role="alert" hidden></div>
+
+        <div class="panel-section" id="quick-actions">
+          <h3>Ações rápidas</h3>
           <div class="grid">
             <label>
-              Seu nome (vai para o A como "quem alterou")
+              Seu nome
+              <span class="field-hint">Vai para o A como "quem alterou".</span>
               <input id="operator-name" maxlength="80" placeholder="Operador B" />
             </label>
             <label>
-              Solução (enviada junto ao resolver ou fechar)
+              Solução
+              <span class="field-hint">Enviada junto ao resolver ou fechar.</span>
               <textarea id="quick-resolution" rows="2" maxlength="2000"></textarea>
             </label>
           </div>
-          <div class="buttons">
-            <button type="button" data-state="IN_PROGRESS">Em andamento</button>
-            <button type="button" data-state="ON_HOLD">Em espera</button>
-            <button type="button" data-state="RESOLVED">Resolver</button>
-            <button type="button" data-state="CLOSED">Fechar</button>
-            <button type="button" id="reopen" data-state="OPEN">Reabrir</button>
-            <button type="button" class="danger" id="delete">Excluir</button>
-          </div>
+          <div class="buttons" id="state-buttons"></div>
         </div>
 
-        <form id="edit-form" class="card">
-          <h2>Editar campos</h2>
+        <form class="panel-section" id="edit-form">
+          <h3>Editar campos</h3>
           <label>
             Título
             <input name="title" required maxlength="200" />
           </label>
           <label>
             Descrição
-            <textarea name="description" rows="6"></textarea>
+            <textarea name="description" rows="5"></textarea>
           </label>
           <p class="hint">O marcador <code>⟦s:glpi-…⟧</code> no fim da descrição liga o registro ao chamado do A.</p>
           <div class="grid">
