@@ -203,6 +203,10 @@ export function buildServer({
   app.addHook('onSend', async (request, reply, payload) => {
     if (request.url === '/ui' || request.url.startsWith('/ui/')) {
       reply.headers(UI_SECURITY_HEADERS);
+      // Revalida a cada carga: depois de um deploy o navegador nunca fica com o app.js antigo (o config.json já é no-store)
+      if (!reply.hasHeader('cache-control')) {
+        reply.header('cache-control', 'no-cache');
+      }
     }
     return payload;
   });
