@@ -33,6 +33,12 @@ describe('loadConfig', () => {
     });
   });
 
+  it('VERIFY_AFTER_WRITE vem ligado por padrão e só desliga com "false"', () => {
+    expect(loadConfig(valid).VERIFY_AFTER_WRITE).toBe(true);
+    expect(loadConfig({ ...valid, VERIFY_AFTER_WRITE: 'false' }).VERIFY_AFTER_WRITE).toBe(false);
+    expect(() => loadConfig({ ...valid, VERIFY_AFTER_WRITE: 'nao' })).toThrow(ConfigError);
+  });
+
   it('converte números vindos do ambiente como texto', () => {
     expect(loadConfig({ ...valid, PORT: '8080', READY_CHECK_TIMEOUT_MS: '500' })).toMatchObject({
       PORT: 8080,

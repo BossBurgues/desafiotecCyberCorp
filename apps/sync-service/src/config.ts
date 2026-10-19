@@ -37,6 +37,11 @@ const schema = z.object({
   B_MARKER_FIELD: z.enum(['description', 'title']).default('description'),
   CREATE_UNCERTAIN_SCANS: z.coerce.number().int().min(1).max(20).default(2),
   B_LIST_PAGE_SIZE: z.coerce.number().int().min(1).max(500).default(100),
+  // Verificação pós-escrita (S3.8): relê o registro no B antes de dar o chamado por sincronizado. Desligar só para medir custo
+  VERIFY_AFTER_WRITE: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
   // Entrada (S3.4): webhook com HMAC e poller com sobreposição
   HMAC_SECRET: z.string().min(16),
   WEBHOOK_REPLAY_WINDOW_MS: ms(10_000, 3_600_000).default(300_000),
