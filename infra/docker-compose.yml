@@ -111,7 +111,9 @@ services:
       # Painel de caos do dashboard fala com o /admin do B pela rede interna
       B_ADMIN_TOKEN: ${B_ADMIN_TOKEN:?defina B_ADMIN_TOKEN}
       # Reprocessar a DLQ e mexer no caos alteram o sistema: desligados até o login do dashboard (S5.3)
-      DASHBOARD_CONTROLS: ${DASHBOARD_CONTROLS:-false}
+      DASHBOARD_USER: ${DASHBOARD_USER:-}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+      DASHBOARD_CONTROLS: ${DASHBOARD_CONTROLS:-true}
     # Só o Postgres é pré-requisito: A ou B fora não impedem a subida, o /ready mostra e o worker pausa
     depends_on:
       postgres:
