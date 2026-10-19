@@ -1,6 +1,6 @@
 # ADR-007: Exclusão em 2 passos; "excluído ou perdido" é decisão humana
 
-- **Status:** Aceito (aplica-se ao fluxo B→A — M3, opcional)
+- **Status:** Aceito (aplica-se só ao fluxo B→A — M3, opcional, não implementado; ver ADR-013)
 - **Data:** 16/10/2026
 - **Decisões do plano:** Q5, Q9, Q12, Q20 (seções 2, 4, 5 e 8 do `PLANO_DE_ACAO.md`)
 
