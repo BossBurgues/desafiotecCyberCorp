@@ -109,6 +109,12 @@ services:
       VERIFY_AFTER_WRITE: ${VERIFY_AFTER_WRITE:-true}
       POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-10000}
       POLL_OVERLAP_MS: ${POLL_OVERLAP_MS:-120000}
+      # Painel de caos do dashboard fala com o /admin do B pela rede interna
+      B_ADMIN_TOKEN: ${B_ADMIN_TOKEN:?defina B_ADMIN_TOKEN}
+      # Login do dashboard (S5.3): sem usuário e senha o dashboard não sobe. Os controles só valem para quem logou
+      DASHBOARD_USER: ${DASHBOARD_USER:-}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+      DASHBOARD_CONTROLS: ${DASHBOARD_CONTROLS:-true}
     # Só o Postgres é pré-requisito: A ou B fora não impedem a subida, o /ready mostra e o worker pausa
     depends_on:
       postgres:

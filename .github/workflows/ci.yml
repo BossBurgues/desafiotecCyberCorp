@@ -22,6 +22,7 @@ jobs:
       system-a: ${{ steps.filter.outputs.system-a }}
       system-b: ${{ steps.filter.outputs.system-b }}
       sync-service: ${{ steps.filter.outputs.sync-service }}
+      e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       # Em push o filtro compara com o ponto em que a branch saiu da Dev, e para isso precisa do checkout
       - uses: actions/checkout@v4
@@ -56,6 +57,15 @@ jobs:
               - 'apps/system-b/**'
               - 'infra/scripts/smoke-system-b.sh'
               - 'contracts/**'
+              - '.github/workflows/ci.yml'
+            e2e:
+              - 'apps/system-a/**'
+              - 'apps/system-b/**'
+              - 'apps/sync-service/**'
+              - 'tests/e2e/**'
+              - 'infra/**'
+              - '.env.example'
+              - 'package-lock.json'
               - '.github/workflows/ci.yml'
 
   contracts:
@@ -147,6 +157,37 @@ jobs:
       - name: Build multi-arquitetura (amd64 + arm64)
         run: docker buildx build --platform linux/amd64,linux/arm64 apps/system-b
 
+  # Cenários do núcleo (S4.2) contra os três sistemas de verdade, com o caos do B ligado
+  e2e:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      COMPOSE: docker compose -f infra/docker-compose.yml -f infra/docker-compose.e2e.yml --env-file .env.example
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Sobe A, B, sync e Postgres (override E2E)
+        run: $COMPOSE up -d --build --wait
+      - run: npm ci
+      - run: npm run e2e
+      - name: Logs dos containers
+        if: failure()
+        run: $COMPOSE logs --no-color --timestamps > e2e-logs.txt
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-logs
+          path: e2e-logs.txt
+          retention-days: 7
+      - name: Derruba o ambiente
+        if: always()
+        run: $COMPOSE down -v
+
   # A proteção do GitHub não restringe a origem do PR; este job garante que a Prod só recebe a Dev
   prod-source-guard:
     if: github.event_name == 'pull_request' && github.base_ref == 'Prod'
@@ -166,7 +207,7 @@ jobs:
 
   # Única verificação exigida pelas proteções: resume o resultado de todos os jobs acima
   ci-ok:
-    needs: [changes, contracts, system-a, sync-service, system-b, prod-source-guard]
+    needs: [changes, contracts, system-a, sync-service, system-b, e2e, prod-source-guard]
     if: always()
     runs-on: ubuntu-latest
     steps:
