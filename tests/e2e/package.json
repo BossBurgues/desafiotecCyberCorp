@@ -8,6 +8,6 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test --test-concurrency=1 --test-timeout=300000 \"scenarios/*.test.js\""
+    "test": "node --test --test-concurrency=1 --test-timeout=300000 scenarios/*.test.js"
   }
 }
