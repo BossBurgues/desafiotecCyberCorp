@@ -427,7 +427,7 @@ function toggleEdit(open) {
   const statuses = core.editableStatuses();
   fillOptions($('edit-status'), statuses, core.statusLabel, ticket.status);
   if (!statuses.includes(ticket.status)) {
-    // Solucionado/Fechado aparece só como valor atual, sem poder ser escolhido.
+    // Status fora da lista editável aparece só como valor atual, sem poder ser escolhido.
     const current = el('option', { value: String(ticket.status), text: core.statusLabel(ticket.status) });
     current.disabled = true;
     current.selected = true;
@@ -595,12 +595,10 @@ async function renderConversation(ticket) {
     return;
   }
 
-  renderPending(
-    core.pendingSolution(solutions || []),
-    hasSolutions ? null : 'Aprovações disponíveis quando a S1.5 (#20) entrar.',
-  );
+  // Conversa (S1.4) e aprovações (S1.5) ficaram fora do escopo: sem a rota no servidor, as seções nem aparecem
+  renderPending(core.pendingSolution(solutions || []), null);
 
-  $('conversation-off').hidden = hasFollowups;
+  $('conversation').hidden = !hasFollowups;
   $('note-form').hidden = !(hasFollowups && core.canAddNote(state.session.profile));
   const items = core.buildTimeline(followups || [], solutions || []);
   $('timeline').replaceChildren(...items.map(bubble));
