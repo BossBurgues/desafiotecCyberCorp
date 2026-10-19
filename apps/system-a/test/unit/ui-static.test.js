@@ -22,3 +22,10 @@ test('index.html não tem script nem estilo inline (a CSP não permite unsafe-in
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/i);
   assert.doesNotMatch(html, /<style\b|\sstyle=|\son[a-z]+=/i);
 });
+
+test('a UI não anuncia funcionalidade fora do escopo (conversa e aprovações do B → A)', () => {
+  for (const name of Object.keys(UI_FILES)) {
+    const text = fs.readFileSync(path.join(DEFAULT_UI_DIR, name), 'utf8');
+    assert.doesNotMatch(text, /disponíve(l|is) quando a S\d/, `${name} ainda promete uma story cortada`);
+  }
+});

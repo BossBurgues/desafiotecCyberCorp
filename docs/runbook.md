@@ -35,10 +35,10 @@ alias dc='docker compose -f infra/docker-compose.yml --env-file .env'
 
 ## Demo de caos
 
-1. Dashboard → **Caos do Sistema B** → ligar, por exemplo, `ErrorRate 0.5` ou `LatencyMs 10000`.
+1. Dashboard → **Caos do Sistema B** → por exemplo *erro 5xx (taxa)* `0.5` ou a latência em `10000` ms → **Aplicar**.
 2. Criar e editar chamados no A (`https://a.<DOMAIN>/ui/`) e mostrar a fila crescer, o disjuntor abrir e a DLQ vazia.
-3. **Reset do caos** → a fila drena; conferir no B (`https://b.<DOMAIN>/`) cada chamado uma vez, atualizado.
-4. Sempre terminar com o reset: em produção o caos começa desligado.
+3. **Desligar tudo** → a fila drena; conferir no B (`https://b.<DOMAIN>/ui/`) cada chamado uma vez, atualizado.
+4. Sempre terminar com **Desligar tudo**: em produção o caos começa desligado.
 
 ## Comandos úteis
 

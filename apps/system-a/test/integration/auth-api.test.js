@@ -277,6 +277,34 @@ test('estagiário editando chamado recebe 403 ERROR_RIGHT_MISSING e o chamado n�
   }
 });
 
+test('Técnico soluciona e depois fecha o chamado (status 5 e 6), como no GLPI', async () => {
+  const app = buildTestServer();
+  try {
+    const headers = await login(app, 'tecnico');
+    const created = await app.inject({
+      method: 'POST',
+      url: '/apirest.php/Ticket',
+      headers,
+      payload: { input: { name: 'Teclado com teclas presas', content: 'Bancada 2.' } },
+    });
+    assert.equal(created.statusCode, 201);
+    const { id } = created.json();
+
+    for (const status of [5, 6]) {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/apirest.php/Ticket/${id}`,
+        headers,
+        payload: { input: { status } },
+      });
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.json().status, status);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test('estagiário editando chamado inexistente recebe 403, não 404', async () => {
   const app = buildTestServer();
   try {

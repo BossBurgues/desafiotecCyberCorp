@@ -1,63 +1,130 @@
 # Sincronizador de chamados
 
-Serviço que mantém os chamados de um sistema estilo **GLPI (Sistema A)** sincronizados em um **sistema externo instável (Sistema B)**, entregue como se fosse para produção.
+Mantém os chamados de um sistema estilo **GLPI (Sistema A)** sincronizados num **sistema externo instável e caixa-preta (Sistema B)**, sem nunca duplicar, perder ou sobrescrever com dado velho. Publicado e testado contra caos de propósito.
 
-> **Status:** 🚧 em construção · M0 Fundação. Acompanhe no [Project](https://github.com/users/BossBurgues/projects/2).
+[![CI](https://github.com/BossBurgues/desafiotecCyberCorp/actions/workflows/ci.yml/badge.svg?branch=Dev)](https://github.com/BossBurgues/desafiotecCyberCorp/actions/workflows/ci.yml)
+[![deploy-prod](https://github.com/BossBurgues/desafiotecCyberCorp/actions/workflows/deploy-prod.yml/badge.svg)](https://github.com/BossBurgues/desafiotecCyberCorp/actions/workflows/deploy-prod.yml)
 
-## As três proibições
+## Links
 
-Todo o projeto existe para garantir que **nunca**:
+| | |
+|---|---|
+| **Sistema A** (mock GLPI, fonte da verdade) | https://a.150-230-231-210.sslip.io/ui/ |
+| **Sistema B** (caixa-preta instável) | https://b.150-230-231-210.sslip.io/ui/ |
+| **Dashboard do sync** (fila, DLQ, caos) | https://sync.150-230-231-210.sslip.io/dashboard |
+| Saúde do sync | https://sync.150-230-231-210.sslip.io/ready |
+| Vídeo da demo | _no e-mail da entrega_ |
+| Backlog (Project) | https://github.com/users/BossBurgues/projects/2 |
 
-1. haja um chamado duplicado no Sistema B;
-2. uma atualização se perca;
-3. um dado antigo sobrescreva um dado mais novo.
+As **credenciais de demonstração** (Técnico, Estagiário e dashboard) foram enviadas por e-mail junto com a entrega. Em produção elas são aleatórias e nunca entram no repositório.
 
-## Monorepo poliglota
+## As três garantias e como cada uma é provada
 
-Os três sistemas são escritos em linguagens diferentes **de propósito**: o sync não pode depender de como o outro lado é feito. Eles conversam **somente por HTTP**, seguindo os contratos em [`contracts/`](contracts/).
-
-| Pasta | O que é | Stack |
+| Nunca… | Mecanismo | Prova (roda em todo PR) |
 |---|---|---|
-| [`apps/system-a`](apps/system-a) | Sistema A: mock do GLPI, a fonte da verdade | Node.js + JavaScript |
-| [`apps/system-b`](apps/system-b) | Sistema B: caixa-preta instável, com caos configurável | C# / .NET 8 |
-| [`apps/sync-service`](apps/sync-service) | ⭐ Sync Service: o que é avaliado | Node.js + TypeScript |
-| [`contracts`](contracts) | Contratos OpenAPI e schema de eventos | YAML / JSON Schema |
-| [`tests/e2e`](tests/e2e) | Catálogo de cenários de caos contra o ambiente completo | Node.js |
-| [`infra`](infra) | Docker Compose, Caddy, scripts de deploy | Docker |
-| [`docs`](docs) | Plano, ADRs, arquitetura, runbook, timelog | Markdown + Mermaid |
+| **duplicar** um chamado no B | Marcador `⟦s:glpi-<id>⟧` gravado no próprio registro. Create ambíguo (timeout, 500 depois de gravar) nunca é reenviado às cegas: o sync procura o marcador antes de recriar. Um job ativo por chamado, com lease | [`a1-commit-then-fail-nao-duplica`](tests/e2e/scenarios/a1-commit-then-fail-nao-duplica.test.js), [`a2-timeout-gravacao-tardia-nao-duplica`](tests/e2e/scenarios/a2-timeout-gravacao-tardia-nao-duplica.test.js), A4 e A6 (integração) |
+| **perder** uma atualização | Evento gravado antes do 200; poller com sobreposição cobre webhook perdido; retry com backoff por até 24 h e DLQ reprocessável; **verificação pós-escrita** (o B pode responder 200 sem gravar) | [`b1-b-fora-jobs-esperam-e-drenam`](tests/e2e/scenarios/b1-b-fora-jobs-esperam-e-drenam.test.js), [`b2-webhook-perdido-poller-recupera`](tests/e2e/scenarios/b2-webhook-perdido-poller-recupera.test.js), [`b3-sync-cai-no-meio-do-job`](tests/e2e/scenarios/b3-sync-cai-no-meio-do-job.test.js), [`e4-b-lento-disjuntor`](tests/e2e/scenarios/e4-b-lento-disjuntor.test.js), B5 (integração) |
+| **sobrescrever** dado novo com velho | O evento é só um sinal: o worker sempre relê o estado atual do A; um job por chamado | [`c1-eventos-fora-de-ordem`](tests/e2e/scenarios/c1-eventos-fora-de-ordem.test.js), [`b6-vinte-updates-terminam-no-ultimo`](tests/e2e/scenarios/b6-vinte-updates-terminam-no-ultimo.test.js), B10 (integração) |
 
+Os 9 cenários E2E sobem os três sistemas de verdade, ligam o caos do B e derrubam containers ([`tests/e2e/README.md`](tests/e2e/README.md)). O passeio pelo código, com exercícios de quebra, está em [`docs/how-it-works.md`](docs/how-it-works.md).
+
+## Arquitetura
+
+```mermaid
+flowchart LR
+  subgraph A["Sistema A · Node/JS"]
+    AUI["UI + REST estilo GLPI"]
+    AWH["webhook ticket.changed (HMAC)"]
+  end
+  subgraph S["Sync Service · Node/TS"]
+    IN["webhook + poller"] --> Q[("Postgres<br/>sync_jobs · ticket_mapping · audit_log")]
+    Q --> W["worker: relê o A → escreve no B → relê o B"]
+    D["dashboard + /metrics (login)"]
+  end
+  subgraph B["Sistema B · C#/.NET · caixa-preta"]
+    BAPI["/api/v2/records + caos"]
+  end
+  AWH -- sinal --> IN
+  IN -- "GET por date_mod" --> AUI
+  W -- "estado atual" --> AUI
+  W -- "create/update + GET" --> BAPI
+  D -. "liga/desliga caos" .-> BAPI
 ```
-.
-├── apps/
-│   ├── system-a/        # Node/JS
-│   ├── system-b/        # C#/.NET
-│   └── sync-service/    # Node/TS
-├── contracts/
-├── tests/e2e/
-├── infra/
-└── docs/
-```
 
-## Como rodar
+Três linguagens de propósito: o sync só conversa por HTTP, pelos contratos de [`contracts/`](contracts/). Em produção, uma VM Oracle Always Free roda tudo com Docker Compose atrás do Caddy (HTTPS do Let's Encrypt). Detalhes em [`docs/architecture.md`](docs/architecture.md).
 
-> Os comandos abaixo passam a funcionar conforme as issues de cada app são entregues.
+## Rodar local
+
+Pré-requisitos: Docker com Compose e Node 20+.
 
 ```bash
-npm install          # workspaces Node (system-a, sync-service, e2e)
-npm test             # testes de todos os workspaces Node
-npm run test:b       # testes do Sistema B (.NET)
+cp .env.example .env
+docker compose -f infra/docker-compose.yml --env-file .env up -d --build --wait
 ```
 
-O ambiente completo vai subir com `docker compose -f infra/docker-compose.yml up` (issue S4.1).
+A em http://127.0.0.1:3001/ui/, B em http://127.0.0.1:5002/ui/, dashboard em http://127.0.0.1:3000/dashboard (usuário e senha no `.env`).
+
+Os testes:
+
+```bash
+npm ci
+npm test                 # unitários (A e sync); integração do sync com TEST_DATABASE_URL apontando para um Postgres
+npm run test:b           # Sistema B (.NET)
+docker compose -f infra/docker-compose.yml -f infra/docker-compose.e2e.yml --env-file .env.example up -d --build --wait
+npm run e2e              # 9 cenários sob caos, ~3 min
+```
+
+## Demo de caos (para repetir na URL)
+
+1. Entre no **dashboard** e, no painel **Caos do Sistema B**, ponha *erro 5xx (taxa)* em `0.5` e *grava e falha (taxa)* em `0.2`, e clique em **Aplicar**.
+2. No **Sistema A**, como Técnico, crie e edite alguns chamados.
+3. No dashboard, veja a fila crescer, os retries e o disjuntor abrir. A DLQ continua vazia.
+4. Clique em **Desligar tudo**: a fila drena em segundos.
+5. No **Sistema B**, confira: cada chamado aparece **uma vez**, com a última versão (o marcador `⟦s:glpi-<id>⟧` fica no fim da descrição).
+
+## Decisões principais
+
+- **O B é caixa-preta:** só assumimos criar, ler por ID, atualizar por ID e listar paginado ([ADR-003](docs/adr/003-contrato-minimo-do-b.md)).
+- **Idempotência sem ajuda do B:** marcador no próprio dado + nunca reenviar create às cegas ([ADR-004](docs/adr/004-marcador-no-dado-e-teste-de-capacidade.md)).
+- **O evento é só um sinal:** o worker relê o A; "mais novo" é decidido pelo hash dos campos sincronizáveis ([ADR-005](docs/adr/005-evento-e-sinal-date-mod-e-hash-utc.md)).
+- **Fila no Postgres:** um job ativo por chamado, `SKIP LOCKED` + lease, sem broker extra ([ADR-002](docs/adr/002-fila-no-postgres-skip-locked.md)).
+- **Transitório × permanente:** backoff por até 24 h, 3 recusas → DLQ, disjuntor ([ADR-008](docs/adr/008-transitorio-permanente-dlq-circuit-breaker.md)).
+
+## Suposições
+
+- **Do B, só o contrato mínimo:** create, read por ID, update por ID e list paginado, sem idempotência, sem busca e sem garantia de ordem. Um campo de texto é devolvido como foi gravado (é onde vive o marcador).
+- **O B pode mentir:** responder 200 sem gravar, gravar e responder 500, gravar depois do timeout, mudar o formato da resposta.
+- **O A é a fonte da verdade** e segue o GLPI: sem campo de versão; "mais novo" vem do `date_mod` + hash.
+- **O fuso do A é explícito** (`A_TIMEZONE`, `America/Sao_Paulo`); tudo é guardado em UTC. O relógio do B é ignorado.
+- **Status e prioridade** são convertidos por tabela fixa ([`docs/field-mapping.md`](docs/field-mapping.md)); HTML vira texto seguro.
+
+## O que ficou de fora
+
+O avaliador confirmou que só o **A → B** é obrigatório. Ficaram de fora, com o desenho e a justificativa em [`docs/out-of-scope.md`](docs/out-of-scope.md):
+
+- **B → A** (o B propõe, o A aprova). As duas perguntas do avaliador estão respondidas no desenho: como evitar o eco ([ADR-009](docs/adr/009-anti-eco.md)) e o que acontece quando A e B mudam o mesmo chamado ao mesmo tempo ([ADR-011](docs/adr/011-concorrencia-a-x-b.md)).
+- Notas nos dois sentidos, anexos, SLA e mocks extras.
+- Auditoria append-only com linha do tempo: os logs JSON com `correlation_id` e o `audit_log` técnico cobrem a demo.
+
+## Horas
+
+Registro por issue, por dia e por milestone em [`docs/timelog.md`](docs/timelog.md).
 
 ## Documentação
 
-- [Plano de ação completo](docs/PLANO_DE_ACAO.md): decisões, arquitetura, garantias e catálogo de cenários
-- [ADRs](docs/adr/): por que cada decisão foi tomada
-- [Registro de horas](docs/timelog.md)
-- [Como contribuir](CONTRIBUTING.md)
+| Documento | Para quê |
+|---|---|
+| [`docs/how-it-works.md`](docs/how-it-works.md) | Passeio pelo código, garantias provadas e exercícios de quebra |
+| [`docs/architecture.md`](docs/architecture.md) | Diagramas da arquitetura |
+| [`docs/adr/`](docs/adr/) | Por que cada decisão foi tomada (12 ADRs) |
+| [`docs/field-mapping.md`](docs/field-mapping.md) | Conversão campo a campo A → B |
+| [`docs/runbook.md`](docs/runbook.md) | O que fazer quando algo foge do normal |
+| [`docs/out-of-scope.md`](docs/out-of-scope.md) | O que ficou de fora e como seria feito |
+| [`docs/timelog.md`](docs/timelog.md) | Horas |
+| [`docs/PLANO_DE_ACAO.md`](docs/PLANO_DE_ACAO.md) | Plano completo e catálogo de cenários |
+| [`infra/README.md`](infra/README.md) | Compose, VM, deploy e rollback |
+| [`tests/e2e/README.md`](tests/e2e/README.md) | Como rodar e o que prova cada cenário |
 
-## Escopo
+## Uso de IA
 
-- **Obrigatório:** A → B com as três garantias, publicado em URL, com documentação.
-- **Opcional (em andamento se houver tempo):** retorno B → A no modelo *"o B propõe, o A aprova"*, com anti-eco e tratamento de concorrência.
+O código e a documentação foram escritos com apoio de assistentes de IA, sob minha direção e revisão. Cada decisão está registrada nos ADRs, e eu sei explicar e alterar qualquer parte.

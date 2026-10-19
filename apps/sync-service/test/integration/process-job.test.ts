@@ -81,6 +81,17 @@ describe.skipIf(!TEST_DATABASE_URL)('processJob: create/update idempotente com m
     expect([...B.records.values()][0]).toMatchObject({ title: 'Título novo', severity: 'CRITICAL' });
   });
 
+  it('chamado solucionado e depois fechado no A chega ao B como RESOLVED e CLOSED, no mesmo registro', async () => {
+    await run();
+    for (const [status, state, minute] of [[5, 'RESOLVED', '20'], [6, 'CLOSED', '30']] as const) {
+      await pool.query(`DELETE FROM sync_jobs`);
+      A.put(ticket(1, { status, date_mod: `2026-10-18 10:${minute}:00` }));
+      await run();
+      expect(B.records.size).toBe(1);
+      expect([...B.records.values()][0]!.state).toBe(state);
+    }
+  });
+
   it('lê o estado atual do A no momento do processamento, não o do evento', async () => {
     await enqueue(pool, 1);
     A.put(ticket(1, { name: 'Mudou depois do evento' }));
