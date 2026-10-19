@@ -54,9 +54,10 @@ export function solutionStatusLabel(status) {
   return SOLUTION_STATUS_LABELS[status] ?? `status ${status}`;
 }
 
-// Status 5 e 6 só chegam pelo fluxo de aprovação (Q26).
+// O Técnico escolhe qualquer status do GLPI, inclusive Solucionado (5) e Fechado (6). O fluxo de aprovação vindo
+// do B (Q26) ficou fora do escopo na revisão de 18/10, então o A volta a fechar chamados sozinho, como no GLPI.
 export function editableStatuses() {
-  return [1, 2, 3, 4];
+  return [1, 2, 3, 4, 5, 6];
 }
 
 // A UI só esconde; quem decide é o servidor (403).

@@ -117,7 +117,7 @@ async function refresh() {
     const s = await r.json();
     controlsEnabled = s.controlsEnabled;
     tiles($('jobs'), [['pendentes', s.jobs.pending, 'warn'], ['rodando', s.jobs.running, 'ok'], ['concluídos', s.jobs.done, 'ok'], ['DLQ', s.dlq.length, 'bad']]);
-    tiles($('mappings'), [['ativos', s.mappings.active, 'ok'], ['create incerto', s.mappings.create_uncertain, 'warn'], ['quarentena', s.mappings.quarantine, 'bad'], ['exclusão pedida', s.mappings.deletion_requested, 'warn']]);
+    tiles($('mappings'), [['ativos', s.mappings.active, 'ok'], ['create incerto', s.mappings.create_uncertain, 'warn']]); // quarentena e exclusão pedida são do desenho B → A (fora do escopo)
     rows($('dlq'), s.dlq, (j) => {
       const b = el('button', 'Reprocessar');
       b.disabled = !controlsEnabled;
