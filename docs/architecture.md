@@ -1,6 +1,6 @@
 # Arquitetura
 
-Visão rápida dos componentes e dos fluxos que sustentam as três garantias: **nenhuma duplicata**, **nenhuma atualização perdida** e **dado antigo nunca sobrescreve novo**. O porquê de cada decisão está nos [ADRs](adr/README.md); o passo a passo pelo código fica em `how-it-works.md` (S9.3).
+Visão rápida dos componentes e dos fluxos que sustentam as três garantias: **nenhuma duplicata**, **nenhuma atualização perdida** e **dado antigo nunca sobrescreve novo**. O porquê de cada decisão está nos [ADRs](adr/README.md); o passo a passo pelo código fica em [`how-it-works.md`](how-it-works.md). Revisado em 19/10 para o escopo entregue: o núcleo A → B. O B → A está aqui só como **desenho** (seções marcadas).
 
 ## Componentes
 
@@ -17,9 +17,9 @@ flowchart LR
     direction TB
     HTTP["Fastify<br/>webhook · /health · /ready"]
     POLL["Poller do A<br/>sobreposição de 2 min"]
-    W["Worker<br/>SKIP LOCKED · lease · backoff<br/>domínio puro: mapper · hash · fuso"]
-    AUD["Auditor do B<br/>varredura 30 s / 10 min / 5 min"]
-    PG[("Postgres<br/>sync_jobs · ticket_mapping<br/>proposals · audit_log")]
+    W["Worker<br/>SKIP LOCKED · lease · backoff<br/>domínio puro: mapper · hash · fuso<br/>verificação pós-escrita"]
+    DASH["Dashboard + /metrics<br/>login HTTP Basic · caos"]
+    PG[("Postgres<br/>sync_jobs · ticket_mapping<br/>inbound_events · audit_log")]
   end
 
   subgraph B["Sistema B · C#/.NET 8 · caixa-preta"]
@@ -34,19 +34,19 @@ flowchart LR
   HTTP --> PG
   POLL --> PG
   PG --> W
-  W -- "lê o estado atual<br/>notas · propostas" --> A_API
-  W -- "create · GET · PUT" --> CHAOS
-  AUD -- "GET · list" --> CHAOS
-  AUD --> PG
+  W -- "lê o estado atual" --> A_API
+  W -- "create · PUT · GET · list" --> CHAOS
+  DASH --> PG
+  DASH -. "/admin/chaos (rede interna)" .-> B_API
   CHAOS --> B_API
   B_OP -.-> B_API
 ```
 
 | Componente | Responsabilidade | Onde |
 |---|---|---|
-| Sistema A | Fonte da verdade. API estilo GLPI, perfis (Técnico, Estagiário, `sync-bot`), congelamento a partir do status 5, webhook assinado | `apps/system-a` |
+| Sistema A | Fonte da verdade. API estilo GLPI, perfis (Técnico, Estagiário, `sync-bot`), webhook assinado com modo "perder X%" | `apps/system-a` |
 | Sistema B | Sistema externo em que **não confiamos**: só o contrato mínimo (ADR-003), formato próprio e caos reproduzível com seed | `apps/system-b` |
-| Sync Service | Tudo o que é avaliado: entrada (webhook + poll), fila, worker, adaptadores, auditor, auditoria e dashboard | `apps/sync-service` |
+| Sync Service | Tudo o que é avaliado: entrada (webhook + poll), fila, worker, adaptadores, verificação pós-escrita, `audit_log` técnico e dashboard com login | `apps/sync-service` |
 | Postgres | Fila e estado do sync na **mesma transação** (ADR-002) | serviço do compose |
 | Contratos | OpenAPI do A e do B e schema do evento, independentes de linguagem | `contracts/` |
 
@@ -61,29 +61,24 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-  DEVS["Commits em milestone/*"] --> GH["GitHub Actions<br/>ci.yml"]
-  GH -- "merge na Dev" --> GHCR[("GHCR<br/>imagens dev-&lt;sha&gt;")]
-  GHCR -- "release Dev → Prod<br/>retag da mesma imagem" --> GHCRP[("GHCR<br/>prod-&lt;sha&gt;")]
+  DEVS["Commits em milestone/*"] -- "PR" --> DEV["Dev<br/>ci.yml: testes, integração, E2E"]
+  DEV -- "PR de release" --> PROD["Prod"]
+  PROD --> DP["deploy-prod.yml<br/>build amd64 + arm64"]
+  DP --> GHCR[("GHCR<br/>sha-&lt;7&gt; · prod")]
+  DP -- "aprovação manual<br/>Environment production" --> SSH["SSH: troca IMAGE_TAG<br/>compose pull + up -d"]
 
-  subgraph VM["VM Oracle Always Free · ARM"]
-    CADDY["Caddy · HTTPS"]
-    subgraph D["compose cybercorp-dev · dev.&lt;host&gt;"]
-      D1["system-a"] --- D2["sync-service"] --- D3["system-b"]
-      D2 --- D4[("postgres")]
-    end
-    subgraph P["compose cybercorp-prod · &lt;host&gt;"]
-      P1["system-a"] --- P2["sync-service"] --- P3["system-b"]
-      P2 --- P4[("postgres")]
-    end
-    CADDY --> D
-    CADDY --> P
+  subgraph VM["VM Oracle Always Free · E2.1.Micro (x86, 1 GB + 2 GB swap)"]
+    CADDY["Caddy · HTTPS Let's Encrypt<br/>a. · b. · sync.&lt;ip&gt;.sslip.io"]
+    CADDY --> P1["system-a"] & P3["system-b"] & P2["sync-service"]
+    P2 --- P4[("postgres")]
   end
 
-  GHCR -- "SSH + compose pull" --> D
-  GHCRP -- "aprovação manual + SSH" --> P
+  GHCR -- "pull" --> VM
+  SSH --> VM
+  SSH -- "smoke HTTPS" --> CADDY
 ```
 
-Homologação e produção ficam na mesma VM, em projetos compose separados, cada um com o próprio Postgres, volumes e segredos (ADR-010). A imagem do B é publicada para `linux/amd64` e `linux/arm64`. Plano B: Render + Neon.
+Um único ambiente (revisão de 18/10): a `Dev` só roda a CI e a `Prod` publica. Rollback: `workflow_dispatch` com uma tag `sha-<7>` anterior, sem rebuild. A VM ARM (A1.Flex) estava sem capacidade na região, então a Micro x86 entrou no lugar; as imagens saem para as duas arquiteturas. Plano B: Render + Neon (ADR-010, `infra/README.md`).
 
 ## Fluxo A → B (núcleo)
 
@@ -107,15 +102,17 @@ sequenceDiagram
   alt hash = last_synced_hash
     W->>DB: job done (nada a fazer)
   else sem mapeamento
+    W->>DB: intenção: create_uncertain (antes de chamar o B)
     W->>B: POST /records com ⟦s:glpi-42⟧ na description
     B-->>W: 201 B-7
-    W->>DB: ticket_mapping 42 → B-7 + audit_log
+    W->>B: GET /records/B-7 (verificação pós-escrita)
+    W->>DB: ticket_mapping 42 → B-7 active + hashes + audit_log
   else já mapeado
-    W->>B: GET /records/B-7 (ler antes de escrever, ADR-011)
     W->>B: PUT /records/B-7
     W->>B: GET /records/B-7 (verificação pós-escrita)
     W->>DB: last_synced_hash, last_written_hash, audit_log, job done
   end
+  Note over W,B: leitura diferente do enviado → o hash não é gravado e o job volta (B5)<br/>404 → procura o marcador, adota ou recria depois de N varreduras
 ```
 
 Falha **transitória** (timeout, 5xx, 429, rede) → backoff `1 s × 2ⁿ + jitter` até 5 min, por até 24 h. Falha **permanente** (400/422) → 3 tentativas e DLQ. Circuit breaker aberto → o job espera **sem gastar tentativas** (ADR-008).
@@ -144,12 +141,12 @@ sequenceDiagram
   alt não achou em nenhuma varredura
     W->>B: POST de novo (agora é seguro)
   end
-  Note over W,B: modo seguro: se o teste de capacidade da subida mostrou que o B<br/>corta o marcador, o create ambíguo vai para quarantine + alerta, nunca para recriação
+  Note over W,B: o "modo seguro" (teste de capacidade do marcador na subida, S3.7)<br/>ficou fora do escopo: ver out-of-scope.md
 ```
 
-## Fluxo B → A: proposta e aprovação (opcional, M3)
+## Fluxo B → A: proposta e aprovação (desenho, não implementado)
 
-Escopo opcional do avaliador. O A continua sendo a fonte da verdade: o B propõe, o A aprova (ADR-006).
+Escopo opcional do avaliador, fora da entrega (`out-of-scope.md`). O desenho responde às duas perguntas dele: anti-eco (ADR-009) e concorrência A × B (ADR-011). O A continua sendo a fonte da verdade: o B propõe, o A aprova (ADR-006).
 
 ```mermaid
 sequenceDiagram
@@ -179,7 +176,9 @@ sequenceDiagram
   Note over AU,A: se o A mudou o mesmo campo antes da decisão,<br/>a proposta vira superseded (based_on_hash ≠ estado atual)
 ```
 
-## Exclusão em 2 passos (opcional, M3)
+## Exclusão em 2 passos (desenho, não implementado)
+
+Na entrega, um registro que some do B é procurado pelo marcador e, se não aparecer, **recriado** (S3.8): o A é a fonte da verdade. O fluxo abaixo, com decisão humana, é o desenho para quando o B → A existir.
 
 Para o sync, "excluído no B" e "perdido pelo B" parecem iguais (404). Quem decide é uma pessoa (ADR-007).
 
@@ -214,17 +213,17 @@ sequenceDiagram
 
 ## Estados
 
+Os estados `quarantine`, `deletion_requested` e `archived` existem no schema para o desenho do B → A, mas a entrega não os usa.
+
 ```mermaid
 stateDiagram-v2
   direction LR
   state "ticket_mapping.state" as M {
-    [*] --> active: create confirmado
-    [*] --> create_uncertain: create ambíguo
-    create_uncertain --> active: marcador achado na varredura
-    create_uncertain --> quarantine: modo seguro (B corta o marcador)
-    active --> deletion_requested: registro sumiu do B
-    deletion_requested --> archived: Técnico aprova
-    deletion_requested --> active: Técnico recusa (recria)
+    [*] --> create_uncertain: intenção gravada antes do POST
+    create_uncertain --> active: create confirmado pela leitura
+    create_uncertain --> active: marcador achado na varredura (adota)
+    create_uncertain --> active: N varreduras sem achar (recria)
+    active --> create_uncertain: registro sumiu do B e o marcador não está na listagem
   }
 ```
 
@@ -243,9 +242,11 @@ stateDiagram-v2
 
 ## Onde cada garantia mora
 
-| Garantia | Mecanismos | Cenários |
+| Garantia | Mecanismos entregues | Cenários que provam |
 |---|---|---|
-| Nenhuma duplicata | Um job ativo por chamado · marcador `⟦s:…⟧` · `create_uncertain` + varredura · teste de capacidade e modo seguro · `note_mapping` | A1–A10, B3 |
-| Nenhuma perda | Webhook persistido antes do 200 · poller com sobreposição · retries até 24 h · circuit breaker sem gastar tentativa · verificação pós-escrita · auditor anti-entropia · lease · DLQ que relê o A · `/ready` pausa o worker | B1–B12, H4, H5 |
-| Antigo nunca sobre novo | Worker sempre relê o A · hash + `date_mod` em UTC · um job por chamado · relógio do B ignorado · `based_on_hash` · ler antes de escrever | C1–C9 |
-| Sem ping-pong (opcional) | `last_written_hash` · escritas do `sync-bot` não disparam sync · hash ignora `date_mod` · uma escrita por decisão | F1–F4 |
+| Nenhuma duplicata | Um job ativo por chamado · lock + lease no `claim` · marcador `⟦s:…⟧` · intenção `create_uncertain` antes do POST + varredura | A1, A2, A4, A6, B3 |
+| Nenhuma perda | Webhook persistido antes do 200 · poller com sobreposição · retries até 24 h · disjuntor sem gastar tentativa · lease · verificação pós-escrita · DLQ que relê o A · `/ready` pausa o worker | B1, B2, B3, B5, B10, E4 |
+| Antigo nunca sobre novo | Worker sempre relê o A · hash dos campos sincronizáveis + `date_mod` em UTC · um job por chamado · relógio do B ignorado | C1, B6, B10, B11 |
+| Sem ping-pong (desenho) | `last_written_hash` já é gravado · escritas do `sync-bot` não disparariam sync · uma escrita por decisão | ADR-009 |
+
+Testes por cenário: [`how-it-works.md`](how-it-works.md) seção 9 e [`tests/e2e/README.md`](../tests/e2e/README.md).
