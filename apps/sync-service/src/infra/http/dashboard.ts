@@ -1,7 +1,8 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { Pool } from 'pg';
 import type { BreakerState } from '../../adapters/system-b/circuit-breaker.js';
 import { reprocessDead } from '../queue/queue.js';
@@ -13,11 +14,30 @@ export interface DashboardOptions {
   breakerState: () => BreakerState;
   /** Admin do B (caos). Sem B_ADMIN_TOKEN no sync, o painel de caos fica desligado. */
   bAdmin?: { baseUrl: string; token: string; fetch?: typeof fetch } | undefined;
-  /**
-   * Reprocessar e mexer no caos alteram o sistema. Até o login do dashboard (S5.3, #46) eles ficam desligados por
-   * padrão e só são ligados de propósito (local, E2E, demo).
-   */
+  /** Reprocessar e mexer no caos alteram o sistema: só funcionam com DASHBOARD_CONTROLS=true, e sempre atrás do login. */
   controlsEnabled: boolean;
+  /** Login do dashboard (S5.3, H2): HTTP Basic sobre o HTTPS do Caddy. Protege a página, a API e o /metrics. */
+  auth: { user: string; password: string };
+}
+
+/** Compara em tempo constante: os dois lados viram SHA-256, então nem o tamanho vaza. */
+function safeEqual(a: string, b: string): boolean {
+  return timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest());
+}
+
+/** Usuário do header Authorization: Basic se as credenciais conferem; null caso contrário. */
+export function checkBasicAuth(header: string | undefined, auth: { user: string; password: string }): string | null {
+  const m = /^Basic ([A-Za-z0-9+/=]+)$/.exec(header ?? '');
+  if (!m) return null;
+  const decoded = Buffer.from(m[1]!, 'base64').toString('utf8');
+  const sep = decoded.indexOf(':');
+  if (sep < 0) return null;
+  const user = decoded.slice(0, sep);
+  const password = decoded.slice(sep + 1);
+  // as duas comparações sempre rodam: não dá para descobrir o usuário pelo tempo de resposta
+  const okUser = safeEqual(user, auth.user);
+  const okPassword = safeEqual(password, auth.password);
+  return okUser && okPassword ? user : null;
 }
 
 const STATUSES = ['pending', 'running', 'done', 'dead'] as const;
@@ -112,7 +132,22 @@ export function dashboardPlugin(options: DashboardOptions): FastifyPluginAsync {
     return { status: res.status, body: (await res.json().catch(() => ({}))) as unknown };
   };
 
+  const operator = (req: FastifyRequest) => (req as FastifyRequest & { dashboardUser?: string }).dashboardUser;
+
   return async (app) => {
+    // Hook no escopo do plugin: vale só para as rotas do dashboard. /health, /ready e o webhook (HMAC) seguem abertos
+    app.addHook('onRequest', async (req, reply) => {
+      const user = checkBasicAuth(req.headers.authorization, options.auth);
+      if (!user) {
+        return reply
+          .code(401)
+          .header('www-authenticate', 'Basic realm="sync-dashboard", charset="UTF-8"')
+          .send({ error: 'unauthorized', message: 'Login necessário.' });
+      }
+      (req as FastifyRequest & { dashboardUser?: string }).dashboardUser = user;
+      return undefined;
+    });
+
     app.get('/dashboard', async (_req, reply) => {
       const html = await readFile(resolve(PUBLIC_DIR, 'dashboard.html'), 'utf8');
       return reply
@@ -138,7 +173,7 @@ export function dashboardPlugin(options: DashboardOptions): FastifyPluginAsync {
       if (!Number.isSafeInteger(id) || id < 1) return reply.code(400).send({ error: 'invalid_id', message: 'ID inválido.' });
       const res = await reprocessDead(pool, id);
       if (!res) return reply.code(404).send({ error: 'not_found', message: 'Item não está na DLQ (ou já foi reprocessado).' });
-      req.log.info({ dead_job_id: id, job_id: res.jobId }, 'DLQ reprocessada pelo dashboard');
+      req.log.warn({ dead_job_id: id, job_id: res.jobId, user: operator(req) }, 'DLQ reprocessada pelo dashboard');
       return { jobId: res.jobId };
     });
 
@@ -151,14 +186,14 @@ export function dashboardPlugin(options: DashboardOptions): FastifyPluginAsync {
     app.put('/api/dashboard/chaos', { preHandler: controlsGuard }, async (req, reply) => {
       if (!options.bAdmin) return reply.code(503).send({ error: 'chaos_unavailable', message: 'B_ADMIN_TOKEN não configurado no sync.' });
       const r = await callChaos('PUT', '/chaos', req.body ?? {});
-      req.log.warn({ status: r.status }, 'caos do B alterado pelo dashboard');
+      req.log.warn({ status: r.status, user: operator(req), chaos: req.body }, 'caos do B alterado pelo dashboard');
       return reply.code(r.status).send(r.body);
     });
 
     app.post('/api/dashboard/chaos/reset', { preHandler: controlsGuard }, async (req, reply) => {
       if (!options.bAdmin) return reply.code(503).send({ error: 'chaos_unavailable', message: 'B_ADMIN_TOKEN não configurado no sync.' });
       const r = await callChaos('POST', '/chaos/reset');
-      req.log.warn({ status: r.status }, 'caos do B desligado pelo dashboard');
+      req.log.warn({ status: r.status, user: operator(req) }, 'caos do B desligado pelo dashboard');
       return reply.code(r.status).send(r.body);
     });
   };

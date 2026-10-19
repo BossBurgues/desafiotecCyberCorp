@@ -94,19 +94,22 @@ async function main(): Promise<void> {
     isReady: readiness.isReady,
   });
 
-  const app = buildServer({
-    logger,
-    readiness,
-    plugins: [
-      webhookPlugin({ pool, secret: config.HMAC_SECRET, windowMs: config.WEBHOOK_REPLAY_WINDOW_MS }),
+  const plugins = [webhookPlugin({ pool, secret: config.HMAC_SECRET, windowMs: config.WEBHOOK_REPLAY_WINDOW_MS })];
+  if (config.DASHBOARD_USER && config.DASHBOARD_PASSWORD) {
+    plugins.push(
       dashboardPlugin({
         pool,
         breakerState: () => b.breakerState(),
         bAdmin: config.B_ADMIN_TOKEN ? { baseUrl: config.B_BASE_URL, token: config.B_ADMIN_TOKEN } : undefined,
         controlsEnabled: config.DASHBOARD_CONTROLS,
+        auth: { user: config.DASHBOARD_USER, password: config.DASHBOARD_PASSWORD },
       }),
-    ],
-  });
+    );
+  } else {
+    // Falha segura: esquecer a senha nunca deixa o painel (e o caos) aberto na internet
+    logger.warn('DASHBOARD_USER/DASHBOARD_PASSWORD ausentes: dashboard e /metrics não foram registrados');
+  }
+  const app = buildServer({ logger, readiness, plugins });
   await app.listen({ host: config.HOST, port: config.PORT });
 
   let stopping = false;
