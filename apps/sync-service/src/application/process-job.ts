@@ -320,7 +320,7 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
             outInput = toRecord(updated);
           }
           notes.push(
-            `🏢 Estado alterado no Sistema B por ${who}: ${STATE_LABEL[last.state]} → ${STATE_LABEL[current.state]}.` +
+            `Estado alterado no Sistema B por ${who}: ${STATE_LABEL[last.state]} → ${STATE_LABEL[current.state]}.` +
               (current.resolution ? ` Solução: ${current.resolution}` : ''),
           );
         } else {
@@ -338,7 +338,7 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
         log.info({ from: last.state, to: current.state, by: who }, bToA ? 'B → A: estado do B aplicado no A' : 'estado mudado no B mantido');
       } else {
         notes.push(
-          `🏢 O Sistema B também mudou o estado para ${STATE_LABEL[current.state]} (por ${who}), ao mesmo tempo que o A mudou para ` +
+          `O Sistema B também mudou o estado para ${STATE_LABEL[current.state]} (por ${who}), ao mesmo tempo que o A mudou para ` +
             `${STATE_LABEL[input.state]}: prevaleceu o A.`,
         );
         await recordAudit(pool, {
@@ -356,7 +356,7 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
 
     const reverted = changed.filter((f) => f !== 'state');
     if (reverted.length > 0) {
-      notes.push(`🏢 O Sistema B alterou ${reverted.map((f) => FIELD_LABEL[f]).join(', ')} (por ${who}); o A é a fonte da verdade e o valor foi restaurado.`);
+      notes.push(`O Sistema B alterou ${reverted.map((f) => FIELD_LABEL[f]).join(', ')} (por ${who}); o A é a fonte da verdade e o valor foi restaurado.`);
       await recordAudit(pool, {
         ticketId: ticket.id,
         direction: 'b_to_a',
