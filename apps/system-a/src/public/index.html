@@ -59,6 +59,20 @@
             Prioridade
             <select name="priority" id="new-ticket-priority"></select>
           </label>
+          <div class="grid-2">
+            <label>
+              Categoria
+              <select name="itilcategories_id" id="new-ticket-category"></select>
+            </label>
+            <label>
+              Local
+              <select name="locations_id" id="new-ticket-location"></select>
+            </label>
+            <label>
+              Atribuído a
+              <select name="users_id_assign" id="new-ticket-assign"></select>
+            </label>
+          </div>
           <div class="banner error" id="new-ticket-error" role="alert" hidden></div>
           <div class="actions">
             <button type="submit">Criar</button>
@@ -117,7 +131,20 @@
               <select name="priority" id="edit-priority"></select>
             </label>
           </div>
-          <p class="hint">Solucionado e Fechado só chegam pelo fluxo de aprovação.</p>
+          <div class="grid-2">
+            <label>
+              Categoria
+              <select name="itilcategories_id" id="edit-category"></select>
+            </label>
+            <label>
+              Local
+              <select name="locations_id" id="edit-location"></select>
+            </label>
+            <label>
+              Atribuído a
+              <select name="users_id_assign" id="edit-assign"></select>
+            </label>
+          </div>
           <div class="actions">
             <button type="submit">Salvar</button>
             <button type="button" class="ghost" id="edit-cancel">Cancelar</button>

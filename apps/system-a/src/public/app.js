@@ -13,6 +13,7 @@ const state = {
   timer: null,
   detailId: null,
   ticket: null,
+  catalog: null,
 };
 
 // Telas extras registradas pelas seções seguintes (detalhe, conversa, aprovações).
@@ -82,6 +83,7 @@ function saveSession(session) {
 
 function clearSession() {
   state.session = null;
+  state.catalog = null;
   sessionStorage.removeItem(STORAGE_KEY);
   // Nada da sessão anterior (formulário aberto, aviso de erro) aparece para o próximo usuário.
   state.detailId = null;
@@ -231,6 +233,45 @@ function fillOptions(select, values, labelOf, selected) {
   );
 }
 
+// Catálogos do GLPI (categorias, locais e usuários): carregados uma vez por sessão.
+async function ensureCatalog() {
+  if (state.catalog) {
+    return state.catalog;
+  }
+  const [categories, locations, users] = await Promise.all([
+    api('GET', '/ITILCategory'),
+    api('GET', '/Location'),
+    api('GET', '/User'),
+  ]);
+  state.catalog = { categories, locations, users };
+  return state.catalog;
+}
+
+// Select com a opção "—" (sem valor) seguida dos itens do catálogo.
+function fillRefOptions(select, items, labelOf, selected) {
+  const none = el('option', { value: '', text: '—' });
+  none.selected = selected == null;
+  select.replaceChildren(
+    none,
+    ...items.map((item) => {
+      const option = el('option', { value: String(item.id), text: labelOf(item) });
+      option.selected = item.id === selected;
+      return option;
+    }),
+  );
+}
+
+function fillTicketRefs(prefix, ticket = {}) {
+  const { categories, locations, users } = state.catalog;
+  fillRefOptions($(`${prefix}-category`), categories, (c) => c.completename, ticket.itilcategories_id ?? null);
+  fillRefOptions($(`${prefix}-location`), locations, (l) => l.name, ticket.locations_id ?? null);
+  const tecnicos = users.filter((u) => u.profile === 'tecnico');
+  fillRefOptions($(`${prefix}-assign`), tecnicos, core.userLabel, ticket.users_id_assign ?? null);
+}
+
+const refValue = (select) => (select.value === '' ? null : Number(select.value));
+const REF_FIELDS = ['itilcategories_id', 'locations_id', 'users_id_assign'];
+
 async function refreshTickets() {
   const tickets = await api('GET', '/Ticket?range=0-49&sort=date_mod&order=DESC');
   const rows = (tickets || []).map((t) =>
@@ -254,6 +295,7 @@ views.tickets = {
   pollMs: LIST_POLL_MS,
   async enter() {
     $('new-ticket-toggle').hidden = !core.canCreate(state.session.profile);
+    await ensureCatalog();
     await refreshTickets();
   },
   refresh: refreshTickets,
@@ -265,6 +307,7 @@ function toggleNewTicket(open) {
   showBanner($('new-ticket-error'), '');
   if (open) {
     fillOptions($('new-ticket-priority'), [1, 2, 3, 4, 5, 6], core.priorityLabel, 3);
+    fillTicketRefs('new-ticket');
     form.name.focus();
   } else {
     form.reset();
@@ -282,6 +325,7 @@ async function onCreateTicket(event) {
         name: form.name.value.trim(),
         content: form.content.value,
         priority: Number(form.priority.value),
+        ...Object.fromEntries(REF_FIELDS.map((f) => [f, refValue(form[f])])),
       },
     });
     toggleNewTicket(false);
@@ -394,9 +438,15 @@ queueMicrotask(start);
 
 function renderTicket(ticket) {
   $('detail-title').textContent = `#${ticket.id} · ${ticket.name}`;
+  const { categories, locations, users } = state.catalog ?? {};
+  const user = (id) => core.userLabel((users || []).find((u) => u.id === id));
+  const closedAt = ticket.closedate ? ` · fechado em ${ticket.closedate}` : ticket.solvedate ? ` · solucionado em ${ticket.solvedate}` : '';
   $('detail-meta').replaceChildren(
     badge(ticket.status),
-    ` · Prioridade ${core.priorityLabel(ticket.priority)} · aberto em ${ticket.date} · alterado em ${ticket.date_mod}`,
+    ` · Prioridade ${core.priorityLabel(ticket.priority)} · aberto em ${ticket.date} · alterado em ${ticket.date_mod}${closedAt}`,
+    el('br'),
+    `Categoria: ${core.catalogLabel(categories, ticket.itilcategories_id)} · Local: ${core.catalogLabel(locations, ticket.locations_id, (l) => l.name)}` +
+      ` · Requerente: ${user(ticket.users_id_recipient)} · Atribuído a: ${user(ticket.users_id_assign)}`,
   );
   $('detail-content').textContent = core.htmlToText(ticket.content) || '(sem descrição)';
 }
@@ -434,6 +484,7 @@ function toggleEdit(open) {
     $('edit-status').prepend(current);
   }
   fillOptions($('edit-priority'), [1, 2, 3, 4, 5, 6], core.priorityLabel, ticket.priority);
+  fillTicketRefs('edit', ticket);
   form.name.focus();
 }
 
@@ -453,6 +504,11 @@ async function onSaveTicket(event) {
   }
   if (Number(form.priority.value) !== ticket.priority) {
     input.priority = Number(form.priority.value);
+  }
+  for (const field of REF_FIELDS) {
+    if (refValue(form[field]) !== (ticket[field] ?? null)) {
+      input[field] = refValue(form[field]);
+    }
   }
   if (Object.keys(input).length === 0) {
     toggleEdit(false);
@@ -483,6 +539,7 @@ views.detail = {
     }
     state.detailId = id;
     $('edit-toggle').hidden = !core.canEdit(state.session.profile);
+    await ensureCatalog();
     await refreshDetail();
   },
   refresh: refreshDetail,

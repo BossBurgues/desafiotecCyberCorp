@@ -6,6 +6,8 @@ import {
   canAddNote,
   canDecide,
   editableStatuses,
+  userLabel,
+  catalogLabel,
   errorMessage,
   htmlToText,
   priorityLabel,
@@ -124,4 +126,14 @@ test('timeline junta notas e soluções em ordem de data, com a decisão como ev
     ],
   );
   assert.equal(items[0].author.icon, '🏢');
+});
+
+test('rótulos dos catálogos: nome completo do usuário com o login, e "—" sem valor', () => {
+  assert.equal(userLabel({ name: 'tecnico', firstname: 'Ana', realname: 'Souza' }), 'Ana Souza (tecnico)');
+  assert.equal(userLabel({ name: 'sync-bot', firstname: '', realname: '' }), 'sync-bot');
+  assert.equal(userLabel(undefined), '—');
+  const cats = [{ id: 2, name: 'Impressão', completename: 'Hardware > Impressão' }];
+  assert.equal(catalogLabel(cats, 2), 'Hardware > Impressão');
+  assert.equal(catalogLabel(cats, null), '—');
+  assert.equal(catalogLabel(cats, 9), '—');
 });
