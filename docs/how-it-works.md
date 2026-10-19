@@ -171,7 +171,7 @@ sequenceDiagram
   participant Q as sync_jobs
   participant K as processJob
   participant A as Sistema A
-  O->>B: Fechar (com solução), cabeçalho X-Operator
+  O->>B: Fechar (com solução), logado com a conta dele
   V->>B: lista os registros (a cada 30 s)
   V->>Q: hash ≠ last_written_hash → job b_changed
   K->>A: lê o chamado

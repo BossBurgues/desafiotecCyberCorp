@@ -16,7 +16,7 @@ Mantém os chamados de um sistema estilo **GLPI (Sistema A)** sincronizados num 
 | Vídeo da demo | _no e-mail da entrega_ |
 | Backlog (Project) | https://github.com/users/BossBurgues/projects/2 |
 
-As **credenciais de demonstração** (Técnico, Estagiário e dashboard) foram enviadas por e-mail junto com a entrega. Em produção elas são aleatórias e nunca entram no repositório.
+As **credenciais de demonstração** (Técnico, Estagiário e dashboard) foram enviadas por e-mail junto com a entrega. Em produção elas são aleatórias e nunca entram no repositório. Também dá para **criar a própria conta** na tela de entrada: no A, escolhendo o nível (Técnico ou Estagiário); no B, toda conta é de administrador (o B não tem níveis).
 
 ## As três garantias e como cada uma é provada
 

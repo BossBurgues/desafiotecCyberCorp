@@ -10,7 +10,7 @@ Roteiro da apresentação e do vídeo de backup (#69). Mesma ordem nos dois: o v
 | Sistema B (caixa-preta instável) | https://b.150-230-231-210.sslip.io/ui/ |
 | Dashboard do sync (fila, DLQ, caos) | https://sync.150-230-231-210.sslip.io/dashboard |
 
-**Antes de começar (5 min antes):** abrir as três abas lado a lado; entrar no A como Técnico; no B, preencher "Seu nome" com `Carla (suporte)`; no dashboard, clicar em **Desligar tudo** (caos zerado); conferir `https://sync.…/ready` respondendo 200. Ter um terminal com o repositório e o compose local pronto (plano B).
+**Antes de começar (5 min antes):** abrir as três abas lado a lado; entrar no A como Técnico; no B, entrar com a conta `Carla (suporte)` (ou criá-la na aba "Criar conta"; toda conta do B é administradora); no dashboard, clicar em **Desligar tudo** (caos zerado); conferir `https://sync.…/ready` respondendo 200. Ter um terminal com o repositório e o compose local pronto (plano B).
 
 | Tempo | Bloco | Plano B |
 |---|---|---|
@@ -35,7 +35,7 @@ Roteiro da apresentação e do vídeo de backup (#69). Mesma ordem nos dois: o v
 3. No detalhe do A, o cartão **Ações**: **Atribuir a mim** → no B, `assignee` e *Em andamento*.
 4. Escrever a solução e **Solucionar** → a solução vira nota no A; no B, *Resolvido*. **Fechar** → *Fechado*. **Reabrir** → volta a *Em andamento* e o A limpa as datas, como o GLPI.
 5. No dashboard, os jobs `done` e o mapeamento `A #id ↔ B-n`.
-6. (30 s) Sair e entrar como **Estagiário**: abre e lê, mas não vê as ações; **Editar** responde 403 com a frase.
+6. (30 s) Sair e entrar como **Estagiário**: abre e lê, mas não vê as ações; **Editar** responde 403 com a frase. A aba "Criar conta" mostra o nível de acesso escolhido no cadastro.
 
 **Plano B:** `docker compose -f infra/docker-compose.yml --env-file .env up -d --build --wait` e o mesmo fluxo em `localhost:3001/ui/` e `localhost:5002/ui/`.
 
