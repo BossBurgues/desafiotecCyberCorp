@@ -3,7 +3,7 @@ import type { z } from 'zod';
 import type { RecordInput } from '../../domain/types.js';
 import { createCircuitBreaker, type BreakerState, type CircuitBreaker } from './circuit-breaker.js';
 import { BError, reasonForStatus } from './errors.js';
-import { apiErrorSchema, describeIssues, recordPageSchema, recordSchema } from './schema.js';
+import { apiErrorSchema, describeIssues, goneSchema, recordPageSchema, recordSchema } from './schema.js';
 
 export type BRecordResponse = z.infer<typeof recordSchema>;
 export type BRecordPage = z.infer<typeof recordPageSchema>;
@@ -14,8 +14,13 @@ export interface CallOptions {
 
 export interface SystemBClient {
   createRecord(input: RecordInput, options?: CallOptions): Promise<BRecordResponse>;
-  /** null = 404 (excluído ou nunca gravado, ex.: ack sem gravar). Quem decide o que isso significa é o caso de uso. */
+  /**
+   * null = 404 (nunca gravado ou perdido pelo B, ex.: ack sem gravar). Excluído com lápide (410) sai como
+   * BError 'gone' com `tombstone`. Quem decide o que cada caso significa é o caso de uso.
+   */
   getRecord(id: string, options?: CallOptions): Promise<BRecordResponse | null>;
+  /** Capacidade opcional "delete" (ADR-015): exclui com lápide. Já excluído (410) ou inexistente (404) não é erro. */
+  deleteRecord(id: string, options?: CallOptions): Promise<'deleted' | 'already_deleted' | 'not_found'>;
   updateRecord(id: string, input: RecordInput, options?: CallOptions & { ifMatch?: string }): Promise<BRecordResponse>;
   listRecords(page: number, pageSize: number, options?: CallOptions): Promise<BRecordPage>;
   breakerState(): BreakerState;
@@ -72,7 +77,7 @@ export function createSystemBClient(options: SystemBClientOptions): SystemBClien
   let slowUntil = 0;
 
   async function call<T>(
-    method: 'GET' | 'POST' | 'PUT',
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
     schema: z.ZodType<T>,
     opts: { body?: unknown; headers?: Record<string, string>; correlationId?: string | undefined; allow404?: boolean },
@@ -132,10 +137,17 @@ export function createSystemBClient(options: SystemBClientOptions): SystemBClien
       else breaker.onSuccess(); // 4xx: o B respondeu, só recusou
       if (reason === 'not_found' && opts.allow404) return null;
       const detail = apiErrorSchema.safeParse(safeJson(text));
+      const gone = reason === 'gone' ? goneSchema.safeParse(safeJson(text)) : null;
       throw new BError(reason, `${op}: ${res.status}${detail.success ? ` ${detail.data.error}: ${detail.data.message}` : ''}`, {
         write,
         status: res.status,
+        tombstone: gone?.success ? { deletedBy: gone.data.deletedBy, deletedAt: gone.data.deletedAt } : null,
       });
+    }
+
+    if (res.status === 204) {
+      breaker.onSuccess();
+      return null;
     }
 
     const json = safeJson(text);
@@ -182,6 +194,16 @@ export function createSystemBClient(options: SystemBClientOptions): SystemBClien
         correlationId: o.correlationId,
         ...(o.ifMatch ? { headers: { 'if-match': o.ifMatch } } : {}),
       }))!;
+    },
+    async deleteRecord(id, o = {}) {
+      try {
+        await call('DELETE', `/records/${encodeURIComponent(id)}`, recordSchema, { correlationId: o.correlationId });
+        return 'deleted';
+      } catch (err) {
+        if (err instanceof BError && err.reason === 'gone') return 'already_deleted';
+        if (err instanceof BError && err.reason === 'not_found') return 'not_found';
+        throw err;
+      }
     },
     async listRecords(page, pageSize, o = {}) {
       return (await call('GET', `/records?page=${page}&pageSize=${pageSize}`, recordPageSchema, {

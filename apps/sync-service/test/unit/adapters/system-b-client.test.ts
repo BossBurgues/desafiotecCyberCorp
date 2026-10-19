@@ -111,6 +111,30 @@ describe('cliente do B: caminho feliz', () => {
   });
 });
 
+describe('cliente do B: exclusão com lápide (ADR-015)', () => {
+  it('410 no get vira BError gone, permanente, com quem excluiu e quando', async () => {
+    const { client } = setup([{ status: 410, body: { error: 'GONE', message: 'x', deletedBy: 'Maria', deletedAt: '2026-10-19T19:10:00.000Z' } }]);
+    const err = await client.getRecord('B-7').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BError);
+    expect((err as BError).reason).toBe('gone');
+    expect((err as BError).transient).toBe(false);
+    expect((err as BError).tombstone).toEqual({ deletedBy: 'Maria', deletedAt: '2026-10-19T19:10:00.000Z' });
+  });
+
+  it('delete: 204 excluído, 410 já excluído, 404 não existe', async () => {
+    const { client, calls } = setup([
+      { status: 204 },
+      { status: 410, body: { error: 'GONE', message: 'x', deletedBy: 'integração (sync)', deletedAt: '2026-10-19T19:10:00.000Z' } },
+      { status: 404, body: { error: 'NOT_FOUND', message: 'x' } },
+    ]);
+    expect(await client.deleteRecord('B-7')).toBe('deleted');
+    expect(await client.deleteRecord('B-7')).toBe('already_deleted');
+    expect(await client.deleteRecord('B-8')).toBe('not_found');
+    expect(calls[0]!.init.method).toBe('DELETE');
+    expect(calls[0]!.url).toBe('http://b.test/api/v2/records/B-7');
+  });
+});
+
 describe('cliente do B: "B fora" × "B recusou"', () => {
   it.each([
     [{ status: 500, body: { error: 'CHAOS_SIMULATED_ERROR', message: 'x' } }, 'server_error', true],

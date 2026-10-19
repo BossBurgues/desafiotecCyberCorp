@@ -6,11 +6,11 @@ import { memoryLogger } from '../../helpers.js';
 type Handler = (url: URL, headers: Record<string, string>) => Response;
 
 function client(handler: Handler) {
-  const calls: { url: URL; headers: Record<string, string> }[] = [];
+  const calls: { url: URL; headers: Record<string, string>; method: string }[] = [];
   const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     const headers = init?.headers as Record<string, string>;
-    calls.push({ url, headers });
+    calls.push({ url, headers, method: init?.method ?? 'GET' });
     return handler(url, headers);
   }) as typeof fetch;
   const a = createSystemAClient({
@@ -96,7 +96,18 @@ describe('client do A (sync-bot)', () => {
     expect(page.total).toBe(5);
     expect(page.items.map((t) => t.id)).toEqual([1, 2]);
     const q = calls[1]!.url.searchParams;
-    expect(Object.fromEntries(q)).toEqual({ date_mod_gte: '2026-10-18 09:58:00', range: '0-1', sort: 'date_mod', order: 'ASC' });
+    expect(Object.fromEntries(q)).toEqual({ date_mod_gte: '2026-10-18 09:58:00', range: '0-1', sort: 'date_mod', order: 'ASC', is_deleted: '0' });
+    await a.listChangedSince('2026-10-18 09:58:00', 0, 2, true);
+    expect(calls[2]!.url.searchParams.get('is_deleted')).toBe('1');
+  });
+
+  it('trashTicket manda DELETE /Ticket/:id (lixeira do A); 404 devolve false', async () => {
+    const { a, calls } = client((url) =>
+      url.pathname.endsWith('/initSession') ? json({ session_token: 's' }) : url.pathname.endsWith('/7') ? json([{ 7: true, message: '' }]) : json(['ERROR_ITEM_NOT_FOUND', 'x'], 404),
+    );
+    expect(await a.trashTicket(7)).toBe(true);
+    expect(calls[1]!.method).toBe('DELETE');
+    expect(await a.trashTicket(8)).toBe(false);
   });
 
   it('listChangedSince: 416 (página além do total) devolve vazio', async () => {

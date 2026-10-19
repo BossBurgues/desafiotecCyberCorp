@@ -3,7 +3,7 @@ import type { Logger } from 'pino';
 import type { SystemAClient } from '../adapters/system-a/client.js';
 import { BError } from '../adapters/system-b/errors.js';
 import type { BRecordResponse, SystemBClient } from '../adapters/system-b/client.js';
-import { findMarker, hashRecord, hashTicket, mapTicketToRecord, toGlpiStatus } from '../domain/index.js';
+import { findMarker, hashRecord, hashTicket, mapTicketToRecord, toGlpiStatus, utcToGlpiLocal } from '../domain/index.js';
 import type { GlpiTicket, Lookups, MarkerField, RecordInput, RecordState } from '../domain/types.js';
 import { recordAudit } from '../infra/audit.js';
 import type { JobProcessor } from '../infra/queue/runner.js';
@@ -119,6 +119,8 @@ export async function getMapping(pool: Pick<Pool, 'query'>, ticketId: number): P
  * 4. Com mapeamento → update. Registro sumiu do B (404) → procura o marcador; senão create ambíguo.
  * 5. Verificação pós-escrita (S3.8): relê o registro no B e só segue se o conteúdo bate (ack sem gravar, B5).
  * 6. Mapeamento e auditoria gravados na mesma transação, com last_written_hash (base do anti-eco, ADR-009).
+ * 7. Lixeira (ADR-015): chamado excluído no A → DELETE no B e mapeamento archived; restaurado → recria no B.
+ *    Registro excluído no B (410) → lixeira do A, a não ser que o A tenha mudado o chamado depois (o A vence).
  */
 export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
   const { pool, a, b } = deps;
@@ -150,6 +152,17 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     const ticketHash = hashTicket(ticket);
 
     let mapping = await getMapping(pool, ticket.id);
+
+    if (ticket.is_deleted === 1) {
+      await trashInB(ticket, ticketHash, mapping, correlationId, log);
+      return;
+    }
+    if (mapping?.state === 'archived') {
+      // Restaurado da lixeira do A: o registro antigo é lápide no B (ou nunca existiu), então nasce um novo
+      log.info({ old_b_record_id: mapping.b_record_id }, 'chamado restaurado da lixeira do A: recriando no B');
+      await create(ticket, input, ticketHash, signal, correlationId, log);
+      return;
+    }
 
     if (mapping?.state === 'create_uncertain') {
       const found = await scanForMarker(ticket.id, correlationId);
@@ -222,7 +235,16 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     const started = Date.now();
 
     // Ler antes de escrever (ADR-011, ADR-014): o B pode ter mudado o registro desde a nossa última escrita
-    const current = await b.getRecord(mapping.b_record_id!, { correlationId });
+    let current: BRecordResponse | null;
+    try {
+      current = await b.getRecord(mapping.b_record_id!, { correlationId });
+    } catch (err) {
+      if (allowMissing && err instanceof BError && err.reason === 'gone') {
+        await deletedInB(ticket, input, ticketHash, mapping, err, signal, correlationId, log);
+        return;
+      }
+      throw err;
+    }
     if (!current) {
       if (allowMissing) {
         await recordMissing(ticket, input, ticketHash, mapping, signal, correlationId, log);
@@ -250,6 +272,10 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
       } catch (err) {
         if (allowMissing && err instanceof BError && err.reason === 'not_found') {
           await recordMissing(finalTicket, toWrite, finalHash, mapping, signal, correlationId, log);
+          return;
+        }
+        if (allowMissing && err instanceof BError && err.reason === 'gone') {
+          await deletedInB(finalTicket, toWrite, finalHash, mapping, err, signal, correlationId, log);
           return;
         }
         throw err;
@@ -371,6 +397,105 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
   }
 
   /**
+   * Chamado na lixeira do A (ADR-015): o A é o mestre da exclusão. Exclui no B (com lápide, capacidade "delete") e
+   * arquiva o mapeamento com o hash do chamado excluído, para o poller não reenfileirar. Excluir de novo (410) ou um
+   * registro que já não existe (404) contam como feito. Create ambíguo em aberto: procura o marcador antes.
+   */
+  async function trashInB(
+    ticket: GlpiTicket,
+    ticketHash: string,
+    mapping: MappingRow | null,
+    correlationId: string,
+    log: Logger,
+  ): Promise<void> {
+    if (!mapping || mapping.state === 'archived') {
+      // Nunca chegou ao B, ou já foi excluído lá: nada a escrever
+      if (mapping) await archive(ticket.id, mapping.b_record_id, ticketHash);
+      await recordAudit(pool, { ticketId: ticket.id, direction: 'a_to_b', action: 'noop', actor: ACTOR, correlationId, outcome: 'deleted_in_a' });
+      return;
+    }
+    let recordId = mapping.b_record_id;
+    if (!recordId && mapping.state === 'create_uncertain') recordId = (await scanForMarker(ticket.id, correlationId))?.id ?? null;
+    const started = Date.now();
+    const outcome = recordId ? await b.deleteRecord(recordId, { correlationId }) : 'not_found';
+    await archive(ticket.id, recordId, ticketHash);
+    await recordAudit(pool, {
+      ticketId: ticket.id,
+      direction: 'a_to_b',
+      action: 'delete',
+      actor: ACTOR,
+      correlationId,
+      response: { b_record_id: recordId },
+      latencyMs: Date.now() - started,
+      outcome,
+    });
+    log.info({ b_record_id: recordId, outcome }, 'chamado na lixeira do A: registro excluído no B');
+  }
+
+  /**
+   * O registro foi excluído no B (410, com a lápide de quem e quando). Quem decide é o A (ADR-015):
+   * - o A mudou o chamado depois da última sincronização (ou o B → A está desligado): o A vence e o registro é recriado;
+   * - senão: o chamado vai para a lixeira do A (reversível), com a nota de quem excluiu no B.
+   * A nota vai por último, como no B → A leve: se o job repetir, o chamado já está na lixeira e o caminho é o trashInB.
+   */
+  async function deletedInB(
+    ticket: GlpiTicket,
+    input: RecordInput,
+    ticketHash: string,
+    mapping: MappingRow,
+    err: BError,
+    signal: AbortSignal,
+    correlationId: string,
+    log: Logger,
+  ): Promise<void> {
+    const who = err.tombstone?.deletedBy ?? 'autor não informado pelo B';
+    const when = err.tombstone ? ` em ${utcToGlpiLocal(err.tombstone.deletedAt, deps.timeZone)}` : '';
+    const marker = `⟦from-b:${mapping.b_record_id}⟧`;
+    const aChanged = mapping.last_synced_hash !== ticketHash;
+    const request = { b_record_id: mapping.b_record_id, by: err.tombstone?.deletedBy ?? null, at: err.tombstone?.deletedAt ?? null };
+
+    if (!bToA || aChanged) {
+      await recordAudit(pool, { ticketId: ticket.id, direction: 'b_to_a', action: 'b_delete', actor: ACTOR, correlationId, request, outcome: 'a_wins' });
+      log.warn({ b_record_id: mapping.b_record_id, by: who, a_changed: aChanged }, 'registro excluído no B: o A vence e o registro é recriado');
+      await create(ticket, input, ticketHash, signal, correlationId, log);
+      if (bToA) {
+        await note(
+          ticket.id,
+          `O Sistema B excluiu o registro ${mapping.b_record_id} (por ${who}${when}), mas o chamado mudou no A depois da última ` +
+            `sincronização: prevaleceu o A e o registro foi recriado no B. ${marker}`,
+          log,
+        );
+      }
+      return;
+    }
+
+    const trashed = await a.trashTicket(ticket.id);
+    const after = trashed ? await a.getTicket(ticket.id) : null;
+    await archive(ticket.id, mapping.b_record_id, after ? hashTicket(after) : ticketHash);
+    await recordAudit(pool, { ticketId: ticket.id, direction: 'b_to_a', action: 'b_delete', actor: ACTOR, correlationId, request, outcome: 'trashed_in_a' });
+    log.info({ b_record_id: mapping.b_record_id, by: who }, 'B → A: registro excluído no B, chamado na lixeira do A');
+    await note(ticket.id, `Excluído no Sistema B por ${who}${when}: o chamado foi para a lixeira do A (restaurar recria o registro no B). ${marker}`, log);
+  }
+
+  async function note(ticketId: number, content: string, log: Logger): Promise<void> {
+    try {
+      await a.addFollowup(ticketId, content);
+    } catch (err) {
+      log.warn({ err }, 'B → A: mudança aplicada, mas a nota no A falhou');
+    }
+  }
+
+  /** Mapeamento arquivado: o registro do B foi excluído. O b_record_id fica para a história; o hash evita reenfileirar. */
+  async function archive(ticketId: number, bRecordId: string | null, ticketHash: string): Promise<void> {
+    await pool.query(
+      `UPDATE ticket_mapping SET state = 'archived', b_record_id = $2, last_synced_hash = $3,
+         uncertain_scans = 0, uncertain_since = NULL, updated_at = now()
+       WHERE a_ticket_id = $1`,
+      [ticketId, bRecordId, ticketHash],
+    );
+  }
+
+  /**
    * O registro mapeado sumiu do B (404 no update ou na leitura de verificação). O A é a fonte da verdade:
    * procura o marcador na listagem (o registro pode ter ganhado outro ID) e adota; senão segue o caminho do create
    * ambíguo, que só recria depois de N varreduras sem achar (ADR-004). Nunca recria às cegas.
@@ -485,7 +610,10 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
       `INSERT INTO ticket_mapping (a_ticket_id, state, uncertain_scans, uncertain_since)
        VALUES ($1, 'create_uncertain', 0, now())
        ON CONFLICT (a_ticket_id) DO UPDATE SET
-         state = 'create_uncertain', b_record_id = NULL, uncertain_scans = 0, uncertain_since = now(), updated_at = now()`,
+         state = 'create_uncertain',
+         b_record_history = CASE WHEN ticket_mapping.b_record_id IS NULL THEN ticket_mapping.b_record_history
+           ELSE array_append(ticket_mapping.b_record_history, ticket_mapping.b_record_id) END,
+         b_record_id = NULL, uncertain_scans = 0, uncertain_since = now(), updated_at = now()`,
       [ticketId],
     );
   }

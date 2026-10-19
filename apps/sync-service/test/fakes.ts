@@ -33,8 +33,16 @@ export function fakeA(initial: GlpiTicket[] = []) {
     async getLookups() {
       return { categories: new Map(), users: new Map(), locations: new Map() };
     },
-    async listChangedSince(gte, start, limit): Promise<TicketPage> {
-      const all = [...tickets.values()].filter((t) => t.date_mod >= gte).sort((x, y) => x.date_mod.localeCompare(y.date_mod) || x.id - y.id);
+    async trashTicket(id) {
+      const t = tickets.get(id);
+      if (!t) return false;
+      if (t.is_deleted !== 1) tickets.set(id, { ...t, is_deleted: 1, date_mod: `2026-10-18 11:${String(++minute).padStart(2, '0')}:00` });
+      return true;
+    },
+    async listChangedSince(gte, start, limit, deleted = false): Promise<TicketPage> {
+      const all = [...tickets.values()]
+        .filter((t) => t.date_mod >= gte && (t.is_deleted === 1) === deleted)
+        .sort((x, y) => x.date_mod.localeCompare(y.date_mod) || x.id - y.id);
       return { items: all.slice(start, start + limit).map((t) => structuredClone(t)), total: all.length };
     },
   };
@@ -66,7 +74,7 @@ export interface PlannedFailure {
 export function fakeB() {
   const records = new Map<string, BRecordResponse>();
   const plan: Record<'create' | 'update' | 'list', PlannedFailure[]> = { create: [], update: [], list: [] };
-  const calls = { create: 0, update: 0, list: 0, get: 0 };
+  const calls = { create: 0, update: 0, list: 0, get: 0, delete: 0 };
   let seq = 0;
   /** Ack sem gravar (cenário B5): as próximas N escritas respondem sucesso e não gravam nada. */
   const ackWithoutPersist = { create: 0, update: 0 };
@@ -90,6 +98,15 @@ export function fakeB() {
     throw new BError(f.reason, `${op}: falha programada (${f.reason})`, { write: op !== 'list', ...(f.status ? { status: f.status } : {}) });
   };
 
+  /** Lápides (ADR-015): registro excluído responde 410 com quem e quando. */
+  const tombstones = new Map<string, { deletedBy: string; deletedAt: string }>();
+  const gone = (id: string, write: boolean) =>
+    new BError('gone', `/records/${id}: 410`, { write, status: 410, tombstone: tombstones.get(id)! });
+  const tombstone = (id: string, deletedBy: string) => {
+    records.delete(id);
+    tombstones.set(id, { deletedBy, deletedAt: '2026-10-18T14:30:00.000Z' });
+  };
+
   const client: SystemBClient = {
     async createRecord(input) {
       calls.create++;
@@ -103,12 +120,21 @@ export function fakeB() {
     },
     async getRecord(id) {
       calls.get++;
+      if (tombstones.has(id)) throw gone(id, false);
       const r = records.get(id);
       return r ? structuredClone(r) : null;
+    },
+    async deleteRecord(id) {
+      calls.delete++;
+      if (tombstones.has(id)) return 'already_deleted';
+      if (!records.has(id)) return 'not_found';
+      tombstone(id, 'integração (sync)');
+      return 'deleted';
     },
     async updateRecord(id, input) {
       calls.update++;
       failIfPlanned('update', () => store(input, id));
+      if (tombstones.has(id)) throw gone(id, true);
       if (!records.has(id)) throw new BError('not_found', `PUT /records/${id}: 404`, { write: true, status: 404 });
       if (ackWithoutPersist.update > 0) {
         ackWithoutPersist.update--;
@@ -135,9 +161,14 @@ export function fakeB() {
   return {
     client,
     records,
+    tombstones,
     calls,
     plan,
     ackWithoutPersist,
+    /** O operador do B exclui o registro (lápide com o nome dele). */
+    operatorDelete(id: string, by = 'Maria') {
+      tombstone(id, by);
+    },
     /** Esconde da listagem os registros que existirem agora pelas próximas `times` listagens. */
     hideFromList(times: number) {
       hiddenFromList = new Map([...records.keys()].map((id) => [id, times]));
