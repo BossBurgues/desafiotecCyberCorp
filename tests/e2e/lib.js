@@ -88,6 +88,23 @@ export async function tecnico() {
       if (!r.ok) throw new Error(`GET /Ticket/${id}: ${r.status}`);
       return json(r);
     },
+    /** Lixeira do A (ADR-015): DELETE sem force_purge. */
+    async remove(id) {
+      // Sem corpo: sem Content-Type (o Fastify recusa JSON vazio)
+      const { 'Content-Type': _ct, ...noBody } = headers;
+      const r = await fetch(`${A_URL}/apirest.php/Ticket/${id}`, { method: 'DELETE', headers: noBody });
+      if (!r.ok) throw new Error(`DELETE /Ticket/${id}: ${r.status}`);
+      return json(r);
+    },
+    async note(id, content) {
+      const r = await fetch(`${A_URL}/apirest.php/ITILFollowup`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ input: { itemtype: 'Ticket', items_id: id, content } }),
+      });
+      if (r.status !== 201) throw new Error(`POST /ITILFollowup: ${r.status}`);
+      return json(r);
+    },
     async followups(id) {
       const r = await fetch(`${A_URL}/apirest.php/Ticket/${id}/ITILFollowup`, { headers });
       if (!r.ok) throw new Error(`GET /Ticket/${id}/ITILFollowup: ${r.status}`);
@@ -107,6 +124,18 @@ export async function operatorUpdate(recordId, changes, operator = 'Carla (supor
   });
   if (!r.ok) throw new Error(`PUT /operator/records/${recordId}: ${r.status} ${JSON.stringify(await json(r))}`);
   return json(r);
+}
+
+/** O operador do B exclui um registro pela UI dele (lápide com o nome dele, ADR-015). */
+export async function operatorDelete(recordId, operator = 'Carla (suporte)') {
+  const r = await fetch(`${B_URL}/operator/records/${recordId}`, { method: 'DELETE', headers: { 'x-operator': operator } });
+  if (r.status !== 204) throw new Error(`DELETE /operator/records/${recordId}: ${r.status}`);
+}
+
+/** Lápide de um registro do B (410), ou null se ele não está excluído. */
+export async function tombstoneOf(recordId) {
+  const r = await fetch(`${B_URL}/operator/records/${recordId}`);
+  return r.status === 410 ? json(r) : null;
 }
 
 /** Todos os registros do B pela rota do operador (fora do caos), agrupados pelo ID do A do marcador. */

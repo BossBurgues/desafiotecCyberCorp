@@ -26,7 +26,7 @@ As **credenciais de demonstração** (Técnico, Estagiário e dashboard) foram e
 | **perder** uma atualização | Evento gravado antes do 200; poller com sobreposição cobre webhook perdido; retry com backoff por até 24 h e DLQ reprocessável; **verificação pós-escrita** (o B pode responder 200 sem gravar) | [`b1-b-fora-jobs-esperam-e-drenam`](tests/e2e/scenarios/b1-b-fora-jobs-esperam-e-drenam.test.js), [`b2-webhook-perdido-poller-recupera`](tests/e2e/scenarios/b2-webhook-perdido-poller-recupera.test.js), [`b3-sync-cai-no-meio-do-job`](tests/e2e/scenarios/b3-sync-cai-no-meio-do-job.test.js), [`e4-b-lento-disjuntor`](tests/e2e/scenarios/e4-b-lento-disjuntor.test.js), B5 (integração) |
 | **sobrescrever** dado novo com velho | O evento é só um sinal: o worker sempre relê o estado atual do A; um job por chamado | [`c1-eventos-fora-de-ordem`](tests/e2e/scenarios/c1-eventos-fora-de-ordem.test.js), [`b6-vinte-updates-terminam-no-ultimo`](tests/e2e/scenarios/b6-vinte-updates-terminam-no-ultimo.test.js), B10 (integração) |
 
-Os 11 cenários E2E sobem os três sistemas de verdade, ligam o caos do B e derrubam containers ([`tests/e2e/README.md`](tests/e2e/README.md)). O passeio pelo código, com exercícios de quebra, está em [`docs/how-it-works.md`](docs/how-it-works.md).
+Os 13 cenários E2E sobem os três sistemas de verdade, ligam o caos do B e derrubam containers ([`tests/e2e/README.md`](tests/e2e/README.md)). O passeio pelo código, com exercícios de quebra, está em [`docs/how-it-works.md`](docs/how-it-works.md).
 
 ## O opcional do avaliador: B → A leve
 
@@ -36,6 +36,9 @@ O avaliador deixou como opcional "o retorno de B para A (mudança de status, que
 - **Sem ida e volta:** o que o sync escreveu não conta como mudança do B (`last_written_hash`), o que o `sync-bot` escreveu no A não volta para o B, e nada é escrito se o outro lado já está igual. Prova: E2E [`f4-b-fecha-volta-ao-a-sem-eco`](tests/e2e/scenarios/f4-b-fecha-volta-ao-a-sem-eco.test.js).
 - **Os dois ao mesmo tempo:** o A vence (é a fonte da verdade) e registra na conversa o que o B tinha feito. Edição de outros campos no B é desfeita pelo A. Antes de cada escrita o sync relê o B, então o A nunca reabre o que o B acabou de fechar.
 - Sem aprovação do Técnico: a versão completa (o B propõe, o A aprova, congelamento) está desenhada no ADR-006.
+- **Exclusão nos dois lados** ([ADR-015](docs/adr/015-exclusao-nos-dois-lados-e-o-mestre.md)): excluir no A apaga no B e restaurar recria; o operador do B excluir leva o chamado para a **lixeira do A** com nota de quem excluiu, a não ser que o A tenha mudado o chamado depois (o A vence). O B guarda uma lápide (410), então "excluído" e "perdido" (404) não se confundem. Prova: E2E [`h1-exclusao-nos-dois-lados`](tests/e2e/scenarios/h1-exclusao-nos-dois-lados.test.js).
+
+**Quem manda em cada mudança:** criar e campos → o A; status → quem mudou desde a última sincronização (os dois → o A); quem alterou e solução → o B (vira nota no A); excluir → o A decide (lixeira reversível). Tabela completa no ADR-015.
 
 ## Arquitetura
 
@@ -80,7 +83,7 @@ npm ci
 npm test                 # unitários (A e sync); integração do sync com TEST_DATABASE_URL apontando para um Postgres
 npm run test:b           # Sistema B (.NET)
 docker compose -f infra/docker-compose.yml -f infra/docker-compose.e2e.yml --env-file .env.example up -d --build --wait
-npm run e2e              # 11 cenários sob caos, ~4 min
+npm run e2e              # 13 cenários sob caos, ~4 min
 ```
 
 ## Demo de caos (para repetir na URL)
@@ -112,7 +115,7 @@ npm run e2e              # 11 cenários sob caos, ~4 min
 
 O avaliador confirmou que só o **A → B** é obrigatório; o B → A entrou na versão leve (acima). Ficaram de fora, com o desenho e a justificativa em [`docs/out-of-scope.md`](docs/out-of-scope.md):
 
-- **B → A completo:** aprovação do Técnico, congelamento a partir do status 5 e exclusão em 2 passos ([ADR-006](docs/adr/006-b-propoe-a-aprova-congelamento-sla.md), [ADR-007](docs/adr/007-exclusao-em-2-passos.md)).
+- **B → A completo:** aprovação do Técnico e congelamento a partir do status 5 ([ADR-006](docs/adr/006-b-propoe-a-aprova-congelamento-sla.md)). A exclusão em 2 passos (ADR-007) foi substituída pela lixeira do A (ADR-015).
 - Notas nos dois sentidos, anexos, SLA e mocks extras.
 - Auditoria append-only com linha do tempo: os logs JSON com `correlation_id` e o `audit_log` técnico cobrem a demo.
 
