@@ -37,12 +37,26 @@ const schema = z.object({
   B_MARKER_FIELD: z.enum(['description', 'title']).default('description'),
   CREATE_UNCERTAIN_SCANS: z.coerce.number().int().min(1).max(20).default(2),
   B_LIST_PAGE_SIZE: z.coerce.number().int().min(1).max(500).default(100),
+  // Verificação pós-escrita (S3.8): relê o registro no B antes de dar o chamado por sincronizado. Desligar só para medir custo
+  VERIFY_AFTER_WRITE: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
   // Entrada (S3.4): webhook com HMAC e poller com sobreposição
   HMAC_SECRET: z.string().min(16),
   WEBHOOK_REPLAY_WINDOW_MS: ms(10_000, 3_600_000).default(300_000),
   POLL_INTERVAL_MS: ms(500, 3_600_000).default(10_000),
   POLL_OVERLAP_MS: ms(0, 3_600_000).default(120_000),
   POLL_PAGE_SIZE: z.coerce.number().int().min(1).max(500).default(100),
+  // Dashboard (S3.10): o painel de caos usa o admin do B; reprocessar e mexer no caos só com DASHBOARD_CONTROLS=true
+  B_ADMIN_TOKEN: z.string().min(1).optional(),
+  // Login do dashboard (S5.3): sem os dois, o dashboard não é registrado (falha segura)
+  DASHBOARD_USER: z.string().min(1).optional(),
+  DASHBOARD_PASSWORD: z.string().min(12, 'a senha do dashboard precisa de pelo menos 12 caracteres').optional(),
+  DASHBOARD_CONTROLS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 });
 
 export type Config = z.infer<typeof schema>;

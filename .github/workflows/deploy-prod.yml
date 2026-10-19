@@ -1,0 +1,137 @@
+name: deploy-prod
+
+# Um único ambiente (revisão de 18/10): só a Prod publica. Merge do PR de release Dev → Prod = deploy.
+# Rollback: Actions → deploy-prod → Run workflow com a tag de uma release anterior (sha-xxxxxxx), sem rebuild.
+on:
+  push:
+    branches: [Prod]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag já publicada para rollback (ex.: sha-1a2b3c4). Vazio = build do commit atual'
+        required: false
+        default: ''
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false # dois deploys nunca se cruzam, e um deploy começado nunca é cortado no meio
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_PREFIX: ghcr.io/bossburgues/desafioteccybercorp
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.t.outputs.tag }}
+      build: ${{ steps.t.outputs.build }}
+    steps:
+      - id: t
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            if ! echo "$INPUT_TAG" | grep -Eq '^sha-[0-9a-f]{7}$'; then
+              echo "::error::tag inválida: use sha-xxxxxxx"; exit 1
+            fi
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  images:
+    needs: tag
+    if: needs.tag.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - app: system-a
+            context: .
+            file: apps/system-a/Dockerfile
+          - app: system-b
+            context: apps/system-b
+            file: apps/system-b/Dockerfile
+          - app: sync-service
+            context: .
+            file: apps/sync-service/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # A VM é ARM (Oracle Ampere); o amd64 serve para rodar local e para o plano B (Render)
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.app }}:${{ needs.tag.outputs.tag }}
+            ${{ env.IMAGE_PREFIX }}/${{ matrix.app }}:prod
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
+
+  deploy:
+    needs: [tag, images]
+    # roda no rollback (images pulado) e no deploy normal (images com sucesso), nunca se o build falhou
+    if: always() && needs.tag.result == 'success' && (needs.images.result == 'success' || needs.images.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: production # pausa aqui até a aprovação manual
+    timeout-minutes: 15
+    env:
+      TAG: ${{ needs.tag.outputs.tag }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      DOMAIN: ${{ secrets.DOMAIN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Chave SSH e known_hosts
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      # O compose e o Caddyfile da VM sempre acompanham a imagem que vai subir
+      - name: Copia o compose e o Caddyfile para a VM
+        run: |
+          scp -i ~/.ssh/deploy infra/docker-compose.yml "$SSH_USER@$SSH_HOST:/opt/cybercorp/infra/docker-compose.yml"
+          scp -i ~/.ssh/deploy infra/caddy/Caddyfile "$SSH_USER@$SSH_HOST:/opt/cybercorp/infra/caddy/Caddyfile"
+      # Postgres e volumes não são recriados: só os containers dos apps trocam. Jobs em andamento têm lease e voltam
+      # sozinhos (B3). As migrations rodam na subida do sync
+      - name: Troca a versão, pull e up
+        run: |
+          ssh -i ~/.ssh/deploy "$SSH_USER@$SSH_HOST" TAG="$TAG" 'bash -s' <<'EOF'
+          set -euo pipefail
+          cd /opt/cybercorp
+          grep -q '^IMAGE_TAG=' .env && sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$TAG/" .env || echo "IMAGE_TAG=$TAG" >> .env
+          C="docker compose -f infra/docker-compose.yml --env-file .env"
+          $C pull --quiet system-a system-b sync-service caddy postgres
+          $C up -d --no-build --remove-orphans --wait --wait-timeout 180
+          $C ps
+          docker image prune -f >/dev/null
+          EOF
+      - name: Smoke pela URL pública (HTTPS)
+        run: |
+          for url in "https://a.$DOMAIN/health" "https://b.$DOMAIN/health" "https://sync.$DOMAIN/ready"; do
+            echo "== $url"
+            curl --retry 20 --retry-delay 5 --retry-all-errors -fsS "$url"
+            echo
+          done
+          code=$(curl -s -o /dev/null -w '%{http_code}' "https://sync.$DOMAIN/dashboard")
+          [ "$code" = "401" ] || { echo "::error::/dashboard respondeu $code sem login (esperado 401)"; exit 1; }
+          echo "Publicado: $TAG"

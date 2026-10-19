@@ -19,6 +19,8 @@ export interface ProcessJobDeps {
   /** Varreduras da listagem do B sem achar o marcador antes de reenviar um create ambíguo (ADR-004). */
   uncertainScans: number;
   listPageSize: number;
+  /** Relê o registro no B depois de cada escrita e só grava o hash se o B gravou de verdade (S3.8). Padrão: true. */
+  verifyAfterWrite?: boolean;
   lookups?: Lookups;
 }
 
@@ -45,6 +47,19 @@ export class CreateUncertainError extends Error {
   }
 }
 
+/**
+ * O B respondeu sucesso ao update, mas a leitura logo depois mostra outro conteúdo (ack sem gravar, cenário B5).
+ * Transitório: o hash não é gravado, o job volta com backoff, relê o A e reenvia o estado atual.
+ */
+export class VerifyMismatchError extends Error {
+  constructor(ticketId: number, bRecordId: string) {
+    super(`chamado ${ticketId}: o B confirmou a escrita em ${bRecordId}, mas a leitura não bate com o que foi enviado`);
+    this.name = 'VerifyMismatchError';
+  }
+}
+
+type VerifyOutcome = 'ok' | 'mismatch' | 'missing';
+
 const ACTOR = 'sync';
 
 export async function getMapping(pool: Pick<Pool, 'query'>, ticketId: number): Promise<MappingRow | null> {
@@ -63,11 +78,13 @@ export async function getMapping(pool: Pick<Pool, 'query'>, ticketId: number): P
  * 2. Hash igual ao último sincronizado → nada a fazer.
  * 3. Sem mapeamento → create com o marcador ⟦s:glpi-id⟧. Falha ambígua → create_uncertain: o próximo ciclo procura
  *    o marcador na listagem do B e só recria depois de N varreduras sem achar. Create às cegas nunca.
- * 4. Com mapeamento → update.
- * 5. Mapeamento e auditoria gravados na mesma transação, com last_written_hash (base do anti-eco, ADR-009).
+ * 4. Com mapeamento → update. Registro sumiu do B (404) → procura o marcador; senão create ambíguo.
+ * 5. Verificação pós-escrita (S3.8): relê o registro no B e só segue se o conteúdo bate (ack sem gravar, B5).
+ * 6. Mapeamento e auditoria gravados na mesma transação, com last_written_hash (base do anti-eco, ADR-009).
  */
 export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
   const { pool, a, b } = deps;
+  const verifyAfterWrite = deps.verifyAfterWrite ?? true;
 
   return async (job: Job, signal: AbortSignal) => {
     const correlationId = `job-${job.id}-${job.attempts}`;
@@ -148,16 +165,112 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
       return;
     }
 
+    await update(ticket, input, ticketHash, mapping, signal, correlationId, log);
+  };
+
+  async function update(
+    ticket: GlpiTicket,
+    input: RecordInput,
+    ticketHash: string,
+    mapping: MappingRow,
+    signal: AbortSignal,
+    correlationId: string,
+    log: Logger,
+    allowMissing = true,
+  ): Promise<void> {
     signal.throwIfAborted();
     const started = Date.now();
-    const record = await b.updateRecord(mapping.b_record_id!, input, { correlationId });
-    await saveActive(ticket, input, ticketHash, record.id, {
+    let recordId: string;
+    try {
+      recordId = (await b.updateRecord(mapping.b_record_id!, input, { correlationId })).id;
+    } catch (err) {
+      if (allowMissing && err instanceof BError && err.reason === 'not_found') {
+        await recordMissing(ticket, input, ticketHash, mapping, signal, correlationId, log);
+        return;
+      }
+      throw err;
+    }
+    const outcome = await verify(ticket.id, recordId, input, correlationId);
+    if (outcome === 'missing' && allowMissing) {
+      await recordMissing(ticket, input, ticketHash, mapping, signal, correlationId, log);
+      return;
+    }
+    if (outcome !== 'ok') {
+      log.warn({ b_record_id: recordId, outcome }, 'B confirmou o update sem gravar: o hash fica como estava e o job volta');
+      throw new VerifyMismatchError(ticket.id, recordId);
+    }
+    await saveActive(ticket, input, ticketHash, recordId, {
       action: 'update',
       correlationId,
       latencyMs: Date.now() - started,
     });
-    log.info({ b_record_id: record.id }, 'chamado atualizado no B');
-  };
+    log.info({ b_record_id: recordId }, 'chamado atualizado no B');
+  }
+
+  /**
+   * O registro mapeado sumiu do B (404 no update ou na leitura de verificação). O A é a fonte da verdade:
+   * procura o marcador na listagem (o registro pode ter ganhado outro ID) e adota; senão segue o caminho do create
+   * ambíguo, que só recria depois de N varreduras sem achar (ADR-004). Nunca recria às cegas.
+   */
+  async function recordMissing(
+    ticket: GlpiTicket,
+    input: RecordInput,
+    ticketHash: string,
+    mapping: MappingRow,
+    signal: AbortSignal,
+    correlationId: string,
+    log: Logger,
+  ): Promise<void> {
+    await recordAudit(pool, {
+      ticketId: ticket.id,
+      direction: 'a_to_b',
+      action: 'record_missing',
+      actor: ACTOR,
+      correlationId,
+      response: { b_record_id: mapping.b_record_id },
+      outcome: 'not_found',
+    });
+    const found = await scanForMarker(ticket.id, correlationId);
+    if (found && found.id !== mapping.b_record_id) {
+      const adopted = await adopt(mapping, found, correlationId);
+      log.warn({ old_b_record_id: mapping.b_record_id, b_record_id: found.id }, 'registro sumiu do B, marcador achado em outro ID: adotado');
+      await update(ticket, input, ticketHash, adopted, signal, correlationId, log, false);
+      return;
+    }
+    const scans = 1;
+    await pool.query(
+      `UPDATE ticket_mapping SET state = 'create_uncertain',
+         b_record_history = CASE WHEN b_record_id IS NULL THEN b_record_history ELSE array_append(b_record_history, b_record_id) END,
+         b_record_id = NULL, uncertain_scans = $2, uncertain_since = now(), updated_at = now()
+       WHERE a_ticket_id = $1`,
+      [ticket.id, scans],
+    );
+    if (scans < deps.uncertainScans) {
+      log.warn({ old_b_record_id: mapping.b_record_id }, 'registro sumiu do B e o marcador não está na listagem: create_uncertain');
+      throw new CreateUncertainError(ticket.id, scans, deps.uncertainScans);
+    }
+    log.warn({ old_b_record_id: mapping.b_record_id }, 'registro sumiu do B: recriando');
+    await create(ticket, input, ticketHash, signal, correlationId, log);
+  }
+
+  /** Lê o registro de volta e compara o hash do conteúdo (ignora id e horários do B, cenário C6). */
+  async function verify(ticketId: number, recordId: string, input: RecordInput, correlationId: string): Promise<VerifyOutcome> {
+    if (!verifyAfterWrite) return 'ok';
+    const read = await b.getRecord(recordId, { correlationId });
+    const outcome: VerifyOutcome = !read ? 'missing' : hashRecord(read as RecordInput) === hashRecord(input) ? 'ok' : 'mismatch';
+    if (outcome !== 'ok') {
+      await recordAudit(pool, {
+        ticketId,
+        direction: 'a_to_b',
+        action: 'verify',
+        actor: ACTOR,
+        correlationId,
+        response: { b_record_id: recordId },
+        outcome,
+      });
+    }
+    return outcome;
+  }
 
   async function create(
     ticket: GlpiTicket,
@@ -188,6 +301,13 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
         );
       }
       throw err;
+    }
+    const outcome = await verify(ticket.id, record.id, input, correlationId);
+    if (outcome !== 'ok') {
+      // 201 que não aparece (ack sem gravar) ou aparece diferente. Pode ser gravação atrasada: recriar agora arriscaria
+      // duplicata. A intenção já está gravada, então o próximo ciclo procura o marcador e só recria depois de N varreduras
+      log.warn({ b_record_id: record.id, outcome }, 'create confirmado pelo B não bate com a leitura: create_uncertain');
+      throw new CreateUncertainError(ticket.id, 0, deps.uncertainScans);
     }
     await saveActive(ticket, input, ticketHash, record.id, {
       action: 'create',

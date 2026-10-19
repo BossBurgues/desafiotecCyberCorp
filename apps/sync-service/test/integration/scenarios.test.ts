@@ -112,6 +112,27 @@ describe.skipIf(!TEST_DATABASE_URL)('cenários de integração do núcleo A→B'
     expect((await pool.query(`SELECT status FROM sync_jobs WHERE id = $1`, [re!.jobId])).rows[0].status).toBe('done');
   });
 
+  it('B5: no retry depois do ack sem gravar o B recebe o estado atual do A', async () => {
+    await enqueue(pool, 1);
+    await drain({ pool, processor: processJob, logger, leaseMs: LEASE, maxJobs: 1 });
+
+    // O B responde 200 aos dois próximos updates sem gravar; nesse meio-tempo o Técnico muda o chamado de novo
+    A.put(ticket(1, { name: 'Primeira edição', date_mod: '2026-10-18 10:10:00' }));
+    await enqueue(pool, 1);
+    B.ackWithoutPersist.update = 2;
+    await drain({ pool, processor: processJob, logger, leaseMs: LEASE, maxJobs: 1 });
+    A.put(ticket(1, { name: 'Edição atual', priority: 5, date_mod: '2026-10-18 10:20:00' }));
+    for (let i = 0; i < 3; i++) {
+      await due();
+      await drain({ pool, processor: processJob, logger, leaseMs: LEASE, maxJobs: 1 });
+    }
+
+    expect(B.records.size).toBe(1);
+    expect([...B.records.values()][0]).toMatchObject({ title: 'Edição atual', severity: 'CRITICAL' });
+    expect(B.calls.update).toBe(3); // 2 acks sem gravar + 1 confirmado pela leitura
+    expect((await pool.query(`SELECT status FROM sync_jobs ORDER BY id`)).rows.map((r) => r.status)).toEqual(['done', 'done']);
+  });
+
   describe('G4: obrigatório vazio → DLQ permanente com o motivo + alerta', () => {
     const runThreeTimes = async () => {
       await enqueue(pool, 1);

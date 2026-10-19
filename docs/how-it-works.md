@@ -55,17 +55,24 @@ flowchart TD
   H -- sim --> N[no-op]
   H -- não --> M{mapeamento?}
   M -- não --> C[create com ⟦s:glpi-id⟧]
-  C -- ok --> S[(mapeamento active<br/>+ last_written_hash + audit)]
+  C -- ok --> VC{relê no B:<br/>conteúdo bate?}
+  VC -- sim --> S[(mapeamento active<br/>+ last_written_hash + audit)]
+  VC -- 404 ou diferente --> U
   C -- falha ambígua --> U[create_uncertain]
   U -- próximo ciclo --> V{marcador na<br/>listagem do B?}
   V -- achou --> AD[adota o registro<br/>e atualiza]
   V -- N varreduras sem achar --> C
   V -- ainda não --> R[retry com backoff]
-  M -- active --> UP[update] --> S
+  M -- active --> UP[update] --> VU{relê no B:<br/>conteúdo bate?}
+  VU -- sim --> S
+  VU -- diferente --> R
+  VU -- 404 / registro sumiu --> V
 ```
 
 - **Antigo sobre novo:** o job só tem o ID; o estado vem do A na hora (um job atrasado nunca escreve dado velho).
 - **Duplicata:** create ambíguo (timeout, 5xx, 200 com erro: o B pode ter gravado) nunca é reenviado às cegas. O chamado fica em `create_uncertain` e o próximo ciclo procura o marcador em todas as páginas da listagem. Achou → adota. Só depois de `CREATE_UNCERTAIN_SCANS` (2) varreduras sem achar é que recria (a listagem do B pode estar atrasada, A7, ou pular página).
+- **Perda por "ack sem gravar" (S3.8, B5):** depois de todo create e update o sync relê o registro no B (`VERIFY_AFTER_WRITE`, ligado por padrão) e compara o hash do conteúdo. Só então grava `last_synced_hash`. Se o B respondeu 200 sem gravar, o hash antigo fica, o job volta com backoff, relê o A e reenvia o estado atual. Sem isso o próximo evento viraria no-op e a atualização sumiria para sempre.
+- **Registro sumiu do B (404):** o A é a fonte da verdade. O sync procura o marcador na listagem (o registro pode ter outro ID) e adota; não achou → `create_uncertain`, e recria só depois de N varreduras. Um 404 logo depois de um 201 também vira `create_uncertain`, porque pode ser gravação atrasada: recriar na hora arriscaria duplicata.
 - **Atomicidade:** mapeamento, hashes e `audit_log` são gravados numa transação só. `last_written_hash` é o hash do que escrevemos no B: é a base do anti-eco (ADR-009).
 - O sync fala com o A como **sync-bot** (`src/adapters/system-a/client.ts`, `user_token`), que só lê chamados e escreve notas. Sessão expirada (401) é reaberta uma vez.
 
@@ -77,6 +84,10 @@ flowchart TD
 - `circuit-breaker.ts`: 5 falhas seguidas → aberto 30 s → uma requisição de teste.
 - "**B fora**" (timeout, rede, 5xx, 200 com erro) é transitório. "**B recusou**" (400/422, drift de formato) é permanente. `ambiguous = true` num create significa que o B pode ter gravado: nunca reenviar às cegas, procurar o marcador (ADR-004, S3.6).
 
-## 7. O B hostil, para testar
+## 7. Ver acontecer: dashboard
+
+`src/infra/http/dashboard.ts` + `public/dashboard.html` (S3.10), em `http://localhost:3000/dashboard`. Mostra a fila por status, a DLQ com o motivo, os mapeamentos (`create_uncertain` aparece aqui), a caixa de saída de alertas e o disjuntor do B. O botão **Reprocessar** cria um job novo que relê o A (B10). O **painel de caos** repassa ao `/admin/chaos` do B pela rede interna. `/metrics` expõe os mesmos números para o Prometheus. Reprocessar e caos alteram o sistema: ficam desligados (`DASHBOARD_CONTROLS=false`) até o login do dashboard (S5.3).
+
+## 8. O B hostil, para testar
 
 `apps/system-b`: caos em `/api/v2` (`B_CHAOS_*` ou `PUT /admin/chaos`), drift de formato (`formatDrift`: `title` vira `summary`), `DELETE /admin/records/{id}` e `POST /admin/wipe` para simular perda (autocura pelo auditor, S3.9). Tudo atrás do `X-Admin-Token`. O override `infra/docker-compose.e2e.yml` liga o caos agressivo com seed fixa.
