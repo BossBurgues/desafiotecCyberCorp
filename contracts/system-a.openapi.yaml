@@ -5,7 +5,8 @@ info:
   description: |
     Fonte da verdade dos chamados (ADR-001, ADR-005). Imita a API REST do GLPI 10.
     Simplificações em relação ao GLPI real: filtro `date_mod_gte` no lugar de `/search/Ticket`;
-    sem dropdowns expandidos (categoria/local/usuários vêm como IDs, de-para é mock à parte).
+    sem dropdowns expandidos: o chamado traz categoria/local/usuários como IDs, e os catálogos ficam em
+    `/ITILCategory`, `/Location` e `/User` (fixos no mock), que o sync lê para converter os IDs em texto.
     `date_mod` não tem fuso: está no fuso do servidor (`A_TIMEZONE`). Quem consome converte para UTC.
 servers:
   - url: http://localhost:3001/apirest.php
@@ -276,6 +277,102 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Frozen'
+  /ITILCategory:
+    get:
+      operationId: listCategories
+      summary: Catálogo de categorias de chamado (ITILCategory)
+      responses:
+        '200':
+          description: Todas as categorias
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ITILCategory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /ITILCategory/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TicketId'
+    get:
+      operationId: getCategory
+      summary: Uma categoria por ID
+      responses:
+        '200':
+          description: Categoria encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ITILCategory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /Location:
+    get:
+      operationId: listLocations
+      summary: Catálogo de locais (Location), com coordenadas opcionais
+      responses:
+        '200':
+          description: Todos os locais
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Location'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /Location/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TicketId'
+    get:
+      operationId: getLocation
+      summary: Um local por ID
+      responses:
+        '200':
+          description: Local encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Location'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /User:
+    get:
+      operationId: listUsers
+      summary: Usuários (sem senha nem token)
+      responses:
+        '200':
+          description: Todos os usuários
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /User/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TicketId'
+    get:
+      operationId: getUser
+      summary: Um usuário por ID (sem senha nem token)
+      responses:
+        '200':
+          description: Usuário encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /Ticket/{id}/ITILFollowup:
     parameters:
       - $ref: '#/components/parameters/TicketId'
@@ -669,6 +766,34 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TicketAttachment'
+    ITILCategory:
+      type: object
+      additionalProperties: false
+      required: [id, name, completename]
+      properties:
+        id: { type: integer, minimum: 1 }
+        name: { type: string }
+        completename: { type: string, description: 'Caminho na árvore de categorias (ex.: "Hardware > Impressão")' }
+    Location:
+      type: object
+      additionalProperties: false
+      required: [id, name, completename, latitude, longitude]
+      properties:
+        id: { type: integer, minimum: 1 }
+        name: { type: string }
+        completename: { type: string }
+        latitude: { type: [number, 'null'] }
+        longitude: { type: [number, 'null'] }
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, name, firstname, realname, profile]
+      properties:
+        id: { type: integer, minimum: 1 }
+        name: { type: string, description: Login }
+        firstname: { type: string }
+        realname: { type: string }
+        profile: { type: string, enum: [tecnico, estagiario, sync-bot] }
     ITILFollowup:
       type: object
       additionalProperties: false

@@ -300,6 +300,14 @@ export class TicketStore {
     runSeed();
   }
 
+  listUsers() {
+    return this.db.prepare('SELECT id, login, profile FROM users ORDER BY id').all();
+  }
+
+  getUserById(id) {
+    return this.db.prepare('SELECT id, login, profile FROM users WHERE id = ?').get(id) || null;
+  }
+
   findUserByLogin(login) {
     return this.db.prepare('SELECT * FROM users WHERE login = ?').get(login) || null;
   }
