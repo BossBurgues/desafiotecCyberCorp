@@ -42,6 +42,8 @@ Na subida, em ordem: **valida a config** (zod; qualquer variável inválida list
 | `A_APP_TOKEN` / `A_SYNC_BOT_TOKEN` | **obrigatórias** | Credenciais do sync no A (App-Token + `user_token` do sync-bot) |
 | `A_TIMEZONE` | `America/Sao_Paulo` | Fuso do `date_mod` do A (conversão para UTC e limite do poll) |
 | `A_TIMEOUT_MS` | `5000` | Timeout de cada requisição ao A |
+| `B_TO_A_ENABLED` | `true` | B → A leve (ADR-014): varredura do B e aplicação no A do estado que o operador do B mudou |
+| `B_SCAN_INTERVAL_MS` | `30000` | Intervalo da varredura do B |
 | `A_LOOKUPS_TTL_MS` | `60000` | Cache dos catálogos do A (categorias, usuários, locais) usados para converter os IDs em texto no B |
 | `HMAC_SECRET` | **obrigatória** (≥ 16) | Segredo do webhook do A |
 | `WEBHOOK_REPLAY_WINDOW_MS` | `300000` | Janela anti-replay do `X-Timestamp` (5 min) |

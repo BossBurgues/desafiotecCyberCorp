@@ -4,7 +4,7 @@ O sistema externo em que **não confiamos**. Pelo PDF, ele **recebe** os chamado
 
 - **sem** busca por referência externa e **sem** `Idempotency-Key`;
 - **caos configurável** (S2.2): latência, 5xx, timeout, "grava e devolve erro", "devolve sucesso e não grava", 200 com corpo de erro, 429, texto truncado, paginação instável e drift de formato;
-- comentários, autor da alteração e ETag foram previstos como capacidades opcionais para o B → A, que ficou fora do escopo: **não estão implementados**.
+- **quem alterou** (`updatedBy`, definido pelo servidor: o operador pelo cabeçalho `X-Operator`, ou "integração (sync)") e **texto da solução** (`resolution`) como capacidades opcionais, usadas pelo B → A leve (ADR-014). Comentários e ETag não foram implementados.
 
 O projeto mira `net8.0`; o `global.json` aceita SDKs mais novos (`rollForward: latestMajor`).
 
@@ -26,7 +26,7 @@ dotnet test apps/system-b                            # testes xUnit (mesmo coman
 
 ## UI do Operador B (S2.4)
 
-`http://localhost:5002/ui/`: a tela do operador do sistema de terceiro, para ver o que chegou do A (com o marcador `⟦s:glpi-<id>⟧`). Ela também deixa editar, mudar estado, resolver, fechar, reabrir e excluir, porque o B é um sistema independente. **Nada disso volta ao A:** o retorno B → A é opcional e não foi implementado, e a próxima alteração do chamado no A sobrescreve o registro (o aviso no topo da lista diz isso). Sem papéis nem login (o B é caixa-preta).
+`http://localhost:5002/ui/`: a tela do operador do sistema de terceiro. Ele vê o que chegou do A (com o marcador `⟦s:glpi-<id>⟧`), informa o próprio nome (vai para o A como "quem alterou") e pode resolver, fechar e reabrir com um texto de solução: com o B → A leve, isso **volta ao A** em até 30 s. Editar outros campos é desfeito pelo A (fonte da verdade), e excluir faz o sync recriar o registro a partir do A. Sem papéis nem login (o B é caixa-preta).
 
 - Usa as rotas `/operator/records`, que ficam fora do contrato e **fora do caos**: a demo continua operável com o caos ligado.
 - Mostra o chamado do A ligado ao registro (lido do marcador `⟦s:glpi-<id>⟧`). Editar a descrição pode apagar o marcador de propósito. Hoje, a próxima alteração no A regrava a descrição com o marcador; o auditor que regravaria sozinho (S3.9) ficou fora do escopo.

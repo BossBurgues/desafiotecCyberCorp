@@ -123,7 +123,7 @@ Com o servidor de pé, abra **http://localhost:3001/ui/** (`GET /` redireciona p
 
 O A é o sistema central (PDF): o Técnico soluciona (5) e fecha (6) como no GLPI, e o sync leva `RESOLVED`/`CLOSED` ao B. A regra "5 e 6 só via aprovação" (Q26) pertence ao B → A opcional, que não foi implementado.
 
-**Conversa e aprovações (opcional B → A, não implementado).** `GET /ui/config.json` devolve `{ appToken, features: { followups, solutions } }`, calculado das rotas registradas no `onReady`. Como `GET /apirest.php/Ticket/:id/ITILFollowup` (S1.4) e `PUT /apirest.php/ITILSolution/:id` (S1.5) não existem, as seções nem aparecem. O código delas fica pronto para ligar se o opcional voltar. Na conversa, o autor aparece como 👤 Técnico/Estagiário, 🤖 `sync-bot` ou 🏢 Operador B (nota do `sync-bot` com `⟦from-b:…⟧`); os marcadores `⟦…⟧` não são exibidos.
+**Conversa (B → A leve, ADR-014) e aprovações (não implementadas).** `GET /ui/config.json` devolve `{ appToken, features: { followups, solutions } }`, calculado das rotas registradas no `onReady`. A rota de acompanhamentos existe, então a **conversa** aparece no detalhe: o Técnico escreve notas, e o `sync-bot` registra o que veio do B (estado, quem alterou e solução), mostrado como 🏢 Operador B. A rota de soluções com aprovação (S1.5) não existe, então essa seção não aparece.
 
 **Mensagens de erro** (`errorMessage` em `ui-core.js`): `403 ERROR_RIGHT_MISSING` → "Seu perfil (Estagiário) não pode … Peça a um Técnico."; `409 ERROR_TICKET_FROZEN` → "Chamado congelado … só aceita notas. A edição não foi salva."; sessão inválida → "Sua sessão expirou" e volta ao login; `ERROR_GLPI_LOGIN` → "Usuário ou senha incorretos."; falha de rede → "Sistema A fora do ar"; código desconhecido → mensagem do servidor + código. O formulário de edição não fecha nem perde o que foi digitado.
 
@@ -182,11 +182,13 @@ Erros seguem o formato do GLPI: `["ERROR_CODIGO", "Mensagem legível"]`.
 - **Interface web (S1.6):** o `App-Token` da UI (`A_UI_APP_TOKEN`) chega ao navegador, então é público por natureza; o que protege é a senha e a sessão. Ele é separado do `A_APP_TOKEN` do sync para poder ser trocado sozinho. Sem atualização por *push* (polling de 5 s/10 s) e sem testes de navegador automatizados (QA manual; a lógica fica coberta em `ui-core.test.js`).
 - **Webhook sem fila nem retry no A:** não há retentativa local no Sistema A porque o polling periódico com sobreposição é a garantia de entrega (ADR-005, cenário B2); o descarte de `A_WEBHOOK_DROP_RATE` é feito por sorteio uniforme em cada disparo.
 
-## Fora do escopo (opcional B → A)
+## B → A leve (ADR-014) e o que ficou de fora
 
-Previstos no contrato do A, mas não implementados: entram só se o retorno B → A opcional for feito (`docs/out-of-scope.md`, seção 0.6 do plano).
+- **Acompanhamentos:** `GET /apirest.php/Ticket/:id/ITILFollowup` e `POST /apirest.php/ITILFollowup` (`{ input: { itemtype: "Ticket", items_id, content, is_private } }`). Técnico e `sync-bot` escrevem; Estagiário recebe `403`.
+- **O `sync-bot` muda só o status:** `PUT /Ticket/:id` com qualquer outro campo vindo dele responde `403 ERROR_RIGHT_MISSING`. É assim que o estado mudado no B chega ao A, sem webhook de volta (anti-eco).
+
+Previsto no contrato do A, mas não implementado (B → A completo, `docs/out-of-scope.md`):
 
 | Capacidade do contrato | Issue |
 |---|---|
-| Acompanhamentos (`/Ticket/:id/ITILFollowup` e `POST /ITILFollowup`) | S1.4 (#19), *not planned* |
 | Soluções (`ITILSolution`), preenchimento automático de `solvedate`/`closedate` e congelamento `409 ERROR_TICKET_FROZEN` nos status 5 e 6 | S1.5 (#20), *not planned* |

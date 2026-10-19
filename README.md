@@ -26,7 +26,16 @@ As **credenciais de demonstração** (Técnico, Estagiário e dashboard) foram e
 | **perder** uma atualização | Evento gravado antes do 200; poller com sobreposição cobre webhook perdido; retry com backoff por até 24 h e DLQ reprocessável; **verificação pós-escrita** (o B pode responder 200 sem gravar) | [`b1-b-fora-jobs-esperam-e-drenam`](tests/e2e/scenarios/b1-b-fora-jobs-esperam-e-drenam.test.js), [`b2-webhook-perdido-poller-recupera`](tests/e2e/scenarios/b2-webhook-perdido-poller-recupera.test.js), [`b3-sync-cai-no-meio-do-job`](tests/e2e/scenarios/b3-sync-cai-no-meio-do-job.test.js), [`e4-b-lento-disjuntor`](tests/e2e/scenarios/e4-b-lento-disjuntor.test.js), B5 (integração) |
 | **sobrescrever** dado novo com velho | O evento é só um sinal: o worker sempre relê o estado atual do A; um job por chamado | [`c1-eventos-fora-de-ordem`](tests/e2e/scenarios/c1-eventos-fora-de-ordem.test.js), [`b6-vinte-updates-terminam-no-ultimo`](tests/e2e/scenarios/b6-vinte-updates-terminam-no-ultimo.test.js), B10 (integração) |
 
-Os 10 cenários E2E sobem os três sistemas de verdade, ligam o caos do B e derrubam containers ([`tests/e2e/README.md`](tests/e2e/README.md)). O passeio pelo código, com exercícios de quebra, está em [`docs/how-it-works.md`](docs/how-it-works.md).
+Os 11 cenários E2E sobem os três sistemas de verdade, ligam o caos do B e derrubam containers ([`tests/e2e/README.md`](tests/e2e/README.md)). O passeio pelo código, com exercícios de quebra, está em [`docs/how-it-works.md`](docs/how-it-works.md).
+
+## O opcional do avaliador: B → A leve
+
+O avaliador deixou como opcional "o retorno de B para A (mudança de status, quem alterou, solução, fechamento e reabertura)" e pediu, se feito, para mostrar como uma atualização não fica indo e voltando e o que acontece quando os dois alteram o mesmo chamado ao mesmo tempo. Está feito numa versão leve ([ADR-014](docs/adr/014-b-para-a-leve.md)):
+
+- O operador do B **resolve, fecha ou reabre**; em até 30 s o A recebe o status e uma nota com **quem alterou** e a **solução**.
+- **Sem ida e volta:** o que o sync escreveu não conta como mudança do B (`last_written_hash`), o que o `sync-bot` escreveu no A não volta para o B, e nada é escrito se o outro lado já está igual. Prova: E2E [`f4-b-fecha-volta-ao-a-sem-eco`](tests/e2e/scenarios/f4-b-fecha-volta-ao-a-sem-eco.test.js).
+- **Os dois ao mesmo tempo:** o A vence (é a fonte da verdade) e registra na conversa o que o B tinha feito. Edição de outros campos no B é desfeita pelo A. Antes de cada escrita o sync relê o B, então o A nunca reabre o que o B acabou de fechar.
+- Sem aprovação do Técnico: a versão completa (o B propõe, o A aprova, congelamento) está desenhada no ADR-006.
 
 ## Arquitetura
 
@@ -71,7 +80,7 @@ npm ci
 npm test                 # unitários (A e sync); integração do sync com TEST_DATABASE_URL apontando para um Postgres
 npm run test:b           # Sistema B (.NET)
 docker compose -f infra/docker-compose.yml -f infra/docker-compose.e2e.yml --env-file .env.example up -d --build --wait
-npm run e2e              # 10 cenários sob caos, ~3 min
+npm run e2e              # 11 cenários sob caos, ~4 min
 ```
 
 ## Demo de caos (para repetir na URL)
@@ -92,6 +101,7 @@ npm run e2e              # 10 cenários sob caos, ~3 min
 
 ## Suposições
 
+- **Quem trabalha o chamado:** o Técnico, no A (cria, edita, soluciona, fecha). O B é de um terceiro, com operador próprio; o que ele faz com o estado volta ao A (B → A leve).
 - **Do B, só o contrato mínimo:** create, read por ID, update por ID e list paginado, sem idempotência, sem busca e sem garantia de ordem. Um campo de texto é devolvido como foi gravado (é onde vive o marcador).
 - **O B pode mentir:** responder 200 sem gravar, gravar e responder 500, gravar depois do timeout, mudar o formato da resposta.
 - **O A é a fonte da verdade** e segue o GLPI: sem campo de versão; "mais novo" vem do `date_mod` + hash.
@@ -100,9 +110,9 @@ npm run e2e              # 10 cenários sob caos, ~3 min
 
 ## O que ficou de fora
 
-O avaliador confirmou que só o **A → B** é obrigatório. Ficaram de fora, com o desenho e a justificativa em [`docs/out-of-scope.md`](docs/out-of-scope.md):
+O avaliador confirmou que só o **A → B** é obrigatório; o B → A entrou na versão leve (acima). Ficaram de fora, com o desenho e a justificativa em [`docs/out-of-scope.md`](docs/out-of-scope.md):
 
-- **B → A** (o B propõe, o A aprova). As duas perguntas do avaliador estão respondidas no desenho: como evitar o eco ([ADR-009](docs/adr/009-anti-eco.md)) e o que acontece quando A e B mudam o mesmo chamado ao mesmo tempo ([ADR-011](docs/adr/011-concorrencia-a-x-b.md)).
+- **B → A completo:** aprovação do Técnico, congelamento a partir do status 5 e exclusão em 2 passos ([ADR-006](docs/adr/006-b-propoe-a-aprova-congelamento-sla.md), [ADR-007](docs/adr/007-exclusao-em-2-passos.md)).
 - Notas nos dois sentidos, anexos, SLA e mocks extras.
 - Auditoria append-only com linha do tempo: os logs JSON com `correlation_id` e o `audit_log` técnico cobrem a demo.
 
@@ -116,7 +126,7 @@ Registro por issue, por dia e por milestone em [`docs/timelog.md`](docs/timelog.
 |---|---|
 | [`docs/how-it-works.md`](docs/how-it-works.md) | Passeio pelo código, garantias provadas e exercícios de quebra |
 | [`docs/architecture.md`](docs/architecture.md) | Diagramas da arquitetura |
-| [`docs/adr/`](docs/adr/) | Por que cada decisão foi tomada (13 ADRs) |
+| [`docs/adr/`](docs/adr/) | Por que cada decisão foi tomada (14 ADRs) |
 | [`docs/field-mapping.md`](docs/field-mapping.md) | Conversão campo a campo A → B |
 | [`docs/runbook.md`](docs/runbook.md) | O que fazer quando algo foge do normal |
 | [`docs/out-of-scope.md`](docs/out-of-scope.md) | O que ficou de fora e como seria feito |
