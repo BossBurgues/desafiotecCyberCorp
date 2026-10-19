@@ -1,0 +1,61 @@
+# Override dos testes E2E (catálogo da seção 12): o mesmo ambiente com caos agressivo e estado descartável.
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.e2e.yml --env-file .env.example up -d --build --wait
+# Seed fixa: a mesma sequência de requisições produz as mesmas falhas (reprodutível na CI).
+# Valores fixos (não interpolados): o .env de desenvolvimento desliga o caos e não pode vencer aqui.
+# Os cenários que precisam de outra combinação reconfiguram o caos em tempo de execução pelo PUT /admin/chaos.
+name: cybercorp-e2e
+
+services:
+  postgres:
+    # Banco em memória: cada execução começa do zero e não sobra lixo na máquina da CI
+    volumes: !reset []
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  system-a:
+    environment:
+      A_WEBHOOK_DROP_RATE: '30' # perde 30% dos webhooks: o polling precisa cobrir
+    # Volume próprio do projeto cybercorp-e2e: o cenário B2 recria o A sem webhook e os chamados têm de continuar lá.
+    # `down -v` no fim apaga tudo (A e B)
+    volumes: !override
+      - system-a-e2e:/data
+
+  system-b:
+    environment:
+      B_CHAOS_SEED: '42'
+      B_CHAOS_LATENCY_MS: '50'
+      B_CHAOS_ERROR_RATE: '0.10'
+      B_CHAOS_TIMEOUT_RATE: '0.05'
+      B_CHAOS_TIMEOUT_MS: '8000' # acima do B_TIMEOUT_MS do sync: o sync desiste e o B grava depois (A2)
+      B_CHAOS_COMMIT_THEN_FAIL_RATE: '0.05'
+      B_CHAOS_ACK_WITHOUT_PERSIST_RATE: '0.03'
+      B_CHAOS_OK_WITH_ERROR_BODY_RATE: '0.05'
+      B_CHAOS_RATE_LIMIT_RATE: '0.05'
+      B_CHAOS_PAGE_REPEAT_RATE: '0.05'
+      B_CHAOS_PAGE_SKIP_RATE: '0.05'
+      B_CHAOS_LIST_DELAY_MS: '3000'
+    # Volume próprio (não tmpfs): no B1 o B é parado e religado, e uma queda de verdade não apaga os dados dele.
+    # Com tmpfs o B voltaria vazio e reusaria os IDs, um cenário de restauração de backup que está fora do escopo
+    volumes: !override
+      - system-b-e2e:/data
+
+  sync-service:
+    environment:
+      LOG_LEVEL: 'debug'
+      READY_CHECK_INTERVAL_MS: 1000
+      WORKER_POLL_INTERVAL_MS: 200
+      B_BREAKER_OPEN_MS: 5000 # o teste não espera 30 s para ver a meia-abertura
+      POLL_INTERVAL_MS: 1000
+      QUEUE_BACKOFF_MAX_MS: 5000 # retries curtos: a CI não espera 5 min de backoff
+      QUEUE_LEASE_MS: 5000 # B3: o lease de um sync derrubado vence rápido
+      DASHBOARD_CONTROLS: 'true' # os cenários reprocessam a DLQ e mexem no caos pelo dashboard
+      DASHBOARD_USER: 'e2e'
+      DASHBOARD_PASSWORD: 'e2e-senha-fixa-123' # só existe no ambiente descartável do E2E
+
+  # Os testes falam direto com os serviços pelas portas locais; o Caddy (HTTPS) fica de fora
+  caddy:
+    profiles: [caddy]
+
+volumes:
+  system-a-e2e:
+  system-b-e2e:

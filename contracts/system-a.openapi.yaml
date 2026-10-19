@@ -13,6 +13,37 @@ security:
   - appToken: []
     sessionToken: []
 paths:
+  /health:
+    servers:
+      - url: http://localhost:3001
+    get:
+      operationId: health
+      summary: Saúde do Sistema A (sem autenticação, fora de /apirest.php)
+      description: Usado pelo HEALTHCHECK do container e pelo smoke do deploy. Confere o acesso ao SQLite.
+      security: []
+      responses:
+        '200':
+          description: Sistema A e banco operacionais
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+        '503':
+          description: Banco indisponível
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [error]
   /initSession:
     get:
       operationId: initSession
@@ -51,6 +82,49 @@ paths:
       responses:
         '200':
           description: Sessão encerrada
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /getFullSession:
+    get:
+      operationId: getFullSession
+      summary: Devolve o usuário e o perfil da sessão atual
+      description: |
+        Mesmo nome do GLPI real, reduzido ao que a UI (S1.6) usa para mostrar ou esconder ações.
+        Exige só sessão válida (sem permissão por ação). Nunca devolve senha nem token.
+      responses:
+        '200':
+          description: Dados da sessão atual
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [session]
+                properties:
+                  session:
+                    type: object
+                    additionalProperties: false
+                    required: [glpiID, glpiname, glpiactiveprofile]
+                    properties:
+                      glpiID:
+                        type: integer
+                        minimum: 1
+                      glpiname:
+                        type: string
+                      glpiactiveprofile:
+                        type: object
+                        additionalProperties: false
+                        required: [name]
+                        properties:
+                          name:
+                            type: string
+                            enum: [tecnico, estagiario, sync-bot]
+              example:
+                session:
+                  glpiID: 1
+                  glpiname: tecnico
+                  glpiactiveprofile:
+                    name: tecnico
         '401':
           $ref: '#/components/responses/Unauthorized'
   /Ticket:
@@ -117,7 +191,7 @@ paths:
     post:
       operationId: createTicket
       summary: Abre um novo chamado no Sistema A
-      description: Permitido para os perfis Técnico e Estagiário (seção 6 do plano).
+      description: Permitido para Técnico e Estagiário; o `sync-bot` recebe 403 (seção 6 do plano).
       requestBody:
         required: true
         content:
@@ -143,6 +217,8 @@ paths:
                 $ref: '#/components/schemas/GlpiError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
   /Ticket/{id}:
     parameters:
       - $ref: '#/components/parameters/TicketId'

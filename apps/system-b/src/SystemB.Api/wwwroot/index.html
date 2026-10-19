@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sistema B · Operador</title>
+    <link rel="stylesheet" href="/ui/styles.css" />
+    <script type="module" src="/ui/app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#/records">Sistema B <span>· operador (caixa-preta)</span></a>
+      <span class="tag">sem papéis</span>
+    </header>
+
+    <div class="banner error" id="global-error" role="alert" hidden></div>
+    <div class="banner ok" id="global-ok" role="status" hidden></div>
+
+    <main>
+      <section id="screen-list" class="screen" hidden>
+        <div class="row-between">
+          <h1>Registros</h1>
+          <button type="button" class="ghost" id="refresh">Atualizar</button>
+        </div>
+        <p class="hint">
+          Tudo o que você fizer aqui é, para o sync, uma mudança feita no B: resolver, fechar, excluir e reabrir viram
+          proposta no A; editar campos é revertido.
+        </p>
+        <div class="card table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID no B</th>
+                <th>Chamado do A</th>
+                <th>Título</th>
+                <th>Estado</th>
+                <th>Severidade</th>
+                <th>Atualizado (B)</th>
+              </tr>
+            </thead>
+            <tbody id="records-body"></tbody>
+          </table>
+          <p class="empty" id="records-empty" hidden>Nenhum registro no B.</p>
+        </div>
+        <div class="pager">
+          <button type="button" class="ghost" id="prev-page">Anterior</button>
+          <span id="page-label"></span>
+          <button type="button" class="ghost" id="next-page">Próxima</button>
+        </div>
+      </section>
+
+      <section id="screen-detail" class="screen" hidden>
+        <p><a href="#/records">← Registros</a></p>
+        <div class="row-between">
+          <h1 id="detail-title"></h1>
+          <span class="badge" id="detail-state"></span>
+        </div>
+        <p class="meta" id="detail-meta"></p>
+
+        <div class="card actions">
+          <h2>Ações rápidas</h2>
+          <div class="buttons">
+            <button type="button" data-state="IN_PROGRESS">Em andamento</button>
+            <button type="button" data-state="ON_HOLD">Em espera</button>
+            <button type="button" data-state="RESOLVED">Resolver</button>
+            <button type="button" data-state="CLOSED">Fechar</button>
+            <button type="button" id="reopen" data-state="OPEN">Reabrir</button>
+            <button type="button" class="danger" id="delete">Excluir</button>
+          </div>
+        </div>
+
+        <form id="edit-form" class="card">
+          <h2>Editar campos</h2>
+          <label>
+            Título
+            <input name="title" required maxlength="200" />
+          </label>
+          <label>
+            Descrição
+            <textarea name="description" rows="6"></textarea>
+          </label>
+          <p class="hint">O marcador <code>⟦s:glpi-…⟧</code> no fim da descrição liga o registro ao chamado do A.</p>
+          <div class="grid">
+            <label>
+              Estado
+              <select name="state"></select>
+            </label>
+            <label>
+              Severidade
+              <select name="severity"></select>
+            </label>
+            <label>
+              Categoria
+              <input name="category" />
+            </label>
+            <label>
+              Requerente
+              <input name="requester" />
+            </label>
+            <label>
+              Responsável
+              <input name="assignee" />
+            </label>
+          </div>
+          <button type="submit">Salvar</button>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>

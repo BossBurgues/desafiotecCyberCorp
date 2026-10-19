@@ -22,6 +22,7 @@ jobs:
       system-a: ${{ steps.filter.outputs.system-a }}
       system-b: ${{ steps.filter.outputs.system-b }}
       sync-service: ${{ steps.filter.outputs.sync-service }}
+      e2e: ${{ steps.filter.outputs.e2e }}
     steps:
       # Em push o filtro compara com o ponto em que a branch saiu da Dev, e para isso precisa do checkout
       - uses: actions/checkout@v4
@@ -37,19 +38,34 @@ jobs:
               - '.github/workflows/ci.yml'
             system-a:
               - 'apps/system-a/**'
+              - '.dockerignore'
+              - 'infra/scripts/smoke-system-a.sh'
               - 'contracts/**'
               - 'package.json'
               - 'package-lock.json'
               - '.github/workflows/ci.yml'
             sync-service:
               - 'apps/sync-service/**'
+              - 'infra/docker-compose*.yml'
+              - 'infra/caddy/**'
+              - '.env.example'
               - 'contracts/**'
               - 'package.json'
               - 'package-lock.json'
               - '.github/workflows/ci.yml'
             system-b:
               - 'apps/system-b/**'
+              - 'infra/scripts/smoke-system-b.sh'
               - 'contracts/**'
+              - '.github/workflows/ci.yml'
+            e2e:
+              - 'apps/system-a/**'
+              - 'apps/system-b/**'
+              - 'apps/sync-service/**'
+              - 'tests/e2e/**'
+              - 'infra/**'
+              - '.env.example'
+              - 'package-lock.json'
               - '.github/workflows/ci.yml'
 
   contracts:
@@ -76,15 +92,32 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      # Placeholder: os scripts ainda estão vazios; --if-present deixa passar até a S4.2 preencher
+      # lint e typecheck seguem como placeholder (--if-present) até a S4.2; o test é obrigatório desde a S1.7
       - run: npm run lint -w apps/system-a --if-present
       - run: npm run typecheck -w apps/system-a --if-present
-      - run: npm run test -w apps/system-a --if-present
+      - run: npm run test -w apps/system-a
+      - name: Build da imagem do Sistema A
+        run: docker build -f apps/system-a/Dockerfile -t system-a:ci .
+      - name: Smoke do container
+        run: bash infra/scripts/smoke-system-a.sh system-a:ci
 
   sync-service:
     needs: changes
     if: needs.changes.outputs.sync-service == 'true'
     runs-on: ubuntu-latest
+    # Postgres de verdade para migrations e /ready (testes de integração); credenciais descartáveis da própria CI
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sync
+          POSTGRES_PASSWORD: sync-ci
+          POSTGRES_DB: sync_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U sync" --health-interval 2s --health-timeout 5s --health-retries 15
+    env:
+      TEST_DATABASE_URL: postgres://sync:sync-ci@localhost:5432/sync_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -94,7 +127,15 @@ jobs:
       - run: npm ci
       - run: npm run lint -w apps/sync-service --if-present
       - run: npm run typecheck -w apps/sync-service --if-present
-      - run: npm run test -w apps/sync-service --if-present
+      - run: npm run test -w apps/sync-service
+      - run: npm run build -w apps/sync-service
+      - name: Build da imagem do sync
+        run: docker build -f apps/sync-service/Dockerfile -t sync-service:ci .
+      # O compose recusa subir sem os segredos; aqui ele só valida a sintaxe e a mescla com o override E2E
+      - name: Compose válido (base e E2E)
+        run: |
+          docker compose -f infra/docker-compose.yml --env-file .env.example config -q
+          docker compose -f infra/docker-compose.yml -f infra/docker-compose.e2e.yml --env-file .env.example config -q
 
   system-b:
     needs: changes
@@ -105,14 +146,47 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: apps/system-b/global.json
-      # Placeholder: ainda não há projeto .NET; o teste passa a rodar sozinho quando o primeiro .csproj existir
       - name: dotnet test
-        run: |
-          if find apps/system-b -name '*.sln' -o -name '*.csproj' | grep -q .; then
-            dotnet test apps/system-b
-          else
-            echo "system-b: nenhum projeto .NET ainda (placeholder)"
-          fi
+        run: dotnet test apps/system-b
+      - name: Build da imagem do Sistema B
+        run: docker build -t system-b:ci apps/system-b
+      - name: Smoke do container
+        run: bash infra/scripts/smoke-system-b.sh system-b:ci
+      # A VM de produção é ARM (Oracle Ampere); o build cruzado prova que a imagem sai para as duas arquiteturas
+      - uses: docker/setup-buildx-action@v3
+      - name: Build multi-arquitetura (amd64 + arm64)
+        run: docker buildx build --platform linux/amd64,linux/arm64 apps/system-b
+
+  # Cenários do núcleo (S4.2) contra os três sistemas de verdade, com o caos do B ligado
+  e2e:
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      COMPOSE: docker compose -f infra/docker-compose.yml -f infra/docker-compose.e2e.yml --env-file .env.example
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Sobe A, B, sync e Postgres (override E2E)
+        run: $COMPOSE up -d --build --wait
+      - run: npm ci
+      - run: npm run e2e
+      - name: Logs dos containers
+        if: failure()
+        run: $COMPOSE logs --no-color --timestamps > e2e-logs.txt
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-logs
+          path: e2e-logs.txt
+          retention-days: 7
+      - name: Derruba o ambiente
+        if: always()
+        run: $COMPOSE down -v
 
   # A proteção do GitHub não restringe a origem do PR; este job garante que a Prod só recebe a Dev
   prod-source-guard:
@@ -133,7 +207,7 @@ jobs:
 
   # Única verificação exigida pelas proteções: resume o resultado de todos os jobs acima
   ci-ok:
-    needs: [changes, contracts, system-a, sync-service, system-b, prod-source-guard]
+    needs: [changes, contracts, system-a, sync-service, system-b, e2e, prod-source-guard]
     if: always()
     runs-on: ubuntu-latest
     steps:

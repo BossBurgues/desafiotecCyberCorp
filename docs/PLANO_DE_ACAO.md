@@ -7,11 +7,66 @@
 
 > **Como usar este plano (pessoa ou LLM executora)**
 > 1. Trabalhe **issue por issue** no GitHub, respeitando as dependências *blocked by*. Uma issue só começa quando todas as que a bloqueiam estão fechadas.
-> 2. **Uma branch por milestone** (`milestone/M0-fundacao`, …). Cada atualização = commit pequeno (Conventional Commits) + push + PR para a `Dev` que fecha a issue (`Closes #n`). A `Dev` faz deploy em homologação; a `Prod` recebe um PR de release por milestone e faz deploy em produção. Ver seções 14.1 e 14.2.
-> 2.1. **Antes de cada merge: rodada de QA** registrada no PR (critérios, negativos, validações temporárias, regressão). Ver seção 14.3.
+> 2. **Uma branch por milestone** (`milestone/M0-fundacao`, …). Cada atualização = commit pequeno (Conventional Commits) + push + PR para a `Dev` que fecha a issue (`Closes #n`). A `Dev` roda a CI (sem deploy, ver seção 0); a `Prod` recebe um PR de release por milestone e faz deploy em produção. Ver seções 14.1 e 14.2.
 > 3. Ao terminar cada issue: CI verde, `docs/how-it-works.md` atualizado e uma **explicação em linguagem simples** no PR (o que foi feito, por quê, como testar e qual garantia protege).
 > 4. Ao terminar cada milestone, **pare e explique** antes de seguir.
 > 5. Toda decisão abaixo foi tomada de propósito (sessão de *grilling*). Não mude nada sem registrar um ADR novo.
+
+---
+
+## 0. ⚠️ Escopo revisado em 18/10 (prevalece sobre o resto do documento)
+
+O plano original cresceu além do que o desafio pede. Com o prazo de 22/10, a estratégia passa a ser: **entregar o núcleo A → B à prova de caos, publicado e bem documentado**, e transformar o resto em **desenho documentado** (ADRs + `out-of-scope.md`). O próprio enunciado valoriza mais o raciocínio do que uma solução completa, e o avaliador confirmou que o B → A é opcional.
+
+### 0.1 O que já está pronto e é aproveitado
+
+| Área | Entregue | Issues |
+|---|---|---|
+| Fundação | Monorepo, CI com detecção por app, Dev/Prod protegidas, 12 ADRs, contratos OpenAPI | M0 inteira |
+| Sistema A | API estilo GLPI, perfis (Técnico/Estagiário/sync-bot), webhook HMAC com perda simulada, UI, Docker | S1.1, S1.2, S1.3, S1.6, S1.7 |
+| Sistema B | API do contrato mínimo, **caos completo**, UI do operador, admin, testes e Docker | S2.1, S2.2, S2.4, S2.5, S2.6 |
+| Sync | Bootstrap, domínio puro (mapper, hash, fuso, marcador), fila com lease/backoff/DLQ, adapter do B com circuit breaker | S3.1, S3.2, S3.3, S3.5 |
+| Sync (PR #163 aberto) | processJob idempotente com marcador, webhook + poller | S3.4, S3.6 |
+| Infra e docs | Compose completo, architecture.md, field-mapping.md, how-it-works.md, out-of-scope.md | S4.1, S9.2, S9.5 |
+
+Também é aproveitado o **desenho completo do B → A** (ADRs 006, 007, 009 e 011, seções 5.1 e 5.2): ele responde às duas perguntas do avaliador mesmo sem estar implementado.
+
+### 0.2 O que falta (o novo escopo inteiro)
+
+| # | Issue | Por que fica |
+|---|---|---|
+| 1 | **S3.4 + S3.6** (PR #163) | O coração: sem eles não há sincronização |
+| 2 | **S3.8** Verificação pós-escrita + 404 | Barata e fecha o "B diz que gravou e não gravou" (perda) |
+| 3 | **S3.10** Dashboard: fila, DLQ com reprocessar, controles de caos | É a tela da demo de caos |
+| 4 | **S5.3** Login no dashboard (movida para a M1) | A URL é pública e o caos não pode ficar aberto |
+| 5 | **S4.2** CI com E2E | Prova as garantias a cada PR |
+| 6 | **S4.3 + S4.4** VM + deploy, **um único ambiente** (produção, a partir da `Prod`) | Entregável obrigatório: URL publicada. A `Dev` fica só com a CI |
+| 7 | **14 cenários** do núcleo | A1, A2, A4, A6, B1, B2, B3, B5, B6, B10, C1, E4, H1, H2 |
+| 8 | **M5:** README, how-it-works final, runbook curto, timelog, roteiro + vídeo, entrega | Entregáveis do enunciado |
+
+### 0.3 O que sai (fechado como *not planned*, label `out-of-scope`, explicado no `out-of-scope.md`)
+
+| Sai | Motivo |
+|---|---|
+| **M3 inteiro (B → A):** propostas, aprovação, congelamento, exclusão em 2 passos, anti-eco, concorrência A×B (S1.5, S2.7, S6.1–S6.9) | Opcional segundo o avaliador. O desenho fica nos ADRs 006, 007, 009 e 011 |
+| **M4 inteiro:** notas nos dois sentidos, comentários no B, localização, mocks de alertas, anexos, de-para e SLA (S1.4, S2.3, S7.1–S7.7) | Não fazem parte do A → B obrigatório |
+| **M2, exceto o login:** audit_log append-only, linha do tempo, scans de segurança (S5.1, S5.2, S5.4) | Os logs JSON com `correlation_id` já existentes bastam para a demo |
+| **Luxos da M1:** teste de capacidade do marcador (S3.7), auditor anti-entropia (S3.9) | A verificação pós-escrita (S3.8) cobre o essencial do auditor |
+| **Segundo ambiente** (homologação em `dev.<host>`) | Um deploy só (produção). A `Dev` continua sendo a branch de integração com CI |
+| **Cenários fora do núcleo** (de 61 para 14) | Os que sobram provam as 3 garantias. Os demais dependiam do que foi cortado ou eram variações |
+
+### 0.4 Novo cronograma
+
+| Dia | Entrega |
+|---|---|
+| 18/10 (dom) | Merge do PR #163 (S3.4 + S3.6) |
+| 19/10 (seg) | S3.8 · S3.10 + S5.3 · cenários do núcleo em E2E (S4.2) |
+| 20/10 (ter) | S4.3 + S4.4: **URL publicada** · ensaio da demo de caos |
+| 21/10 (qua) | M5: README, how-it-works, runbook, timelog, roteiro e vídeo |
+| 22/10 (qui) | **Entrega** |
+| 23/10 (sex) | Reserva |
+
+**Regra de corte:** se a URL não estiver no ar no fim de 20/10, o E2E na CI (S4.2) vira teste local documentado e todo o esforço vai para o deploy.
 
 ---
 
@@ -60,7 +115,7 @@ Toda criação ou atualização de chamado no **Sistema A** (estilo GLPI) precis
 | Q32 | Segurança | HMAC + timestamp no webhook, segredos só em GitHub Secrets/`.env`, dashboard e caos atrás de login, scans na CI |
 | Q38 | Mocks extras | Caixa de saída de alertas, anexos (só metadados), tabela de-para de usuários/grupos/categorias, SLA (TTR/TTO) no A |
 | Hosp. | Infra | VM **Oracle Always Free** + Docker Compose + Caddy (HTTPS). Imagens no GHCR. Plano B: Render + Neon |
-| CI/CD | Pipeline | **GitHub Actions** (principal). GitLab como **mirror**. `milestone/*` → `Dev` (homologação) → `Prod` (produção), com promoção da mesma imagem (seção 14.2) |
+| CI/CD | Pipeline | **GitHub Actions**, sem mirror no GitLab (ADR-012: o enunciado aceita GitHub ou GitLab). `milestone/*` → `Dev` (homologação) → `Prod` (produção), com promoção da mesma imagem (seção 14.2) |
 | Q16/Q24 | Gestão | Milestones = camadas, épicos com sub-issues, stories com critérios de aceite, dependências *blocked by*, Roadmap no Project |
 
 ---
@@ -354,7 +409,7 @@ Nível: **U** unitário · **I** integração · **E** E2E (CI) · **D** demo/ma
 - **Dependências nativas *blocked by*:** fechar uma issue libera as próximas.
 - **Labels:** `type:*` (epic/story/test/docs) · `app:*` (system-a/system-b/sync/infra/docs) · `guarantee:*` (no-dup/no-loss/no-stale) · `area:*` (approval/blackbox/echo/data/security/audit).
 - **Story:** "Como [papel], quero [ação], para [valor]" + critérios de aceite + Definition of Done.
-- **Definition of Done:** **rodada de QA registrada (14.3)** · testes passando · CI verde · documentação/`how-it-works` atualizados · PR explicando o que foi feito, por quê, como testar e qual garantia protege · horas registradas no `timelog.md`.
+- **Definition of Done:** testes passando · CI verde · documentação/`how-it-works` atualizados · PR explicando o que foi feito, por quê, como testar e qual garantia protege · horas registradas no `timelog.md`.
 - **Branches:** uma por milestone (ver 14.1). A `main` fica protegida e sempre pronta para deploy.
 - **Project:** Status · Milestone · Priority · Size · Estimate · Start/Target date → views **Board** e **Roadmap**.
 
@@ -403,7 +458,7 @@ flowchart LR
 **Regras:**
 - No máximo **3 branches de milestone ativas ao mesmo tempo** (o atual e os próximos desbloqueados pela prioridade).
 - Um PR aberto por vez em cada branch. A próxima issue só começa depois do merge da anterior.
-- A branch do milestone é apagada quando todas as issues dele estiverem fechadas.
+- A branch do milestone **não é apagada** ao concluir: ela fica congelada como histórico do milestone, para mostrar na apresentação a evolução e os commits de cada etapa. Não recebe mais commits depois do PR de release.
 - Os cenários de teste (épico E8) entram na branch do **milestone de cada cenário**.
 - Exceção histórica: a S0.1 (#12) foi entregue no PR #135 (`feat/12-estrutura-monorepo` → `main`) antes desta regra. A `Dev` e a `Prod` nasceram desse merge, e a `milestone/M0-fundacao` nasce da `Dev`.
 
@@ -428,39 +483,15 @@ flowchart LR
 
 Issues afetadas: **S0.2** (CI esqueleto + proteções da `Dev`/`Prod`), **S4.2** (CI completo), **S4.3** (VM com dois ambientes) e **S4.4** (deploy dev/prod).
 
-### 14.3 Rodada de QA ao fim de cada issue (definido em 18/10)
+### 14.3 Verificação por issue: fluxo enxuto (revisado em 18/10)
 
-Nenhuma issue é mergeada sem uma **rodada de QA registrada**. O padrão nasceu na M0 (PRs #136 e #140, com as validações temporárias #137–#139) e vale para todas as issues daqui em diante.
+Por causa do prazo, **não há rodada de QA formal, nem PRs temporários de validação, nem testes de "CI quebrada"**. Cada issue é considerada pronta com:
 
-**Quando:** depois da implementação e antes do merge na `Dev`. Para issues com comportamento em runtime, há também um **QA pós-merge** na homologação.
+1. **testes da própria issue** passando localmente;
+2. **CI verde** no PR para a `Dev`;
+3. **"Como testar"** preenchido no PR (comandos curtos para reproduzir).
 
-**Passos:**
-
-| # | Etapa | O que fazer | Evidência |
-|---|---|---|---|
-| 1 | **Critérios de aceite** | Verificar **cada** critério da issue, um a um | Comando + saída, link do run da CI ou captura de tela |
-| 2 | **Caminho feliz** | Executar o fluxo principal como está em "Como testar" | Saída dos comandos / testes verdes |
-| 3 | **Testes negativos** | Provar que o que deve ser **bloqueado ou rejeitado** de fato é (ex.: PR para a `Prod` fora da `Dev`, push direto, 403/409, HMAC inválido, B com caos) | Saída mostrando a falha esperada |
-| 4 | **Validações temporárias** | Quando o comportamento só aparece no GitHub/CI: abrir PRs **rascunho** de uma branch `test/qa-<nº>-<slug>` com título `test(qa): …`, observar o resultado, **fechar sem merge e apagar a branch** | Links dos PRs fechados, listados no PR da issue |
-| 5 | **Regressão** | CI completa verde. Em issues de código, rodar os **cenários do catálogo** ligados à issue (mesmos rótulos `guarantee:*` / `area:*`) | Run da CI + lista de cenários executados |
-| 6 | **Prova de que o teste testa** | Em issues que protegem uma garantia: remover/desligar o mecanismo localmente e ver o teste falhar (ver "exercícios de quebra", seção 18) | Saída do teste falhando |
-| 7 | **QA pós-merge** (só issues de runtime) | Depois do deploy em `dev.<host>`: smoke + fluxo principal na homologação | Saída do smoke / captura |
-
-**Registro:** a seção **QA** do PR traz a tabela *critério → como verifiquei → resultado (✅/❌) → evidência* e os links das validações temporárias. O comentário final no PR é **"QA ✅"** ou **"QA ❌"**, com o que falhou.
-
-**Se o QA falhar:**
-- defeito da própria issue → corrigir no mesmo PR (`fix(...)`, `Refs #n`) e repetir a rodada;
-- defeito de outra coisa → abrir issue `[bug]` (template de bug), ligada como *blocked by* se impedir o merge.
-
-**Proporcionalidade:** o tamanho da rodada acompanha a issue. Documentação = critérios + checagem por script (ex.: seções obrigatórias dos ADRs) + CI. Infra/CI = critérios + testes negativos + validações temporárias. Código = todas as etapas.
-
-**QA de release (fim do milestone, antes do PR `Dev` → `Prod`):**
-- todos os cenários E2E do milestone verdes na `Dev`;
-- smoke completo na homologação;
-- o trecho da demo (seção 17) referente ao milestone executado de ponta a ponta;
-- o resultado vai na descrição do PR de release.
-
-**Tempo:** as horas de QA entram na mesma linha da issue no `timelog.md` (coluna Observações: "inclui QA").
+No fim de cada milestone, o PR `Dev` → `Prod` só exige a **CI verde na `Dev`** e o **smoke automático** do deploy de homologação.
 
 ---
 
@@ -468,7 +499,7 @@ Nenhuma issue é mergeada sem uma **rodada de QA registrada**. O padrão nasceu 
 
 | Dia | Foco | Milestone |
 |---|---|---|
-| 16/10 (sex) | Planejamento ✅ · estrutura do repo · CI esqueleto · ADRs · contratos | M0 |
+| 16/10 (sex) | Planejamento ✅ · estrutura do repo · CI esqueleto · ADRs · contratos | M0 ✅ concluído em 18/10 (release #144) |
 | 17/10 (sáb) | Sistema A (JS) + Sistema B (C#) com caos, perfis e UIs | M1 |
 | 18/10 (dom) | Núcleo do sync: banco, fila, worker, adapter B, processJob, marcador | M1 |
 | 19/10 (seg) | Poller, auditor, verificação pós-escrita, cenários A/B/C/E/G na CI, **deploy publicado** | M1 ✅ |
@@ -476,6 +507,8 @@ Nenhuma issue é mergeada sem uma **rodada de QA registrada**. O padrão nasceu 
 | 21/10 (qua) | Propostas, congelamento, exclusão em 2 passos, notas, mocks extras | M3 + M4 |
 | 22/10 (qui) | Docs, out-of-scope, timelog, roteiro + vídeo da demo, **entrega** | M5 |
 | 23/10 (sex) | Reserva | — |
+
+**Status em 18/10:** a M0 terminou 2 dias depois do previsto (release #144). Na M1, o Sistema A avançou (S1.1, S1.2, S1.3 e S1.7 fechadas), mas o **Sync (S3.2 → S3.1) e o Sistema B (S2.1) ainda não começaram** e são o caminho crítico: juntos, destravam o adapter do B (S3.5) e o processJob (S3.6). A UI do A (S1.6) pode esperar sem atrasar nada.
 
 **Regra de corte:** se a M1 não estiver verde e publicada no fim de 20/10, M3/M4 viram "desenho documentado + mock mínimo".
 

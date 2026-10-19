@@ -1,0 +1,155 @@
+# Ambiente completo, o mesmo em local, CI e VM (ADR-010): A, B, sync, Postgres e Caddy.
+#   cp .env.example .env          # na raiz; em produção os valores vêm dos GitHub Environments
+#   docker compose -f infra/docker-compose.yml --env-file .env up -d --build
+# Segredos sem valor padrão (${VAR:?}): o compose recusa subir sem eles, nunca cai num valor de desenvolvimento.
+name: cybercorp
+
+x-restart: &restart
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: 10m, max-file: '3' }
+
+services:
+  postgres:
+    <<: *restart
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sync
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}
+      POSTGRES_DB: sync
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sync -d sync']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  system-a:
+    <<: *restart
+    image: ${IMAGE_PREFIX:-cybercorp}/system-a:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: apps/system-a/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      A_DB_PATH: /data/system-a.db
+      A_TIMEZONE: ${A_TIMEZONE:-America/Sao_Paulo}
+      A_TRUST_PROXY: 'true' # atrás do Caddy: o IP de origem da auditoria vem do X-Forwarded-For
+      A_APP_TOKEN: ${A_APP_TOKEN:?defina A_APP_TOKEN}
+      A_UI_APP_TOKEN: ${A_UI_APP_TOKEN:?defina A_UI_APP_TOKEN}
+      A_TECNICO_PASSWORD: ${A_TECNICO_PASSWORD:?defina A_TECNICO_PASSWORD}
+      A_ESTAGIARIO_PASSWORD: ${A_ESTAGIARIO_PASSWORD:?defina A_ESTAGIARIO_PASSWORD}
+      A_SYNC_BOT_TOKEN: ${A_SYNC_BOT_TOKEN:?defina A_SYNC_BOT_TOKEN}
+      # Sinal rápido; o poller do sync é a garantia quando o webhook se perde (Q1, cenário B2)
+      A_WEBHOOK_ENABLED: ${A_WEBHOOK_ENABLED:-true}
+      A_WEBHOOK_URL: http://sync-service:3000/webhooks/system-a
+      A_WEBHOOK_DROP_RATE: ${A_WEBHOOK_DROP_RATE:-0}
+      HMAC_SECRET: ${HMAC_SECRET:?defina HMAC_SECRET}
+    volumes:
+      - system-a-data:/data
+    ports:
+      - 127.0.0.1:3001:3001
+
+  system-b:
+    <<: *restart
+    image: ${IMAGE_PREFIX:-cybercorp}/system-b:${IMAGE_TAG:-local}
+    build:
+      context: ../apps/system-b
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:5002
+      B_DB_PATH: /data/system-b.db
+      B_ADMIN_TOKEN: ${B_ADMIN_TOKEN:?defina B_ADMIN_TOKEN}
+      # Caos desligado por padrão; ligado pelo /admin/chaos ou pelo override E2E
+      B_CHAOS_SEED: ${B_CHAOS_SEED:-}
+      B_CHAOS_LATENCY_MS: ${B_CHAOS_LATENCY_MS:-0}
+      B_CHAOS_ERROR_RATE: ${B_CHAOS_ERROR_RATE:-0}
+      B_CHAOS_TIMEOUT_RATE: ${B_CHAOS_TIMEOUT_RATE:-0}
+      B_CHAOS_TIMEOUT_MS: ${B_CHAOS_TIMEOUT_MS:-30000}
+      B_CHAOS_COMMIT_THEN_FAIL_RATE: ${B_CHAOS_COMMIT_THEN_FAIL_RATE:-0}
+      B_CHAOS_ACK_WITHOUT_PERSIST_RATE: ${B_CHAOS_ACK_WITHOUT_PERSIST_RATE:-0}
+      B_CHAOS_OK_WITH_ERROR_BODY_RATE: ${B_CHAOS_OK_WITH_ERROR_BODY_RATE:-0}
+      B_CHAOS_RATE_LIMIT_RATE: ${B_CHAOS_RATE_LIMIT_RATE:-0}
+      B_CHAOS_TRUNCATE_TEXT: ${B_CHAOS_TRUNCATE_TEXT:-0}
+      B_CHAOS_PAGE_REPEAT_RATE: ${B_CHAOS_PAGE_REPEAT_RATE:-0}
+      B_CHAOS_PAGE_SKIP_RATE: ${B_CHAOS_PAGE_SKIP_RATE:-0}
+      B_CHAOS_LIST_DELAY_MS: ${B_CHAOS_LIST_DELAY_MS:-0}
+      B_CHAOS_FORMAT_DRIFT: ${B_CHAOS_FORMAT_DRIFT:-false}
+    volumes:
+      - system-b-data:/data
+    ports:
+      - 127.0.0.1:5002:5002
+
+  sync-service:
+    <<: *restart
+    image: ${IMAGE_PREFIX:-cybercorp}/sync-service:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: apps/sync-service/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://sync:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}@postgres:5432/sync
+      A_BASE_URL: http://system-a:3001
+      B_BASE_URL: http://system-b:5002
+      READY_CHECK_INTERVAL_MS: ${READY_CHECK_INTERVAL_MS:-5000}
+      WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-1000}
+      B_TIMEOUT_MS: ${B_TIMEOUT_MS:-5000}
+      B_BREAKER_THRESHOLD: ${B_BREAKER_THRESHOLD:-5}
+      B_BREAKER_OPEN_MS: ${B_BREAKER_OPEN_MS:-30000}
+      A_APP_TOKEN: ${A_APP_TOKEN:?defina A_APP_TOKEN}
+      A_SYNC_BOT_TOKEN: ${A_SYNC_BOT_TOKEN:?defina A_SYNC_BOT_TOKEN}
+      A_TIMEZONE: ${A_TIMEZONE:-America/Sao_Paulo}
+      HMAC_SECRET: ${HMAC_SECRET:?defina HMAC_SECRET}
+      B_MARKER_FIELD: ${B_MARKER_FIELD:-description}
+      CREATE_UNCERTAIN_SCANS: ${CREATE_UNCERTAIN_SCANS:-2}
+      VERIFY_AFTER_WRITE: ${VERIFY_AFTER_WRITE:-true}
+      POLL_INTERVAL_MS: ${POLL_INTERVAL_MS:-10000}
+      POLL_OVERLAP_MS: ${POLL_OVERLAP_MS:-120000}
+      # Painel de caos do dashboard fala com o /admin do B pela rede interna
+      B_ADMIN_TOKEN: ${B_ADMIN_TOKEN:?defina B_ADMIN_TOKEN}
+      # Login do dashboard (S5.3): sem usuário e senha o dashboard não sobe. Os controles só valem para quem logou
+      DASHBOARD_USER: ${DASHBOARD_USER:-}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+      DASHBOARD_CONTROLS: ${DASHBOARD_CONTROLS:-true}
+    # Só o Postgres é pré-requisito: A ou B fora não impedem a subida, o /ready mostra e o worker pausa
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - 127.0.0.1:3000:3000
+
+  caddy:
+    <<: *restart
+    image: caddy:2.10-alpine
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - ${CADDY_HTTP_PORT:-80}:80
+      - ${CADDY_HTTPS_PORT:-443}:443
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:2019/config/']
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    depends_on:
+      system-a:
+        condition: service_healthy
+      system-b:
+        condition: service_healthy
+      sync-service:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  system-a-data:
+  system-b-data:
+  caddy-data:
+  caddy-config:
