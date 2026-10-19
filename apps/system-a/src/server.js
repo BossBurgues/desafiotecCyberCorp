@@ -4,6 +4,7 @@ import {
   ACTIONS,
   AuthError,
   ForbiddenError,
+  PROFILES,
   can,
   hashToken,
   loadAuthConfig,
@@ -21,6 +22,7 @@ import {
   createTicketEmitter,
   glpiError,
   parseListQuery,
+  formatLocalDateTime,
   parseTicketId,
   prepareNewTicket,
   prepareTicketUpdate,
@@ -364,6 +366,55 @@ export function buildServer({
         },
       );
 
+      // Acompanhamentos (S1.4): notas da conversa do chamado. O sync-bot escreve aqui o que veio do B (B → A leve)
+      api.get(
+        '/Ticket/:id/ITILFollowup',
+        { config: { action: ACTIONS.TICKET_READ } },
+        async (request) => {
+          const id = parseTicketId(request.params.id);
+          if (!store.getById(id)) {
+            throw new TicketNotFoundError(`Chamado ${id} não encontrado.`);
+          }
+          return store.listFollowups(id);
+        },
+      );
+
+      api.post(
+        '/ITILFollowup',
+        { config: { action: ACTIONS.FOLLOWUP_CREATE } },
+        async (request, reply) => {
+          const input = request.body?.input;
+          const bad = (msg) => {
+            const err = new Error(msg);
+            err.glpiCode = 'ERROR_INVALID_INPUT';
+            err.statusCode = 400;
+            throw err;
+          };
+          if (!input || typeof input !== 'object' || Array.isArray(input)) bad('O corpo deve ter "input".');
+          for (const key of Object.keys(input)) {
+            if (!['itemtype', 'items_id', 'content', 'is_private'].includes(key)) bad(`Campo não permitido no input: ${key}.`);
+          }
+          if (input.itemtype !== 'Ticket') bad('itemtype deve ser "Ticket".');
+          if (!Number.isInteger(input.items_id) || input.items_id < 1) bad('items_id deve ser um inteiro >= 1.');
+          if (typeof input.content !== 'string' || input.content.trim() === '') bad('content é obrigatório.');
+          const isPrivate = input.is_private ?? 0;
+          if (isPrivate !== 0 && isPrivate !== 1) bad('is_private deve ser 0 ou 1.');
+          if (!store.getById(input.items_id)) {
+            throw new TicketNotFoundError(`Chamado ${input.items_id} não encontrado.`);
+          }
+          const at = formatLocalDateTime(typeof now === 'function' ? now() : now, timeZone);
+          const created = store.insertFollowup({
+            items_id: input.items_id,
+            users_id: request.user.id,
+            content: input.content,
+            is_private: isPrivate,
+            date: at,
+            date_mod: at,
+          });
+          return reply.code(201).send(created);
+        },
+      );
+
       // Catálogos (somente leitura): o mesmo direito de ler chamados, inclusive para o sync-bot
       const catalogRoute = (path, list) => {
         api.get(path, { config: { action: ACTIONS.TICKET_READ } }, async () => list());
@@ -404,6 +455,12 @@ export function buildServer({
           const existing = store.getById(id);
           if (!existing) {
             throw new TicketNotFoundError(`Chamado ${id} não encontrado.`);
+          }
+          if (request.user.profile === PROFILES.SYNC_BOT) {
+            const keys = Object.keys(request.body?.input ?? {});
+            if (keys.length !== 1 || keys[0] !== 'status') {
+              throw new ForbiddenError(request.user.profile, `${ACTIONS.TICKET_UPDATE} (só o campo status)`);
+            }
           }
           const patch = lifecycleDates(prepareTicketUpdate(request.body, { now, timeZone }), existing);
           assertReferences(patch, store);

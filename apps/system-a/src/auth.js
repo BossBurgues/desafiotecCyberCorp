@@ -33,9 +33,11 @@ const PERMISSION_MATRIX = Object.freeze({
     ACTIONS.SOLUTION_DECIDE,
   ]),
   [PROFILES.ESTAGIARIO]: new Set([ACTIONS.TICKET_READ, ACTIONS.TICKET_CREATE]),
-  // No M1 o sync-bot apenas lê chamados; escritas de nota (S1.4) e proposta de solução (S1.5/M3) já ficam declaradas.
+  // O sync-bot lê chamados e, no B → A leve, aplica o status vindo do B e escreve a nota que explica a mudança.
+  // A rota PUT /Ticket/:id limita o sync-bot ao campo status (o resto do chamado é do Técnico).
   [PROFILES.SYNC_BOT]: new Set([
     ACTIONS.TICKET_READ,
+    ACTIONS.TICKET_UPDATE,
     ACTIONS.FOLLOWUP_CREATE,
     ACTIONS.SOLUTION_CREATE,
   ]),

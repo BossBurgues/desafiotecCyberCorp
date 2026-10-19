@@ -77,6 +77,16 @@ export class TicketStore {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS followups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        items_id INTEGER NOT NULL REFERENCES tickets(id),
+        users_id INTEGER NOT NULL REFERENCES users(id),
+        content TEXT NOT NULL,
+        is_private INTEGER NOT NULL DEFAULT 0,
+        date TEXT NOT NULL,
+        date_mod TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS access_denials (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         occurred_at TEXT NOT NULL,
@@ -395,6 +405,28 @@ export class TicketStore {
     return this.db
       .prepare('SELECT * FROM access_denials WHERE id = ?')
       .get(Number(info.lastInsertRowid));
+  }
+
+  insertFollowup(f) {
+    const info = this.db
+      .prepare(
+        `INSERT INTO followups (items_id, users_id, content, is_private, date, date_mod)
+         VALUES (@items_id, @users_id, @content, @is_private, @date, @date_mod)`,
+      )
+      .run(f);
+    return this.getFollowup(Number(info.lastInsertRowid));
+  }
+
+  getFollowup(id) {
+    const row = this.db.prepare('SELECT * FROM followups WHERE id = ?').get(id);
+    return row ? { itemtype: 'Ticket', ...row } : null;
+  }
+
+  listFollowups(ticketId) {
+    return this.db
+      .prepare('SELECT * FROM followups WHERE items_id = ? ORDER BY id')
+      .all(ticketId)
+      .map((row) => ({ itemtype: 'Ticket', ...row }));
   }
 
   listDenials() {
