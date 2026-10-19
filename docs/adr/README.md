@@ -10,7 +10,7 @@ Um arquivo por decisão: `NNN-titulo.md`, com **Contexto**, **Decisão**, **Cons
 | [004](004-marcador-no-dado-e-teste-de-capacidade.md) | Marcador no dado como idempotência + teste de capacidade | Aceito |
 | [005](005-evento-e-sinal-date-mod-e-hash-utc.md) | O evento é sinal: ler o estado atual do A; `date_mod` + hash em UTC | Aceito |
 | [006](006-b-propoe-a-aprova-congelamento-sla.md) | O B propõe, o A aprova; status 5 e congelamento × SLA | Aceito (B→A opcional) |
-| [007](007-exclusao-em-2-passos.md) | Exclusão em 2 passos; "excluído ou perdido" é decisão humana | Aceito (B→A opcional) |
+| [007](007-exclusao-em-2-passos.md) | Exclusão em 2 passos; "excluído ou perdido" é decisão humana | Substituído pelo 015 |
 | [008](008-transitorio-permanente-dlq-circuit-breaker.md) | Transitório × permanente; DLQ de 24 h; circuit breaker | Aceito |
 | [009](009-anti-eco.md) | Anti-eco (`last_written_hash`, `sync-bot`) | Aceito (B→A opcional) |
 | [010](010-hospedagem-oracle-compose.md) | Hospedagem Oracle + Compose; plano B Render + Neon | Aceito |
@@ -18,5 +18,6 @@ Um arquivo por decisão: `NNN-titulo.md`, com **Contexto**, **Decisão**, **Cons
 | [012](012-sem-mirror-no-gitlab.md) | Repositório e CI só no GitHub, sem mirror no GitLab | Aceito |
 | [013](013-pdf-como-base-a-central.md) | O PDF é a base: o A é o central (soluciona e fecha), o B só recebe | Aceito (complementado pelo 014) |
 | [014](014-b-para-a-leve.md) | B → A leve: o estado mudado no B volta ao A, com anti-eco e o A vencendo conflitos | Aceito |
+| [015](015-exclusao-nos-dois-lados-e-o-mestre.md) | Exclusão nos dois lados (lixeira do A, lápide do B) e quem é o mestre em cada mudança | Aceito |
 
 Para mudar uma decisão, copie o [modelo](000-modelo.md) e marque o ADR antigo como *Substituído por ADR-XXX*.

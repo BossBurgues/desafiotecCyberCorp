@@ -117,15 +117,26 @@ Com o servidor de pé, abra **http://localhost:3001/ui/** (`GET /` redireciona p
 
 | Na tela | Técnico | Estagiário |
 |---|---|---|
-| Lista, detalhe, novo chamado | ✅ | ✅ |
-| Botão **Editar** (título, descrição, status 1–6 e prioridade) | ✅ | aparece; o servidor responde `403` e a UI mostra a frase (D7) |
+| Lista, detalhe, novo chamado (com requerente) | ✅ | ✅ |
+| Cartão **Ações**: Atribuir a mim · Em atendimento · Pendente · Solucionar (com texto) · Fechar · Reabrir · Excluir/Restaurar | ✅ | escondido (o servidor responde `403` de qualquer jeito) |
+| Botão **Editar** (título, descrição, status, prioridade, categoria, local, requerente, técnico) | ✅ | aparece; o servidor responde `403` e a UI mostra a frase (D7) |
 | Adicionar nota | ✅ | escondido |
+| **Ver lixeira** na lista | ✅ | ✅ (só leitura) |
 
-O A é o sistema central (PDF): o Técnico soluciona (5) e fecha (6) como no GLPI, e o sync leva `RESOLVED`/`CLOSED` ao B. A regra "5 e 6 só via aprovação" (Q26) pertence ao B → A opcional, que não foi implementado.
+O A é o sistema central (PDF) e a tela de trabalho, como no GLPI. Cada ação do cartão é uma chamada que a API já tinha, e o botão que não vale no status atual fica apagado (mesma regra da UI do B; regras em `ticketActions`, `ui-core.js`):
+
+| Ação | Chamada | Chega ao B como |
+|---|---|---|
+| Atribuir a mim | `PUT users_id_assign = eu` (+ `status 2` se estava Novo) | `assignee` + `IN_PROGRESS` |
+| Em atendimento · Pendente | `PUT status 2 / 4` | `IN_PROGRESS` / `ON_HOLD` |
+| Solucionar | nota "Solução: …" (`POST /ITILFollowup`) + `PUT status 5` | `RESOLVED` (a solução fica só no A) |
+| Fechar | `PUT status 6` | `CLOSED` |
+| Reabrir (só em 5/6) | `PUT status 2` (o A limpa as datas) | `IN_PROGRESS` |
+| Excluir · Restaurar | `DELETE /Ticket/:id` · `PUT is_deleted 0` | registro excluído no B · recriado (ADR-015) |
 
 **Conversa (B → A leve, ADR-014) e aprovações (não implementadas).** `GET /ui/config.json` devolve `{ appToken, features: { followups, solutions } }`, calculado das rotas registradas no `onReady`. A rota de acompanhamentos existe, então a **conversa** aparece no detalhe: o Técnico escreve notas, e o `sync-bot` registra o que veio do B (estado, quem alterou e solução), mostrado como 🏢 Operador B. A rota de soluções com aprovação (S1.5) não existe, então essa seção não aparece.
 
-**Mensagens de erro** (`errorMessage` em `ui-core.js`): `403 ERROR_RIGHT_MISSING` → "Seu perfil (Estagiário) não pode … Peça a um Técnico."; `409 ERROR_TICKET_FROZEN` → "Chamado congelado … só aceita notas. A edição não foi salva."; sessão inválida → "Sua sessão expirou" e volta ao login; `ERROR_GLPI_LOGIN` → "Usuário ou senha incorretos."; falha de rede → "Sistema A fora do ar"; código desconhecido → mensagem do servidor + código. O formulário de edição não fecha nem perde o que foi digitado.
+**Mensagens de erro** (`errorMessage` em `ui-core.js`): `403 ERROR_RIGHT_MISSING` → "Seu perfil (Estagiário) não pode … Peça a um Técnico."; `409 ERROR_TICKET_DELETED` → "O chamado está na lixeira: restaure antes de editar."; sessão inválida → "Sua sessão expirou" e volta ao login; `ERROR_GLPI_LOGIN` → "Usuário ou senha incorretos."; falha de rede → "Sistema A fora do ar"; código desconhecido → mensagem do servidor + código. O formulário de edição não fecha nem perde o que foi digitado.
 
 **Segurança:**
 - todo texto entra no DOM por `textContent`; `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write` e `eval` são proibidos por teste estático (`ui-static.test.js`). O `content` do chamado (HTML no GLPI) passa por `htmlToText()` antes de exibir (G2);
@@ -157,7 +168,8 @@ Quando `A_WEBHOOK_ENABLED=true`, toda criação (`POST /apirest.php/Ticket`) ou 
 | `GET` | `/ui/config.json` | `{ appToken, features }` para a UI (`no-store`); não faz parte do contrato da API |
 | `POST` | `/apirest.php/Ticket` | Cria chamado a partir de `{ "input": { ... } }` (`201`). `name` e `content` obrigatórios; `status` assume `1`, `priority` assume `3` e `users_id_recipient` assume o usuário da sessão quando omitidos |
 | `GET` | `/apirest.php/Ticket/:id` | Lê chamado por ID (`200`) ou retorna `404` `["ERROR_ITEM_NOT_FOUND", "..."]` |
-| `GET` | `/apirest.php/Ticket` | Lista chamados com `range=<início>-<fim>` (padrão `0-49`, máx. `500`), `sort=date_mod\|id`, `order=ASC\|DESC` e filtro opcional `date_mod_gte=YYYY-MM-DD HH:MM:SS`. Retorna cabeçalho `Content-Range` (`200` ou `206`) |
+| `GET` | `/apirest.php/Ticket` | Lista chamados com `range=<início>-<fim>` (padrão `0-49`, máx. `500`), `sort=date_mod\|id`, `order=ASC\|DESC` e filtro opcional `date_mod_gte=YYYY-MM-DD HH:MM:SS` e `is_deleted=0` ou `1` (padrão `0`: fora da lixeira). Retorna cabeçalho `Content-Range` (`200` ou `206`) |
+| `DELETE` | `/apirest.php/Ticket/:id` | Manda para a **lixeira** (`is_deleted = 1`, como o `DELETE` sem `force_purge` do GLPI): `200 [{"<id>": true, "message": ""}]`. Restaurar: `PUT {"input": {"is_deleted": 0}}`. Na lixeira, qualquer outra edição responde `409 ERROR_TICKET_DELETED`. Técnico e `sync-bot`; Estagiário `403` |
 | `GET` | `/health` | Saúde do Sistema A, sem autenticação (`200 {"status":"ok"}` ou `503`) |
 | `PUT` | `/apirest.php/Ticket/:id` | Atualiza campos parciais via `{ "input": { ... } }`, recalcula `date_mod` no fuso `A_TIMEZONE` e emite o evento interno `ticket.changed` com `{ ticketId, action, dateMod, actor }` |
 | `GET` | `/apirest.php/ITILCategory`, `/ITILCategory/:id` | Catálogo de categorias (`id`, `name`, `completename`) |
@@ -185,7 +197,7 @@ Erros seguem o formato do GLPI: `["ERROR_CODIGO", "Mensagem legível"]`.
 ## B → A leve (ADR-014) e o que ficou de fora
 
 - **Acompanhamentos:** `GET /apirest.php/Ticket/:id/ITILFollowup` e `POST /apirest.php/ITILFollowup` (`{ input: { itemtype: "Ticket", items_id, content, is_private } }`). Técnico e `sync-bot` escrevem; Estagiário recebe `403`.
-- **O `sync-bot` muda só o status:** `PUT /Ticket/:id` com qualquer outro campo vindo dele responde `403 ERROR_RIGHT_MISSING`. É assim que o estado mudado no B chega ao A, sem webhook de volta (anti-eco).
+- **O `sync-bot` muda só o status e a lixeira:** `PUT /Ticket/:id` com qualquer campo além de `status` e `is_deleted` vindo dele responde `403 ERROR_RIGHT_MISSING`. É assim que o estado mudado no B e a exclusão feita no B (ADR-015) chegam ao A, sem webhook de volta (anti-eco).
 
 Previsto no contrato do A, mas não implementado (B → A completo, `docs/out-of-scope.md`):
 

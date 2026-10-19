@@ -104,7 +104,8 @@ Migration `002_queue_lease_rerun.sql`: `lease_token`, `rerun`, `reprocessed_at` 
 | Disjuntor aberto | transitório | `circuit_open` | a requisição nem sai; `retryAfterMs` = tempo até a meia-abertura |
 | 412 (`If-Match`) | transitório | `precondition_failed` | reler e tentar de novo (ADR-011) |
 | 400 / 422 / outros 4xx | permanente | `rejected` | o B recusou; repetir não muda nada |
-| 404 | permanente | `not_found` | `getRecord` devolve `null`; no `PUT`, o `processJob` procura o marcador e adota ou recria depois de N varreduras (S3.8). A exclusão com decisão humana (ADR-007) é do B → A opcional |
+| 404 | permanente | `not_found` | `getRecord` devolve `null`; no `PUT`, o `processJob` procura o marcador e adota ou recria depois de N varreduras (S3.8): o B perdeu o registro |
+| 410 | permanente | `gone` | excluído no B, com `tombstone` (quem e quando): lixeira do A, ou o A vence e recria se mudou o chamado depois (ADR-015). No `deleteRecord`, 410 = já excluído |
 | 2xx fora do contrato (campo renomeado, a mais, tipo errado) | permanente | `schema_drift` | E1; zod estrito espelhando o `additionalProperties: false` do contrato |
 
 Disjuntor (`circuit-breaker.ts`): abre depois de 5 falhas transitórias seguidas, fica aberto 30 s e então deixa passar **uma** requisição de teste (sucesso fecha, falha reabre). 4xx e drift não contam: o B respondeu. A resposta 2xx é sempre validada antes de chegar ao caso de uso, e `ambiguous` diz ao create se ele precisa ir para `create_uncertain` em vez de reenviar (ADR-004).

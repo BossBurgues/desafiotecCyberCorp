@@ -26,7 +26,7 @@ dotnet test apps/system-b                            # testes xUnit (mesmo coman
 
 ## UI do Operador B (S2.4)
 
-`http://localhost:5002/ui/`: a tela do operador do sistema de terceiro. Ele vê o que chegou do A (com o marcador `⟦s:glpi-<id>⟧`), informa o próprio nome (vai para o A como "quem alterou") e pode resolver, fechar e reabrir com um texto de solução: com o B → A leve, isso **volta ao A** em até 30 s. Editar outros campos é desfeito pelo A (fonte da verdade), e excluir faz o sync recriar o registro a partir do A. Sem papéis nem login (o B é caixa-preta).
+`http://localhost:5002/ui/`: a tela do operador do sistema de terceiro. Ele vê o que chegou do A (com o marcador `⟦s:glpi-<id>⟧`), informa o próprio nome (vai para o A como "quem alterou") e pode resolver, fechar e reabrir com um texto de solução: com o B → A leve, isso **volta ao A** em até 30 s. Editar outros campos é desfeito pelo A (fonte da verdade). Excluir deixa uma lápide com o nome do operador, e o sync leva o chamado para a lixeira do A, a não ser que o A tenha mudado o chamado depois (o A vence e o registro volta, ADR-015). Sem papéis nem login (o B é caixa-preta).
 
 - Usa as rotas `/operator/records`, que ficam fora do contrato e **fora do caos**: a demo continua operável com o caos ligado.
 - Mostra o chamado do A ligado ao registro (lido do marcador `⟦s:glpi-<id>⟧`). Editar a descrição pode apagar o marcador de propósito. Hoje, a próxima alteração no A regrava a descrição com o marcador; o auditor que regravaria sozinho (S3.9) ficou fora do escopo.
@@ -99,11 +99,12 @@ docker buildx build --platform linux/amd64,linux/arm64 apps/system-b        # im
 | Método e rota | Resposta |
 |---|---|
 | `POST /api/v2/records` | 201 + `Record` + cabeçalho `Location` |
-| `GET /api/v2/records/{id}` | 200 `Record` · 404 |
-| `PUT /api/v2/records/{id}` | 200 `Record` (substituição completa) · 404 |
+| `GET /api/v2/records/{id}` | 200 `Record` · 404 · 410 (excluído: `{ error, message, deletedBy, deletedAt }`) |
+| `PUT /api/v2/records/{id}` | 200 `Record` (substituição completa) · 404 · 410 (excluído não ressuscita) |
+| `DELETE /api/v2/records/{id}` | 204 · 404 · 410 (já excluído). Exclusão com lápide, autor `integração (sync)` (capacidade opcional, ADR-015) |
 | `GET /api/v2/records?page&pageSize` | 200 `RecordPage` (`page` ≥ 1, `pageSize` 1–200, padrão 1 e 50) |
 | `GET/PUT /operator/records[/{id}]` | Mesmas respostas da API, **sem caos** (usadas pela UI do operador) |
-| `DELETE /operator/records/{id}` | 204 · 404 (exclusão física pelo operador) |
+| `DELETE /operator/records/{id}` | 204 · 404 · 410. Mesma lápide da API, com o nome do `X-Operator` |
 | `/admin/*` | Caos, drift, apagar registro e wipe, com `X-Admin-Token` (seção Admin) |
 | `GET /ui/` | UI do Operador B |
 | `GET /health` | 200 `{ "status": "ok" }` |
@@ -112,7 +113,8 @@ Erros sempre `{ "error": "...", "message": "..." }`:
 
 - **400** `BAD_REQUEST`: JSON malformado, tipo errado, enum inválido, campo desconhecido (inclui `id`, `createdAt`, `updatedBy`), `page`/`pageSize` inválidos;
 - **422** `VALIDATION_ERROR`: `title` vazio ou com mais de 200 caracteres (após trim), `lat`/`lng` fora da faixa, `sha256` fora do padrão, `size` negativo;
-- **404** `NOT_FOUND`: registro ou rota inexistente.
+- **404** `NOT_FOUND`: registro ou rota inexistente (inclusive o apagado pelo admin, que simula perda);
+- **410** `GONE`: registro excluído, com `deletedBy` e `deletedAt` (a lápide).
 
 `description` é guardada e devolvida exatamente como recebida (inclusive `⟦s:glpi-42⟧` e quebras de linha). `title` recebe trim.
 
@@ -120,7 +122,6 @@ Erros sempre `{ "error": "...", "message": "..." }`:
 
 - **Busca por referência**: parâmetros como `externalId`, `search`, `ref` e `q` na listagem são ignorados; não há rota de busca.
 - **`Idempotency-Key`**: o cabeçalho é ignorado; dois POSTs iguais criam dois registros.
-- **DELETE na API do sync**: `DELETE /api/v2/records/{id}` não existe (ADR-003). A exclusão fica em `/operator/records/{id}`, fora de `/api/v2` e fora do contrato, usada pela UI do Operador B. Para o sync, excluído e perdido parecem iguais (404) e quem decide é uma pessoa (ADR-007).
 - Webhooks e autenticação.
 
 ## Ainda não implementado
@@ -142,5 +143,5 @@ curl -s $B/api/v2/records/B-1
 curl -s -X PUT $B/api/v2/records/B-1 -H 'Content-Type: application/json' -d '{
   "title":"Impressora ok","description":"Resolvido","state":"RESOLVED","severity":"LOW"}'
 curl -s "$B/api/v2/records?page=1&pageSize=50"
-curl -s -X DELETE $B/operator/records/B-1 -i   # 204; depois o GET devolve 404
+curl -s -X DELETE $B/operator/records/B-1 -H 'X-Operator: Maria' -i   # 204; depois o GET devolve 410 com a lápide
 ```
