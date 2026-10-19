@@ -54,6 +54,8 @@ export interface RecordInput {
   location?: RecordLocation | null;
   sourceUpdatedAt?: string | null;
   attachments?: RecordAttachment[];
+  /** Texto da solução: campo do B (o operador escreve), preservado pelo sync ao atualizar o registro. Fora do hash. */
+  resolution?: string | null;
 }
 
 export interface BRecord extends RecordInput {
