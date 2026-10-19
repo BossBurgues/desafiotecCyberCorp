@@ -1,6 +1,7 @@
 import type pg from 'pg';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CreateUncertainError, createProcessJob, getMapping } from '../../src/application/process-job.js';
+import { CreateUncertainError, VerifyMismatchError, createProcessJob, getMapping } from '../../src/application/process-job.js';
+import { BError } from '../../src/adapters/system-b/errors.js';
 import { findMarker } from '../../src/domain/index.js';
 import { migrate } from '../../src/infra/db/migrate.js';
 import { claim, enqueue, type Job } from '../../src/infra/queue/queue.js';
@@ -162,6 +163,121 @@ describe.skipIf(!TEST_DATABASE_URL)('processJob: create/update idempotente com m
       B.plan.create.push({ reason: 'rate_limited', status: 429 });
       await expect(run()).rejects.toMatchObject({ reason: 'rate_limited', ambiguous: false });
       expect(await getMapping(pool, 1)).toBeNull();
+    });
+  });
+
+  describe('verificação pós-escrita (S3.8)', () => {
+    const syncedThenChanged = async (name: string) => {
+      await run();
+      await pool.query(`DELETE FROM sync_jobs`); // o reclaim() pega qualquer job do chamado 1
+      A.put(ticket(1, { name, date_mod: '2026-10-18 10:10:00' }));
+    };
+
+    it('update confirmado pela leitura grava o hash e o last_written_hash', async () => {
+      await run();
+      const before = await getMapping(pool, 1);
+      await pool.query(`UPDATE sync_jobs SET status = 'done'`);
+      A.put(ticket(1, { name: 'Confirmado', date_mod: '2026-10-18 10:10:00' }));
+      await run();
+      const after = await getMapping(pool, 1);
+      expect(after!.last_synced_hash).not.toBe(before!.last_synced_hash);
+      expect(after!.last_written_hash).not.toBe(before!.last_written_hash);
+      expect(B.calls.get).toBe(2);
+    });
+
+    it('B responde 200 ao update sem gravar: hash não é gravado e o job volta para a fila', async () => {
+      await syncedThenChanged('Nunca gravado');
+      const before = await getMapping(pool, 1);
+      B.ackWithoutPersist.update = 1;
+      await expect(run()).rejects.toBeInstanceOf(VerifyMismatchError);
+      expect(await getMapping(pool, 1)).toMatchObject({ last_synced_hash: before!.last_synced_hash, state: 'active' });
+      expect((await audit(1)).at(-1)).toEqual({ action: 'verify', outcome: 'mismatch' });
+    });
+
+    it('create com 201 que não aparece na leitura vira create ambíguo, sem recriar na hora', async () => {
+      B.ackWithoutPersist.create = 1;
+      await expect(run()).rejects.toBeInstanceOf(CreateUncertainError);
+      expect(B.calls.create).toBe(1);
+      expect(B.records.size).toBe(0);
+      expect(await getMapping(pool, 1)).toMatchObject({ state: 'create_uncertain', b_record_id: null });
+      expect((await audit(1)).at(-1)).toEqual({ action: 'verify', outcome: 'missing' });
+
+      // N = 2 varreduras sem achar o marcador → recria, e fica um registro só
+      await expect(processJob(await reclaim(), new AbortController().signal)).rejects.toBeInstanceOf(CreateUncertainError);
+      await processJob(await reclaim(), new AbortController().signal);
+      expect(B.calls.create).toBe(2);
+      expect(markersInB(1)).toBe(1);
+      expect(await getMapping(pool, 1)).toMatchObject({ state: 'active' });
+    });
+
+    it('create ambíguo que aparece na varredura é adotado: um registro só', async () => {
+      // gravação atrasada: a leitura logo depois do 201 dá 404, mas o registro aparece antes da próxima varredura
+      const original = B.client.getRecord;
+      B.client.getRecord = async () => null;
+      await expect(run()).rejects.toBeInstanceOf(CreateUncertainError);
+      B.client.getRecord = original;
+      await processJob(await reclaim(), new AbortController().signal);
+      expect(B.calls.create).toBe(1);
+      expect(markersInB(1)).toBe(1);
+      expect(await getMapping(pool, 1)).toMatchObject({ state: 'active', b_record_id: 'B-1' });
+    });
+
+    it('update em registro que sumiu e cujo marcador está na listagem adota o registro', async () => {
+      await syncedThenChanged('Depois de mudar de ID');
+      // o registro ganhou outro ID no B (ex.: restaurado de backup): B-1 some, B-9 tem o marcador
+      const old = B.records.get('B-1')!;
+      B.records.delete('B-1');
+      B.records.set('B-9', { ...old, id: 'B-9' });
+      await run();
+      expect(B.calls.create).toBe(1);
+      expect(B.records.get('B-9')!.title).toBe('Depois de mudar de ID');
+      expect(await getMapping(pool, 1)).toMatchObject({ state: 'active', b_record_id: 'B-9' });
+      expect((await audit(1)).map((r) => `${r.action}:${r.outcome}`)).toEqual([
+        'create:ok',
+        'record_missing:not_found',
+        'adopt:found_by_marker',
+        'update:ok',
+      ]);
+    });
+
+    it('update em registro que sumiu sem marcador na listagem recria depois de N varreduras', async () => {
+      await syncedThenChanged('Recriado');
+      B.records.delete('B-1');
+      await expect(run()).rejects.toBeInstanceOf(CreateUncertainError);
+      expect(await getMapping(pool, 1)).toMatchObject({ state: 'create_uncertain', b_record_id: null, uncertain_scans: 1 });
+      await processJob(await reclaim(), new AbortController().signal);
+      expect(B.calls.create).toBe(2);
+      expect(markersInB(1)).toBe(1);
+      expect([...B.records.values()][0]!.title).toBe('Recriado');
+      const { rows } = await pool.query(`SELECT b_record_history FROM ticket_mapping WHERE a_ticket_id = 1`);
+      expect(rows[0].b_record_history).toEqual(['B-1']);
+    });
+
+    it('erro na leitura de verificação é transitório e não grava o hash', async () => {
+      await syncedThenChanged('Leitura falhou');
+      const before = await getMapping(pool, 1);
+      B.client.getRecord = async () => {
+        throw new BError('timeout', 'GET: timeout');
+      };
+      await expect(run()).rejects.toMatchObject({ reason: 'timeout', errorClass: 'transient' });
+      expect((await getMapping(pool, 1))!.last_synced_hash).toBe(before!.last_synced_hash);
+    });
+
+    it('VERIFY_AFTER_WRITE=false pula a leitura', async () => {
+      processJob = createProcessJob({
+        pool,
+        a: A.client,
+        b: B.client,
+        logger,
+        timeZone: TZ,
+        markerField: 'description',
+        uncertainScans: 2,
+        listPageSize: 100,
+        verifyAfterWrite: false,
+      });
+      await syncedThenChanged('Sem leitura');
+      await run();
+      expect(B.calls).toMatchObject({ create: 1, update: 1, get: 0 });
     });
   });
 

@@ -66,6 +66,7 @@ async function main(): Promise<void> {
     markerField: config.B_MARKER_FIELD,
     uncertainScans: config.CREATE_UNCERTAIN_SCANS,
     listPageSize: config.B_LIST_PAGE_SIZE,
+    verifyAfterWrite: config.VERIFY_AFTER_WRITE,
   });
   const policy = {
     baseMs: config.QUEUE_BACKOFF_BASE_MS,

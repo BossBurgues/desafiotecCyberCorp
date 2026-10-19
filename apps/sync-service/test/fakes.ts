@@ -46,6 +46,8 @@ export function fakeB() {
   const plan: Record<'create' | 'update' | 'list', PlannedFailure[]> = { create: [], update: [], list: [] };
   const calls = { create: 0, update: 0, list: 0, get: 0 };
   let seq = 0;
+  /** Ack sem gravar (cenário B5): as próximas N escritas respondem sucesso e não gravam nada. */
+  const ackWithoutPersist = { create: 0, update: 0 };
   /** Listagem atrasada (cenário A7): registros criados não aparecem nas próximas N listagens. */
   let hiddenFromList = new Map<string, number>();
 
@@ -70,6 +72,11 @@ export function fakeB() {
     async createRecord(input) {
       calls.create++;
       failIfPlanned('create', () => store(input));
+      if (ackWithoutPersist.create > 0) {
+        ackWithoutPersist.create--;
+        const now = new Date().toISOString();
+        return { ...structuredClone(input), id: `B-${++seq}`, createdAt: now, updatedAt: now } as BRecordResponse;
+      }
       return store(input);
     },
     async getRecord(id) {
@@ -81,6 +88,10 @@ export function fakeB() {
       calls.update++;
       failIfPlanned('update', () => store(input, id));
       if (!records.has(id)) throw new BError('not_found', `PUT /records/${id}: 404`, { write: true, status: 404 });
+      if (ackWithoutPersist.update > 0) {
+        ackWithoutPersist.update--;
+        return { ...structuredClone(records.get(id)!), ...structuredClone(input), id, updatedAt: new Date().toISOString() };
+      }
       return store(input, id);
     },
     async listRecords(page, pageSize): Promise<BRecordPage> {
@@ -104,6 +115,7 @@ export function fakeB() {
     records,
     calls,
     plan,
+    ackWithoutPersist,
     /** Esconde da listagem os registros que existirem agora pelas próximas `times` listagens. */
     hideFromList(times: number) {
       hiddenFromList = new Map([...records.keys()].map((id) => [id, times]));
