@@ -1,9 +1,7 @@
 # Um host por sistema: as UIs usam caminhos absolutos (/ui/, /apirest.php), então prefixo de caminho quebraria os links.
 # DOMAIN=localhost (padrão) → https://a.localhost, https://b.localhost, https://sync.localhost com certificado local do Caddy.
 # Na VM (ADR-010), DOMAIN é o domínio real e o Caddy emite os certificados pelo Let's Encrypt.
-{
-	email {$ACME_EMAIL:admin@localhost}
-}
+# Sem e-mail de ACME: o Let's Encrypt não exige, e um padrão como admin@localhost faz ele recusar o cadastro da conta.
 
 (comum) {
 	encode gzip

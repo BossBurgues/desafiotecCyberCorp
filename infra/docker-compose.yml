@@ -127,7 +127,6 @@ services:
     image: caddy:2.10-alpine
     environment:
       DOMAIN: ${DOMAIN:-localhost}
-      ACME_EMAIL: ${ACME_EMAIL:-admin@localhost}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
