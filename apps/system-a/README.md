@@ -161,8 +161,18 @@ Quando `A_WEBHOOK_ENABLED=true`, toda criação (`POST /apirest.php/Ticket`) ou 
 | `GET` | `/apirest.php/Ticket` | Lista chamados com `range=<início>-<fim>` (padrão `0-49`, máx. `500`), `sort=date_mod\|id`, `order=ASC\|DESC` e filtro opcional `date_mod_gte=YYYY-MM-DD HH:MM:SS`. Retorna cabeçalho `Content-Range` (`200` ou `206`) |
 | `GET` | `/health` | Saúde do Sistema A, sem autenticação (`200 {"status":"ok"}` ou `503`) |
 | `PUT` | `/apirest.php/Ticket/:id` | Atualiza campos parciais via `{ "input": { ... } }`, recalcula `date_mod` no fuso `A_TIMEZONE` e emite o evento interno `ticket.changed` com `{ ticketId, action, dateMod, actor }` |
+| `GET` | `/apirest.php/ITILCategory`, `/ITILCategory/:id` | Catálogo de categorias (`id`, `name`, `completename`) |
+| `GET` | `/apirest.php/Location`, `/Location/:id` | Catálogo de locais (`id`, `name`, `completename`, `latitude`, `longitude`; coordenadas podem ser `null`) |
+| `GET` | `/apirest.php/User`, `/User/:id` | Usuários (`id`, `name` = login, `firstname`, `realname`, `profile`), **sem senha nem token** |
 
 Erros seguem o formato do GLPI: `["ERROR_CODIGO", "Mensagem legível"]`.
+
+### O A como GLPI (realinhamento de 19/10, ADR-013)
+
+- **Catálogos** (`src/catalog.js`): categorias, locais e usuários, como os cadastros do GLPI. São fixos no mock; o mesmo direito de ler chamados vale para eles (inclusive o `sync-bot`, que os usa para converter os IDs em texto para o B).
+- **Referências conferidas:** `itilcategories_id`, `locations_id` e `users_id_recipient` precisam existir, e `users_id_assign` precisa ser um Técnico; senão `400 ERROR_INVALID_INPUT`.
+- **Datas do ciclo de vida:** entrar em Solucionado (5) grava `solvedate`; entrar em Fechado (6) grava `closedate` (e a `solvedate`, se faltar); reabrir (sair de 5/6 para um status aberto) limpa as duas.
+- **Interface:** o formulário de novo chamado e o de edição têm Categoria, Local e "Atribuído a" (Técnicos); o detalhe mostra categoria, local, requerente, técnico e a data de solução ou fechamento.
 
 ## Simplificações em relação ao GLPI real
 
