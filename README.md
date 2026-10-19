@@ -121,7 +121,7 @@ O avaliador confirmou que só o **A → B** é obrigatório; o B → A entrou na
 
 ## Horas
 
-Registro por issue, por dia e por milestone em [`docs/timelog.md`](docs/timelog.md).
+**Total: 21,5 h**, pelos registros do GitHub (commits, merges, PRs e issues; pausas acima de 1 h descontadas). Por dia e por issue em [`docs/timelog.md`](docs/timelog.md).
 
 ## Documentação
 
@@ -129,11 +129,12 @@ Registro por issue, por dia e por milestone em [`docs/timelog.md`](docs/timelog.
 |---|---|
 | [`docs/how-it-works.md`](docs/how-it-works.md) | Passeio pelo código, garantias provadas e exercícios de quebra |
 | [`docs/architecture.md`](docs/architecture.md) | Diagramas da arquitetura |
-| [`docs/adr/`](docs/adr/) | Por que cada decisão foi tomada (14 ADRs) |
+| [`docs/adr/`](docs/adr/) | Por que cada decisão foi tomada (15 ADRs) |
 | [`docs/field-mapping.md`](docs/field-mapping.md) | Conversão campo a campo A → B |
 | [`docs/runbook.md`](docs/runbook.md) | O que fazer quando algo foge do normal |
 | [`docs/out-of-scope.md`](docs/out-of-scope.md) | O que ficou de fora e como seria feito |
 | [`docs/timelog.md`](docs/timelog.md) | Horas |
+| [`docs/demo-script.md`](docs/demo-script.md) | Roteiro da apresentação de 30 min (e do vídeo), com plano B por bloco |
 | [`docs/PLANO_DE_ACAO.md`](docs/PLANO_DE_ACAO.md) | Plano completo e catálogo de cenários |
 | [`infra/README.md`](infra/README.md) | Compose, VM, deploy e rollback |
 | [`tests/e2e/README.md`](tests/e2e/README.md) | Como rodar e o que prova cada cenário |
