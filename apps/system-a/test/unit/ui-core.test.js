@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  authorOf,
   buildTimeline,
+  describeNote,
+  initials,
+  matchesSearch,
+  shortDate,
   canAct,
   canAddNote,
-  canDecide,
   editableStatuses,
   userLabel,
   catalogLabel,
@@ -29,12 +31,6 @@ test('403 do Estagiário vira frase que cita o perfil e a ação', () => {
   assert.equal(msg, 'Seu perfil (Estagiário) não pode editar chamados. Peça a um Técnico.');
 });
 
-test('409 ERROR_TICKET_FROZEN diz que só aceita notas e que nada foi salvo', () => {
-  const msg = errorMessage({ status: 409, code: 'ERROR_TICKET_FROZEN', message: 'x' });
-  assert.match(msg, /só aceita notas/);
-  assert.match(msg, /não foi salva/);
-});
-
 test('sessão expirada, login errado, 400 e falha de rede têm frase própria', () => {
   assert.equal(errorMessage({ status: 401, code: 'ERROR_SESSION_TOKEN_INVALID' }), 'Sua sessão expirou. Entre de novo.');
   assert.equal(errorMessage({ status: 401, code: 'ERROR_GLPI_LOGIN' }), 'Usuário ou senha incorretos.');
@@ -48,22 +44,6 @@ test('sessão expirada, login errado, 400 e falha de rede têm frase própria', 
 test('código desconhecido mostra a mensagem do servidor e o código', () => {
   const msg = errorMessage({ status: 500, code: 'ERROR_INTERNAL', message: 'Banco caiu.' });
   assert.equal(msg, 'Banco caiu. (ERROR_INTERNAL)');
-});
-
-test('nota do sync-bot com ⟦from-b:…⟧ é do Operador B 🏢, sem marcador vira 🤖', () => {
-  assert.deepEqual(authorOf({ users_id: 3, content: 'Peça trocada ⟦from-b:rec-9:c-1⟧' }), {
-    icon: '🏢',
-    label: 'Operador B',
-  });
-  assert.deepEqual(authorOf({ users_id: 3, content: 'Sincronizado ⟦n:abc⟧' }), {
-    icon: '🤖',
-    label: 'sync-bot',
-  });
-});
-
-test('nota do Técnico e do Estagiário aparece com 👤', () => {
-  assert.deepEqual(authorOf({ users_id: 1, content: 'ok' }), { icon: '👤', label: 'Técnico' });
-  assert.deepEqual(authorOf({ users_id: 2, content: 'ok' }), { icon: '👤', label: 'Estagiário' });
 });
 
 test('marcadores ⟦n:…⟧ e ⟦from-b:…⟧ não aparecem no texto exibido', () => {
@@ -82,14 +62,6 @@ test('htmlToText remove <script> com o conteúdo e não devolve tag nenhuma', ()
   assert.equal(htmlToText('&lt;b&gt; &quot;x&quot; &#39;y&#39;'), '<b> "x" \'y\'');
 });
 
-test('só o Técnico pode aprovar, recusar e adicionar nota', () => {
-  assert.equal(canDecide('tecnico'), true);
-  assert.equal(canDecide('estagiario'), false);
-  assert.equal(canDecide('sync-bot'), false);
-  assert.equal(canAddNote('tecnico'), true);
-  assert.equal(canAddNote('estagiario'), false);
-});
-
 test('o Técnico pode escolher todos os status do GLPI, inclusive Solucionado e Fechado', () => {
   assert.deepEqual(editableStatuses(), [1, 2, 3, 4, 5, 6]);
 });
@@ -99,36 +71,6 @@ test('todos os status e prioridades 1–6 têm rótulo', () => {
     assert.doesNotMatch(statusLabel(i), /^Status /);
     assert.doesNotMatch(priorityLabel(i), /^Prioridade /);
   }
-});
-
-test('timeline junta notas e soluções em ordem de data, com a decisão como evento', () => {
-  const items = buildTimeline(
-    [
-      { users_id: 1, content: 'segunda', date: '2026-10-18 14:00:00', is_private: 0 },
-      { users_id: 3, content: 'primeira ⟦from-b:r:c⟧', date: '2026-10-18 13:00:00', is_private: 0 },
-    ],
-    [
-      {
-        id: 1,
-        users_id: 3,
-        content: 'Resolvido no B',
-        status: 4,
-        date_creation: '2026-10-18 13:30:00',
-        users_id_approval: 1,
-        date_approval: '2026-10-18 15:00:00',
-      },
-    ],
-  );
-  assert.deepEqual(
-    items.map((i) => [i.kind, i.text]),
-    [
-      ['note', 'primeira'],
-      ['solution', 'Resolvido no B'],
-      ['note', 'segunda'],
-      ['decision', 'Solução recusada.'],
-    ],
-  );
-  assert.equal(items[0].author.icon, '🏢');
 });
 
 test('rótulos dos catálogos: nome completo do usuário com o login, e "—" sem valor', () => {
@@ -166,4 +108,111 @@ test('ações do chamado: o PUT de cada uma (atribuir põe em atendimento se est
   assert.deepEqual(byId(2).restore, { is_deleted: 0 });
   assert.equal(byId(2).delete, undefined);
   assert.equal(solutionNote('  Troquei o toner. '), 'Solução: Troquei o toner.');
+});
+
+test('só o Técnico adiciona nota', () => {
+  assert.equal(canAddNote('tecnico'), true);
+  assert.equal(canAddNote('estagiario'), false);
+});
+
+test('409 ERROR_TICKET_DELETED pede para restaurar antes de editar', () => {
+  assert.match(errorMessage({ status: 409, code: 'ERROR_TICKET_DELETED', message: 'x' }), /lixeira: restaure/);
+});
+
+const USERS = [
+  { id: 1, name: 'tecnico', firstname: 'Ana', realname: 'Souza', profile: 'tecnico' },
+  { id: 2, name: 'estagiario', firstname: 'Bruno', realname: 'Lima', profile: 'estagiario' },
+];
+
+test('histórico: a nota do B vira evento "Estado alterado no B" com o operador como autor e a solução separada', () => {
+  const note = describeNote(
+    {
+      users_id: 3,
+      date: '2026-10-19 18:57:47',
+      content: 'Estado alterado no Sistema B por Carla (suporte): Em andamento → Fechado. Solução: Toner trocado. ⟦from-b:B-91⟧',
+    },
+    USERS,
+  );
+  assert.deepEqual(note.author, { kind: 'operador', name: 'Carla (suporte)', role: 'Sistema B' });
+  assert.equal(note.when, '19/10 · 18:57');
+  assert.deepEqual(note.events, [
+    { type: 'state', tag: 'Estado alterado no B', who: 'Carla (suporte)', text: 'Em andamento → Fechado', quote: 'Toner trocado.' },
+  ]);
+});
+
+test('histórico: uma nota do sync com várias frases vira vários eventos, um por linha', () => {
+  const note = describeNote({
+    users_id: 3,
+    date: '2026-10-19 18:00:00',
+    content:
+      'O Sistema B também mudou o estado para Resolvido (por Diego), ao mesmo tempo que o A mudou para Em espera: prevaleceu o A.\n' +
+      'O Sistema B alterou o título, a descrição (por Diego); o A é a fonte da verdade e o valor foi restaurado. ⟦from-b:B-7⟧',
+  });
+  assert.equal(note.author.name, 'Diego');
+  assert.deepEqual(
+    note.events.map((e) => [e.type, e.tag]),
+    [
+      ['conflict', 'Conflito: o A venceu'],
+      ['reverted', 'Edição desfeita'],
+    ],
+  );
+  assert.match(note.events[1].text, /^Mudou o título, a descrição no B/);
+});
+
+test('histórico: exclusões vindas do B e frase desconhecida', () => {
+  const trashed = describeNote({
+    users_id: 3,
+    date: '2026-10-19 18:00:00',
+    content: 'Excluído no Sistema B por Maria em 2026-10-19 14:30:00: o chamado foi para a lixeira do A (restaurar recria o registro no B). ⟦from-b:B-7⟧',
+  });
+  assert.deepEqual([trashed.author.name, trashed.events[0].tag], ['Maria', 'Excluído no B']);
+  const won = describeNote({
+    users_id: 3,
+    date: '2026-10-19 18:00:00',
+    content: 'O Sistema B excluiu o registro B-7 (por Maria em 2026-10-19 14:30:00), mas o chamado mudou no A depois da última sincronização: prevaleceu o A e o registro foi recriado no B. ⟦from-b:B-7⟧',
+  });
+  assert.equal(won.events[0].tag, 'Exclusão no B desfeita');
+  const other = describeNote({ users_id: 3, date: '2026-10-19 18:00:00', content: 'Sincronizado ⟦n:abc⟧' });
+  assert.deepEqual(other.author, { kind: 'sync', name: 'Sincronizador', role: 'automático' });
+  assert.deepEqual(other.events, [{ type: 'note', tag: null, who: null, text: 'Sincronizado' }]);
+});
+
+test('histórico: nota de pessoa leva o nome do catálogo; "Solução: …" vira evento de solução', () => {
+  const solution = describeNote({ users_id: 1, date: '2026-10-19 18:46:46', content: 'Solução: cabo trocado.', is_private: 0 }, USERS);
+  assert.deepEqual(solution.author, { kind: 'tecnico', name: 'Ana Souza', role: 'Técnico' });
+  assert.deepEqual(solution.events, [{ type: 'solution', tag: 'Solução', who: null, text: 'cabo trocado.' }]);
+  const note = describeNote({ users_id: 2, date: '2026-10-19 18:46:46', content: 'Linha 1\nLinha 2' }, USERS);
+  assert.deepEqual([note.author.role, note.events.length, note.events[0].text], ['Estagiário', 1, 'Linha 1\nLinha 2']);
+});
+
+test('histórico em ordem de data, o mais antigo primeiro', () => {
+  const items = buildTimeline(
+    [
+      { users_id: 1, content: 'segunda', date: '2026-10-18 14:00:00' },
+      { users_id: 1, content: 'primeira', date: '2026-10-18 13:00:00' },
+    ],
+    USERS,
+  );
+  assert.deepEqual(items.map((i) => i.events[0].text), ['primeira', 'segunda']);
+});
+
+test('busca da lista por número ou trecho do título, sem acento nem caixa; datas e iniciais curtas', () => {
+  const t = { id: 90, name: 'G2 Monitor piscando na recepção' };
+  assert.equal(matchesSearch(t, ''), true);
+  assert.equal(matchesSearch(t, '#90'), true);
+  assert.equal(matchesSearch(t, 'RECEPCAO'), true);
+  assert.equal(matchesSearch(t, '9'), false);
+  assert.equal(shortDate('2026-10-19 18:57:27'), '19/10 · 18:57');
+  assert.equal(initials('Ana Souza'), 'AS');
+  assert.equal(initials('Carla (suporte)'), 'C');
+});
+
+test('ações: o próximo passo natural é o principal', () => {
+  const primary = (ticket) =>
+    ticketActions({ users_id_assign: null, is_deleted: 0, ...ticket }, 1).find((a) => a.primary)?.id;
+  assert.equal(primary({ status: 1 }), 'assign');
+  assert.equal(primary({ status: 2, users_id_assign: 1 }), 'solve');
+  assert.equal(primary({ status: 5 }), 'close');
+  assert.equal(primary({ status: 6 }), 'reopen');
+  assert.equal(primary({ status: 2, is_deleted: 1 }), 'restore');
 });

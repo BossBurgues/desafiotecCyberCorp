@@ -11,8 +11,9 @@
     <header class="topbar">
       <a class="brand" href="#/tickets">Sistema A <span>· chamados (mock GLPI)</span></a>
       <div class="who" id="who" hidden>
+        <span class="avatar small" id="who-avatar" aria-hidden="true"></span>
         <span id="who-label"></span>
-        <button type="button" class="ghost" id="logout">Sair</button>
+        <button type="button" class="ghost on-dark" id="logout">Sair</button>
       </div>
     </header>
 
@@ -39,150 +40,159 @@
         <p class="hint">O <code>sync-bot</code> é conta técnica e não entra pela interface.</p>
       </section>
 
-      <section id="screen-tickets" class="screen" hidden>
-        <div class="row-between">
-          <h1 id="tickets-heading">Chamados</h1>
-          <div class="actions">
-            <button type="button" class="ghost" id="trash-toggle">Ver lixeira</button>
-            <button type="button" id="new-ticket-toggle">Novo chamado</button>
+      <section id="screen-tickets" class="screen workspace" hidden>
+        <aside class="list-pane" aria-label="Lista de chamados">
+          <div class="row-between list-head">
+            <h1 id="tickets-heading">Chamados</h1>
+            <div class="actions">
+              <button type="button" class="ghost" id="trash-toggle">Ver lixeira</button>
+              <button type="button" id="new-ticket-toggle">Novo chamado</button>
+            </div>
           </div>
-        </div>
-
-        <form id="new-ticket-form" class="card" hidden>
-          <h2>Novo chamado</h2>
-          <label>
-            Título
-            <input name="name" required maxlength="255" />
+          <label class="search">
+            <span class="sr-only">Buscar chamado</span>
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="7"></circle>
+              <path d="M20 20l-4.2-4.2"></path>
+            </svg>
+            <input type="search" id="ticket-search" placeholder="Buscar por número ou título" autocomplete="off" />
           </label>
-          <label>
-            Descrição
-            <textarea name="content" rows="4"></textarea>
-          </label>
-          <label>
-            Prioridade
-            <select name="priority" id="new-ticket-priority"></select>
-          </label>
-          <div class="grid-2">
-            <label>
-              Categoria
-              <select name="itilcategories_id" id="new-ticket-category"></select>
-            </label>
-            <label>
-              Local
-              <select name="locations_id" id="new-ticket-location"></select>
-            </label>
-            <label>
-              Requerente
-              <select name="users_id_recipient" id="new-ticket-recipient"></select>
-            </label>
-            <label>
-              Atribuído a
-              <select name="users_id_assign" id="new-ticket-assign"></select>
-            </label>
-          </div>
-          <div class="banner error" id="new-ticket-error" role="alert" hidden></div>
-          <div class="actions">
-            <button type="submit">Criar</button>
-            <button type="button" class="ghost" id="new-ticket-cancel">Cancelar</button>
-          </div>
-        </form>
+          <ul class="ticket-list" id="tickets-body"></ul>
+          <p class="hint empty" id="tickets-empty" hidden>Nenhum chamado aqui.</p>
+          <p class="hint" id="tickets-updated"></p>
+        </aside>
 
-        <div class="table-wrap card">
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Título</th>
-                <th>Status</th>
-                <th>Prioridade</th>
-                <th>Última alteração</th>
-              </tr>
-            </thead>
-            <tbody id="tickets-body"></tbody>
-          </table>
-          <p class="hint" id="tickets-empty" hidden>Nenhum chamado aqui.</p>
-        </div>
-        <p class="hint" id="tickets-updated"></p>
-      </section>
+        <section class="detail-pane" aria-live="polite">
+          <a class="back-link" href="#/tickets" id="back-link">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+            Voltar para a lista
+          </a>
 
-      <section id="screen-detail" class="screen" hidden>
-        <p><a href="#/tickets">← Voltar para a lista</a></p>
-        <div id="detail-pending"></div>
-        <article class="card" id="detail-card">
-          <div class="row-between">
-            <h1 id="detail-title"></h1>
-            <button type="button" id="edit-toggle">Editar</button>
+          <div class="placeholder" id="detail-placeholder">
+            <h2>Nenhum chamado aberto</h2>
+            <p>Escolha um chamado na lista ou abra um novo. As ações, o histórico e quem mexeu em cada coisa aparecem aqui.</p>
           </div>
-          <p class="meta" id="detail-meta"></p>
-          <p class="content" id="detail-content"></p>
-        </article>
 
-        <section class="card" id="ticket-actions" hidden>
-          <h2>Ações</h2>
-          <div class="banner error" id="actions-error" role="alert" hidden></div>
-          <label>
-            Solução (obrigatória para solucionar; vira uma nota do chamado)
-            <textarea id="solution-text" rows="2"></textarea>
-          </label>
-          <div class="actions" id="action-buttons"></div>
-        </section>
-
-        <form id="edit-form" class="card" hidden>
-          <h2>Editar chamado</h2>
-          <div class="banner error" id="edit-error" role="alert" hidden></div>
-          <label>
-            Título
-            <input name="name" required maxlength="255" />
-          </label>
-          <label>
-            Descrição
-            <textarea name="content" rows="4"></textarea>
-          </label>
-          <div class="grid-2">
+          <form id="new-ticket-form" class="card" hidden>
+            <h2>Novo chamado</h2>
             <label>
-              Status
-              <select name="status" id="edit-status"></select>
+              Título
+              <input name="name" required maxlength="255" />
             </label>
             <label>
-              Prioridade
-              <select name="priority" id="edit-priority"></select>
+              Descrição
+              <textarea name="content" rows="4"></textarea>
             </label>
-          </div>
-          <div class="grid-2">
-            <label>
-              Categoria
-              <select name="itilcategories_id" id="edit-category"></select>
-            </label>
-            <label>
-              Local
-              <select name="locations_id" id="edit-location"></select>
-            </label>
-            <label>
-              Requerente
-              <select name="users_id_recipient" id="edit-recipient"></select>
-            </label>
-            <label>
-              Atribuído a
-              <select name="users_id_assign" id="edit-assign"></select>
-            </label>
-          </div>
-          <div class="actions">
-            <button type="submit">Salvar</button>
-            <button type="button" class="ghost" id="edit-cancel">Cancelar</button>
-          </div>
-        </form>
-
-        <section class="card" id="conversation" hidden>
-          <h2>Conversa</h2>
-          <ol class="timeline" id="timeline"></ol>
-          <form id="note-form" hidden>
-            <label>
-              Adicionar nota
-              <textarea name="content" rows="3" required></textarea>
-            </label>
-            <div class="banner error" id="note-error" role="alert" hidden></div>
-            <button type="submit">Enviar nota</button>
+            <div class="grid-2">
+              <label>
+                Prioridade
+                <select name="priority" id="new-ticket-priority"></select>
+              </label>
+              <label>
+                Categoria
+                <select name="itilcategories_id" id="new-ticket-category"></select>
+              </label>
+              <label>
+                Local
+                <select name="locations_id" id="new-ticket-location"></select>
+              </label>
+              <label>
+                Requerente
+                <select name="users_id_recipient" id="new-ticket-recipient"></select>
+              </label>
+              <label>
+                Atribuído a
+                <select name="users_id_assign" id="new-ticket-assign"></select>
+              </label>
+            </div>
+            <div class="banner error" id="new-ticket-error" role="alert" hidden></div>
+            <div class="actions">
+              <button type="submit">Criar chamado</button>
+              <button type="button" class="ghost" id="new-ticket-cancel">Cancelar</button>
+            </div>
           </form>
+
+          <div id="detail" hidden>
+            <article class="card" id="detail-card">
+              <div class="detail-head">
+                <h2 class="detail-title" id="detail-title"></h2>
+                <div class="detail-badges" id="detail-badges"></div>
+              </div>
+              <p class="meta" id="detail-meta"></p>
+              <dl class="facts" id="detail-facts"></dl>
+              <p class="content" id="detail-content"></p>
+              <div class="actions edit-row">
+                <button type="button" class="ghost" id="edit-toggle">Editar campos</button>
+              </div>
+            </article>
+
+            <form id="edit-form" class="card" hidden>
+              <h2>Editar chamado</h2>
+              <div class="banner error" id="edit-error" role="alert" hidden></div>
+              <label>
+                Título
+                <input name="name" required maxlength="255" />
+              </label>
+              <label>
+                Descrição
+                <textarea name="content" rows="4"></textarea>
+              </label>
+              <div class="grid-2">
+                <label>
+                  Status
+                  <select name="status" id="edit-status"></select>
+                </label>
+                <label>
+                  Prioridade
+                  <select name="priority" id="edit-priority"></select>
+                </label>
+                <label>
+                  Categoria
+                  <select name="itilcategories_id" id="edit-category"></select>
+                </label>
+                <label>
+                  Local
+                  <select name="locations_id" id="edit-location"></select>
+                </label>
+                <label>
+                  Requerente
+                  <select name="users_id_recipient" id="edit-recipient"></select>
+                </label>
+                <label>
+                  Atribuído a
+                  <select name="users_id_assign" id="edit-assign"></select>
+                </label>
+              </div>
+              <div class="actions">
+                <button type="submit">Salvar</button>
+                <button type="button" class="ghost" id="edit-cancel">Cancelar</button>
+              </div>
+            </form>
+
+            <section class="card" id="ticket-actions" hidden>
+              <h2>Ações</h2>
+              <div class="banner error" id="actions-error" role="alert" hidden></div>
+              <label id="solution-field">
+                Solução
+                <span class="field-hint">Obrigatória para solucionar. Fica no histórico do chamado.</span>
+                <textarea id="solution-text" rows="2"></textarea>
+              </label>
+              <div class="actions" id="action-buttons"></div>
+            </section>
+
+            <section class="card" id="conversation" hidden>
+              <h2>Histórico de atividade</h2>
+              <ol class="timeline" id="timeline"></ol>
+              <form id="note-form" hidden>
+                <label>
+                  Adicionar nota
+                  <textarea name="content" rows="3" required></textarea>
+                </label>
+                <div class="banner error" id="note-error" role="alert" hidden></div>
+                <button type="submit">Enviar nota</button>
+              </form>
+            </section>
+          </div>
         </section>
       </section>
     </main>

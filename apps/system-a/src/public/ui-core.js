@@ -1,4 +1,4 @@
-// Lógica pura da UI do Sistema A (S1.6): sem DOM e sem fetch.
+// Lógica pura da UI do Sistema A: sem DOM e sem fetch.
 // O navegador e o `node --test` importam este mesmo arquivo.
 
 export const PROFILES = Object.freeze({
@@ -15,8 +15,6 @@ const PROFILE_LABELS = Object.freeze({
   [PROFILES.ESTAGIARIO]: 'Estagiário',
   [PROFILES.SYNC_BOT]: 'sync-bot',
 });
-
-const USER_LABELS = Object.freeze({ 1: 'Técnico', 2: 'Estagiário', 3: 'sync-bot' });
 
 const STATUS_LABELS = Object.freeze({
   1: 'Novo',
@@ -36,8 +34,6 @@ const PRIORITY_LABELS = Object.freeze({
   6: 'Crítica',
 });
 
-const SOLUTION_STATUS_LABELS = Object.freeze({ 2: 'pendente', 3: 'aceita', 4: 'recusada' });
-
 export function profileLabel(profile) {
   return PROFILE_LABELS[profile] ?? String(profile);
 }
@@ -50,12 +46,7 @@ export function priorityLabel(priority) {
   return PRIORITY_LABELS[priority] ?? `Prioridade ${priority}`;
 }
 
-export function solutionStatusLabel(status) {
-  return SOLUTION_STATUS_LABELS[status] ?? `status ${status}`;
-}
-
-// O Técnico escolhe qualquer status do GLPI, inclusive Solucionado (5) e Fechado (6). O fluxo de aprovação vindo
-// do B (Q26) ficou fora do escopo na revisão de 18/10, então o A volta a fechar chamados sozinho, como no GLPI.
+// O Técnico escolhe qualquer status do GLPI, inclusive Solucionado (5) e Fechado (6), como no GLPI.
 export function editableStatuses() {
   return [1, 2, 3, 4, 5, 6];
 }
@@ -69,16 +60,56 @@ export function userLabel(user) {
   return full ? `${full} (${user.name})` : user.name;
 }
 
+/** Nome curto para a tela ("Ana Souza"), sem o login. */
+export function userName(user) {
+  if (!user) {
+    return null;
+  }
+  return [user.firstname, user.realname].filter(Boolean).join(' ') || user.name;
+}
+
 export function catalogLabel(list, id, labelOf = (item) => item.completename ?? item.name) {
   const item = id == null ? null : (list || []).find((x) => x.id === id);
   return item ? labelOf(item) : '—';
 }
 
-// A UI só esconde; quem decide é o servidor (403).
-export function canDecide(profile) {
-  return profile === PROFILES.TECNICO;
+/** Iniciais para o avatar: "Ana Souza" → "AS", "Carla (suporte)" → "C". */
+export function initials(name) {
+  const words = String(name ?? '')
+    .replace(/\(.*?\)/g, '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return words
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join('') || '?';
 }
 
+/** "2026-10-19 18:57:27" (fuso do A) → "19/10 · 18:57". */
+export function shortDate(glpiDate) {
+  const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(String(glpiDate ?? ''));
+  return m ? `${m[3]}/${m[2]} · ${m[4]}:${m[5]}` : String(glpiDate ?? '');
+}
+
+/** Busca da lista: pelo número (#90 ou 90) ou por um trecho do título, sem acento nem caixa. */
+export function matchesSearch(ticket, query) {
+  const q = fold(query).replace(/^#/, '');
+  if (!q) {
+    return true;
+  }
+  return String(ticket.id) === q || fold(ticket.name).includes(q);
+}
+
+function fold(text) {
+  return String(text ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+// A UI só esconde; quem decide é o servidor (403).
 export function canAddNote(profile) {
   return profile === PROFILES.TECNICO;
 }
@@ -93,38 +124,39 @@ export function canAct(profile) {
   return profile === PROFILES.TECNICO;
 }
 
+export function canCreate(profile) {
+  return profile === PROFILES.TECNICO || profile === PROFILES.ESTAGIARIO;
+}
+
 /**
- * Ações do chamado e se cada uma vale no estado atual (mesma regra da UI do B: o botão do estado em que o chamado
- * já está fica desabilitado; reabrir só em Solucionado/Fechado). Cada ação diz o PUT que faz; "solve" também grava
- * a nota da solução antes. Na lixeira só restaurar vale.
+ * Ações do chamado e se cada uma vale no estado atual (mesma regra da UI do B: o estado em que o chamado já está não
+ * é oferecido; reabrir só em Solucionado/Fechado; na lixeira só restaurar). Cada ação diz o PUT que faz; "solve"
+ * também grava a nota da solução antes. `primary` marca o próximo passo natural do atendimento.
  */
 export function ticketActions(ticket, userId) {
   const { status } = ticket;
   const deleted = ticket.is_deleted === 1;
   const open = !deleted && status < 5;
+  const mine = ticket.users_id_assign === userId;
   const assign = { users_id_assign: userId };
   if (status === 1) {
     assign.status = 2;
   }
+  const primary = deleted ? 'restore' : status === 6 ? 'reopen' : status === 5 ? 'close' : mine ? 'solve' : 'assign';
   return [
-    { id: 'assign', label: 'Atribuir a mim', enabled: open && ticket.users_id_assign !== userId, input: assign },
+    { id: 'assign', label: 'Atribuir a mim', enabled: open && !mine, input: assign },
     { id: 'progress', label: 'Em atendimento', enabled: open && status !== 2, input: { status: 2 } },
     { id: 'pending', label: 'Pendente', enabled: open && status !== 4, input: { status: 4 } },
     { id: 'solve', label: 'Solucionar', enabled: open, input: { status: 5 } },
     { id: 'close', label: 'Fechar', enabled: !deleted && status !== 6, input: { status: 6 } },
     { id: 'reopen', label: 'Reabrir', enabled: !deleted && status >= 5, input: { status: 2 } },
-    // Excluir e Restaurar são o mesmo botão de lixeira: só um aparece
-    { id: 'delete', label: 'Excluir', enabled: !deleted, hidden: deleted, danger: true },
-    { id: 'restore', label: 'Restaurar', enabled: deleted, hidden: !deleted, input: { is_deleted: 0 } },
-  ];
+    { id: 'delete', label: 'Excluir', enabled: !deleted, danger: true },
+    { id: 'restore', label: 'Restaurar', enabled: deleted, input: { is_deleted: 0 } },
+  ].map((action) => ({ ...action, primary: action.id === primary && action.enabled }));
 }
 
 export function solutionNote(text) {
   return `Solução: ${String(text ?? '').trim()}`;
-}
-
-export function canCreate(profile) {
-  return profile === PROFILES.TECNICO || profile === PROFILES.ESTAGIARIO;
 }
 
 export function errorMessage({ status, code, message, profile, action } = {}) {
@@ -134,8 +166,6 @@ export function errorMessage({ status, code, message, profile, action } = {}) {
   switch (code) {
     case 'ERROR_RIGHT_MISSING':
       return `Seu perfil (${profileLabel(profile)}) não pode ${action || 'fazer esta ação'}. Peça a um Técnico.`;
-    case 'ERROR_TICKET_FROZEN':
-      return 'Chamado congelado (Solucionado ou Fechado): só aceita notas. A edição não foi salva.';
     case 'ERROR_TICKET_DELETED':
       return 'O chamado está na lixeira: restaure antes de editar.';
     case 'ERROR_SESSION_TOKEN_INVALID':
@@ -159,7 +189,7 @@ export function isSessionError(code) {
   return code === 'ERROR_SESSION_TOKEN_INVALID' || code === 'ERROR_SESSION_TOKEN_MISSING';
 }
 
-// Marcadores de idempotência do sync (⟦n:…⟧, ⟦from-b:…⟧, ⟦s:…⟧) não aparecem na conversa.
+// Marcadores de idempotência do sync (⟦n:…⟧, ⟦from-b:…⟧, ⟦s:…⟧) não aparecem no histórico.
 const MARKER_PATTERN = /⟦[^⟧]*⟧/g;
 const FROM_B_PATTERN = /⟦from-b:[^⟧]*⟧/;
 
@@ -168,17 +198,6 @@ export function stripMarkers(text) {
     .replace(MARKER_PATTERN, '')
     .replace(/[ \t]+\n/g, '\n')
     .trim();
-}
-
-export function authorOf(followup) {
-  const usersId = followup?.users_id;
-  if (usersId === SYNC_BOT_USER_ID) {
-    if (FROM_B_PATTERN.test(String(followup?.content ?? ''))) {
-      return { icon: '🏢', label: 'Operador B' };
-    }
-    return { icon: '🤖', label: 'sync-bot' };
-  }
-  return { icon: '👤', label: USER_LABELS[usersId] ?? `Usuário ${usersId}` };
 }
 
 const ENTITIES = Object.freeze({
@@ -203,50 +222,84 @@ export function htmlToText(html) {
   return text.replace(/\n{3,}/g, '\n\n').trim();
 }
 
-// "YYYY-MM-DD HH:MM:SS" ordena como texto.
-function byDate(a, b) {
-  if (a.date === b.date) {
-    return a.order - b.order;
-  }
-  return a.date < b.date ? -1 : 1;
-}
+// ---------- histórico de atividade ----------
+// As notas do sync-bot são frases escritas pelo sync (process-job.ts). Aqui elas viram eventos com um tipo, um
+// autor e um texto curto, para o histórico não ser um bloco corrido. Frase desconhecida aparece como nota comum.
 
-export function buildTimeline(followups = [], solutions = []) {
-  const items = [];
-  let order = 0;
-  for (const f of followups) {
-    items.push({
-      kind: 'note',
-      date: f.date,
-      order: order++,
-      author: authorOf(f),
-      text: stripMarkers(f.content),
-      private: f.is_private === 1,
-    });
-  }
-  for (const s of solutions) {
-    items.push({
-      kind: 'solution',
-      date: s.date_creation,
-      order: order++,
-      author: authorOf(s),
-      text: stripMarkers(s.content),
-      status: s.status,
-    });
-    if (s.status !== 2 && s.date_approval) {
-      items.push({
-        kind: 'decision',
-        date: s.date_approval,
-        order: order++,
-        author: { icon: '👤', label: USER_LABELS[s.users_id_approval] ?? 'Técnico' },
-        text: `Solução ${solutionStatusLabel(s.status)}.`,
-        status: s.status,
-      });
+const SYNC_PHRASES = [
+  {
+    re: /^Estado alterado no Sistema B por (.+?): (.+?) → (.+?)\.(?: Solução: ([\s\S]+))?$/,
+    event: ([, who, from, to, solution]) => ({ type: 'state', tag: 'Estado alterado no B', who, text: `${from} → ${to}`, quote: solution ?? null }),
+  },
+  {
+    re: /^O Sistema B também mudou o estado para (.+?) \(por (.+?)\), ao mesmo tempo que o A mudou para (.+?): prevaleceu o A\.$/,
+    event: ([, b, who, a]) => ({ type: 'conflict', tag: 'Conflito: o A venceu', who, text: `O B mudou para ${b} e o A para ${a} ao mesmo tempo. Ficou o do A.` }),
+  },
+  {
+    re: /^O Sistema B alterou (.+?) \(por (.+?)\); o A é a fonte da verdade e o valor foi restaurado\.$/,
+    event: ([, fields, who]) => ({ type: 'reverted', tag: 'Edição desfeita', who, text: `Mudou ${fields} no B. O A é a fonte da verdade e restaurou o valor.` }),
+  },
+  {
+    re: /^Excluído no Sistema B por (.+?)(?: em (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}))?: /,
+    event: ([, who]) => ({ type: 'deleted', tag: 'Excluído no B', who, text: 'O chamado foi para a lixeira. Restaurar recria o registro no B.' }),
+  },
+  {
+    re: /^O Sistema B excluiu o registro (\S+) \(por (.+?)(?: em [^)]+)?\), mas o chamado mudou no A/,
+    event: ([, record, who]) => ({ type: 'conflict', tag: 'Exclusão no B desfeita', who, text: `O B excluiu o ${record}, mas o chamado mudou no A depois: o registro foi recriado.` }),
+  },
+];
+
+function syncEvent(line) {
+  for (const phrase of SYNC_PHRASES) {
+    const m = phrase.re.exec(line);
+    if (m) {
+      return phrase.event(m);
     }
   }
-  return items.sort(byDate);
+  return { type: 'note', tag: null, who: null, text: line };
 }
 
-export function pendingSolution(solutions = []) {
-  return solutions.find((s) => s.status === 2) ?? null;
+/**
+ * Uma nota do histórico: quem (pessoa do A, operador do B ou o sincronizador), quando e os eventos dela.
+ * `users` é o catálogo /User, para mostrar o nome da pessoa em vez do perfil.
+ */
+export function describeNote(followup, users = []) {
+  const raw = String(followup?.content ?? '');
+  const text = stripMarkers(raw);
+  const when = shortDate(followup?.date);
+
+  if (followup?.users_id === SYNC_BOT_USER_ID) {
+    const events = text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map(syncEvent);
+    if (FROM_B_PATTERN.test(raw)) {
+      const who = events.find((e) => e.who)?.who ?? 'Operador B';
+      return { when, author: { kind: 'operador', name: who, role: 'Sistema B' }, events };
+    }
+    return { when, author: { kind: 'sync', name: 'Sincronizador', role: 'automático' }, events };
+  }
+
+  const user = (users || []).find((u) => u.id === followup?.users_id);
+  const role = user?.profile === PROFILES.ESTAGIARIO ? 'Estagiário' : 'Técnico';
+  const name = userName(user) ?? role;
+  const solution = /^Solução: ([\s\S]+)$/.exec(text);
+  const events = solution
+    ? [{ type: 'solution', tag: 'Solução', who: null, text: solution[1].trim() }]
+    : [{ type: 'note', tag: null, who: null, text }];
+  return {
+    when,
+    author: { kind: role === 'Estagiário' ? 'estagiario' : 'tecnico', name, role },
+    events,
+    private: followup?.is_private === 1,
+  };
+}
+
+/** Histórico em ordem de data ("YYYY-MM-DD HH:MM:SS" ordena como texto), o mais antigo primeiro. */
+export function buildTimeline(followups = [], users = []) {
+  return followups
+    .map((f, order) => ({ f, order }))
+    .sort((a, b) => (a.f.date === b.f.date ? a.order - b.order : a.f.date < b.f.date ? -1 : 1))
+    .map(({ f }) => describeNote(f, users));
 }

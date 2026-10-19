@@ -113,7 +113,8 @@ Com o servidor de pé, abra **http://localhost:3001/ui/** (`GET /` redireciona p
 - **Sem build e sem framework:** HTML + CSS + JavaScript em módulos ES em `src/public/`. A lógica que não toca o DOM fica em `ui-core.js`, importado pelo navegador e pelos testes (`node --test`).
 - **Servida pelo próprio A, mesma origem da API (sem CORS):** lista fechada de 4 arquivos lidos na subida (`index.html`, `app.js`, `ui-core.js`, `styles.css`); qualquer outro nome em `/ui/` é `404` (sem *path traversal*). Falta de arquivo impede o servidor de subir.
 - **Quem sou eu:** depois do `initSession`, a UI chama `GET /apirest.php/getFullSession` para saber o perfil.
-- **Atualização ao vivo:** o detalhe relê chamado, notas e soluções a cada 5 s; a lista, a cada 10 s; pausa com a aba escondida.
+- **Lista + detalhe lado a lado:** a lista (com busca por número ou título, e a lixeira) fica à esquerda e o chamado aberto à direita; abaixo de 900 px vira uma coluna e o detalhe toma a tela, com "Voltar para a lista".
+- **Atualização ao vivo:** lista e chamado aberto são relidos a cada 5 s; pausa com a aba escondida.
 
 | Na tela | Técnico | Estagiário |
 |---|---|---|
@@ -134,7 +135,7 @@ O A é o sistema central (PDF) e a tela de trabalho, como no GLPI. Cada ação d
 | Reabrir (só em 5/6) | `PUT status 2` (o A limpa as datas) | `IN_PROGRESS` |
 | Excluir · Restaurar | `DELETE /Ticket/:id` · `PUT is_deleted 0` | registro excluído no B · recriado (ADR-015) |
 
-**Conversa (B → A leve, ADR-014) e aprovações (não implementadas).** `GET /ui/config.json` devolve `{ appToken, features: { followups, solutions } }`, calculado das rotas registradas no `onReady`. A rota de acompanhamentos existe, então a **conversa** aparece no detalhe: o Técnico escreve notas, e o `sync-bot` registra o que veio do B (estado, quem alterou e solução), mostrado como 🏢 Operador B. A rota de soluções com aprovação (S1.5) não existe, então essa seção não aparece.
+**Histórico de atividade (B → A leve, ADR-014; exclusão, ADR-015).** `GET /ui/config.json` devolve `{ appToken, features }`, calculado das rotas registradas no `onReady`; com a rota de acompanhamentos, o histórico aparece no detalhe. Cada nota vira uma entrada com **quem** (a pessoa do A pelo nome do catálogo, o operador do B pelo nome que ele informou, ou o sincronizador), **quando** e um ou mais **eventos** com etiqueta: *Estado alterado no B* (com a solução à parte), *Conflito: o A venceu*, *Edição desfeita*, *Excluído no B*, *Solução*. As frases que o sync escreve são reconhecidas em `describeNote` (`ui-core.js`); uma frase desconhecida aparece como nota comum.
 
 **Mensagens de erro** (`errorMessage` em `ui-core.js`): `403 ERROR_RIGHT_MISSING` → "Seu perfil (Estagiário) não pode … Peça a um Técnico."; `409 ERROR_TICKET_DELETED` → "O chamado está na lixeira: restaure antes de editar."; sessão inválida → "Sua sessão expirou" e volta ao login; `ERROR_GLPI_LOGIN` → "Usuário ou senha incorretos."; falha de rede → "Sistema A fora do ar"; código desconhecido → mensagem do servidor + código. O formulário de edição não fecha nem perde o que foi digitado.
 
