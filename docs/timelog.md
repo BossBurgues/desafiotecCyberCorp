@@ -31,6 +31,7 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 18/10 | #34 [S3.6] processJob: create/update idempotente com marcador | 5 | 1 | sprint M1 (2); cliente do A como sync-bot, migration 003 |
 | 18/10 | #32 [S3.4] Entrada: webhook HMAC + poller com sobreposição | 3 | 0.75 | sprint M1 (2); poller compara pelo hash (B12) |
 | 18/10 | #84 [A6] · #98 [B10] · #121 [G4] cenários de integração | 1 | 0.5 | sprint M1 (2); mutação: sem SKIP LOCKED o A6 falha |
+| 18/10 | #38 [S3.10] Dashboard: fila, DLQ, mapeamentos, caos e /metrics | 2.5 | 2.5 | controles desligados por padrão até a S5.3 |
 
 ## Totais por milestone
 
