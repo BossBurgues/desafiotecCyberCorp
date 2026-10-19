@@ -31,6 +31,11 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 18/10 | #34 [S3.6] processJob: create/update idempotente com marcador | 5 | 1 | sprint M1 (2); cliente do A como sync-bot, migration 003 |
 | 18/10 | #32 [S3.4] Entrada: webhook HMAC + poller com sobreposição | 3 | 0.75 | sprint M1 (2); poller compara pelo hash (B12) |
 | 18/10 | #84 [A6] · #98 [B10] · #121 [G4] cenários de integração | 1 | 0.5 | sprint M1 (2); mutação: sem SKIP LOCKED o A6 falha |
+| 18/10 | #38 [S3.10] Dashboard: fila, DLQ, mapeamentos, caos e /metrics | 2.5 | 2.5 | controles desligados por padrão até a S5.3 |
+| 18/10 | #46 [S5.3] Login no dashboard · #124 [H2] | 1.5 | 0.75 | HTTP Basic com comparação em tempo constante, sem dependência nova; sem senha o dashboard não sobe |
+| 18/10 | #40 [S4.2] CI com E2E · A1, A2, B1, B2, B3, B6, C1, E4 | 4 | 2.5 | 9 cenários em ~3 min; B com volume próprio no E2E (tmpfs apagava o B no B1) |
+| 18/10 | #41 [S4.3] VM Oracle + Caddy HTTPS (parte do repositório) | 2.5 | 0.75 | bootstrap idempotente, .env de produção e passo a passo; a VM em si depende da conta Oracle |
+| 18/10 | #42 [S4.4] Deploy automático na Prod | 2 | 0.75 | GHCR multi-arch, aprovação no Environment, smoke HTTPS e rollback por tag |
 
 ## Totais por milestone
 

@@ -77,6 +77,10 @@ flowchart TD
 - `circuit-breaker.ts`: 5 falhas seguidas → aberto 30 s → uma requisição de teste.
 - "**B fora**" (timeout, rede, 5xx, 200 com erro) é transitório. "**B recusou**" (400/422, drift de formato) é permanente. `ambiguous = true` num create significa que o B pode ter gravado: nunca reenviar às cegas, procurar o marcador (ADR-004, S3.6).
 
-## 7. O B hostil, para testar
+## 7. Ver acontecer: dashboard
+
+`src/infra/http/dashboard.ts` + `public/dashboard.html` (S3.10), em `http://localhost:3000/dashboard`. Mostra a fila por status, a DLQ com o motivo, os mapeamentos (`create_uncertain` aparece aqui), a caixa de saída de alertas e o disjuntor do B. O botão **Reprocessar** cria um job novo que relê o A (B10). O **painel de caos** repassa ao `/admin/chaos` do B pela rede interna. `/metrics` expõe os mesmos números para o Prometheus. Reprocessar e caos alteram o sistema: ficam desligados (`DASHBOARD_CONTROLS=false`) até o login do dashboard (S5.3).
+
+## 8. O B hostil, para testar
 
 `apps/system-b`: caos em `/api/v2` (`B_CHAOS_*` ou `PUT /admin/chaos`), drift de formato (`formatDrift`: `title` vira `summary`), `DELETE /admin/records/{id}` e `POST /admin/wipe` para simular perda (autocura pelo auditor, S3.9). Tudo atrás do `X-Admin-Token`. O override `infra/docker-compose.e2e.yml` liga o caos agressivo com seed fixa.

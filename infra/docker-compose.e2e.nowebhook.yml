@@ -1,0 +1,6 @@
+# Override do cenário B2 (tests/e2e): o A sobe sem webhook nenhum. Só o poller do sync pode trazer as mudanças.
+#   usado pelo próprio teste: docker compose -f docker-compose.yml -f docker-compose.e2e.yml -f docker-compose.e2e.nowebhook.yml up -d system-a
+services:
+  system-a:
+    environment:
+      A_WEBHOOK_ENABLED: 'false'

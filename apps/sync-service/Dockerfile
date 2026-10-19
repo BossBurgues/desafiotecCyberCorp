@@ -35,6 +35,8 @@ COPY apps/sync-service/package.json apps/sync-service/
 COPY --from=build /app/apps/sync-service/dist apps/sync-service/dist
 # As migrations rodam na subida (src/infra/db/migrate.ts lê ../../../migrations a partir de dist)
 COPY apps/sync-service/migrations apps/sync-service/migrations
+# Página do dashboard (S3.10), servida de ../../../public a partir de dist
+COPY apps/sync-service/public apps/sync-service/public
 USER node
 EXPOSE 3000
 # /health é liveness: não olha o B, para o B instável não fazer o orquestrador reiniciar o sync
