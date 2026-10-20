@@ -13,7 +13,6 @@ Mantém os chamados de um sistema estilo **GLPI (Sistema A)** sincronizados num 
 | **Sistema B** (caixa-preta instável) | https://b.150-230-231-210.sslip.io/ui/ |
 | **Dashboard do sync** (fila, DLQ, caos) | https://sync.150-230-231-210.sslip.io/dashboard |
 | Saúde do sync | https://sync.150-230-231-210.sslip.io/ready |
-| Vídeo da demo | _no e-mail da entrega_ |
 | Backlog (Project) | https://github.com/users/BossBurgues/projects/2 |
 
 As **credenciais de demonstração** (Técnico, Estagiário e dashboard) foram enviadas por e-mail junto com a entrega. Em produção elas são aleatórias e nunca entram no repositório. Também dá para **criar a própria conta** na tela de entrada: no A, escolhendo o nível (Técnico ou Estagiário); no B, toda conta é de administrador (o B não tem níveis).
@@ -121,7 +120,7 @@ O avaliador confirmou que só o **A → B** é obrigatório; o B → A entrou na
 
 ## Horas
 
-**Total: 21,5 h**, pelos registros do GitHub (commits, merges, PRs e issues; pausas acima de 1 h descontadas). Por dia e por issue em [`docs/timelog.md`](docs/timelog.md).
+**Total: 25 h** (até 20/10), pelos registros do GitHub (commits, merges, PRs e issues; pausas acima de 1 h descontadas). Por dia e por issue em [`docs/timelog.md`](docs/timelog.md).
 
 ## Documentação
 
@@ -134,7 +133,7 @@ O avaliador confirmou que só o **A → B** é obrigatório; o B → A entrou na
 | [`docs/runbook.md`](docs/runbook.md) | O que fazer quando algo foge do normal |
 | [`docs/out-of-scope.md`](docs/out-of-scope.md) | O que ficou de fora e como seria feito |
 | [`docs/timelog.md`](docs/timelog.md) | Horas |
-| [`docs/demo-script.md`](docs/demo-script.md) | Roteiro da apresentação de 30 min (e do vídeo), com plano B por bloco |
+| [`docs/demo-script.md`](docs/demo-script.md) | Roteiro da apresentação de 30 min, com plano B por bloco |
 | [`docs/PLANO_DE_ACAO.md`](docs/PLANO_DE_ACAO.md) | Plano completo e catálogo de cenários |
 | [`infra/README.md`](infra/README.md) | Compose, VM, deploy e rollback |
 | [`tests/e2e/README.md`](tests/e2e/README.md) | Como rodar e o que prova cada cenário |
