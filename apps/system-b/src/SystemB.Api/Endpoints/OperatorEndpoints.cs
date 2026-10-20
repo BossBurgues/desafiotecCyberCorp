@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using SystemB.Api.Models;
@@ -36,12 +34,6 @@ public static partial class OperatorEndpoints
     private static IResult TooMany(string message) =>
         Results.Json(new ApiError("RATE_LIMITED", message), JsonDefaults.Options, statusCode: 429);
 
-    /// <summary>Compara o convite em tempo fixo (hash dos dois lados, então o tamanho também não vaza).</summary>
-    private static bool InviteMatches(string expected, string? given) =>
-        CryptographicOperations.FixedTimeEquals(
-            SHA256.HashData(Encoding.UTF8.GetBytes(expected)),
-            SHA256.HashData(Encoding.UTF8.GetBytes(given ?? "")));
-
     private static IResult Unauthorized(string message) =>
         Results.Json(new ApiError(ApiError.Unauthorized, message), JsonDefaults.Options, statusCode: 401);
 
@@ -72,7 +64,7 @@ public static partial class OperatorEndpoints
             var input = await Read<RegisterInput>(req);
             if (input is null) return ErrorResults.BadRequest("JSON inválido");
             var invite = config["B_OPERATOR_INVITE_CODE"];
-            if (!string.IsNullOrEmpty(invite) && !InviteMatches(invite, input.InviteCode))
+            if (!string.IsNullOrEmpty(invite) && !Secrets.Matches(invite, input.InviteCode))
             {
                 throttle.Hit(key);
                 return Results.Json(new ApiError("FORBIDDEN", "Código de convite inválido. Peça o código a quem administra o Sistema B."), JsonDefaults.Options, statusCode: 403);
