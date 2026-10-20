@@ -127,6 +127,8 @@ O avaliador confirmou que só o **A → B** é obrigatório; o B → A entrou na
 | Documento | Para quê |
 |---|---|
 | [`docs/how-it-works.md`](docs/how-it-works.md) | Passeio pelo código, garantias provadas e exercícios de quebra |
+| [`docs/mapa-do-projeto.md`](docs/mapa-do-projeto.md) | Escopo, mapa mental, casos de uso de hoje e como seria a versão completa |
+| [`docs/historico.md`](docs/historico.md) | Linha do tempo, épicos, stories, cenários, PRs e mudanças de rumo, pelos registros do GitHub |
 | [`docs/architecture.md`](docs/architecture.md) | Diagramas da arquitetura |
 | [`docs/adr/`](docs/adr/) | Por que cada decisão foi tomada (15 ADRs) |
 | [`docs/field-mapping.md`](docs/field-mapping.md) | Conversão campo a campo A → B |
