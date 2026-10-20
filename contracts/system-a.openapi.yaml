@@ -76,6 +76,58 @@ paths:
                     description: Token de sessão a ser enviado no cabeçalho `Session-Token`
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /register:
+    post:
+      operationId: registerUser
+      summary: Cadastra um usuário pela tela de login (sem sessão, só com o App-Token)
+      description: |
+        Simplificação do mock: no GLPI quem cria usuários é o administrador. Aqui a pessoa se cadastra e escolhe o
+        nível (`tecnico` ou `estagiario`); o `sync-bot` nunca é criado por aqui. Depois, entra com `initSession`.
+      security:
+        - {}
+        - appToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input]
+              properties:
+                input:
+                  type: object
+                  additionalProperties: false
+                  required: [name, firstname, password, profile]
+                  properties:
+                    name:
+                      type: string
+                      pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{2,31}$'
+                      description: Login (gravado em minúsculas)
+                    firstname: { type: string, minLength: 1, maxLength: 60 }
+                    realname: { type: string, maxLength: 60 }
+                    password: { type: string, minLength: 8, maxLength: 128, writeOnly: true }
+                    profile: { type: string, enum: [tecnico, estagiario] }
+      responses:
+        '201':
+          description: Usuário criado (sem senha nem token)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Dados inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlpiError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Login já existe (`ERROR_LOGIN_TAKEN`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlpiError'
   /killSession:
     get:
       operationId: killSession
@@ -152,6 +204,15 @@ paths:
             enum: [ASC, DESC]
             default: ASC
         - $ref: '#/components/parameters/DateModGte'
+        - in: query
+          name: is_deleted
+          description: |
+            Lixeira do GLPI (ADR-015): `0` (padrão) lista os chamados ativos; `1` lista só os que estão na lixeira.
+            O poller do sync pede as duas listas para ver exclusões e restaurações.
+          schema:
+            type: integer
+            enum: [0, 1]
+            default: 0
       responses:
         '200':
           description: Lista completa de chamados no intervalo solicitado
@@ -244,8 +305,9 @@ paths:
       operationId: updateTicket
       summary: Atualiza campos de um chamado existente
       description: |
-        Negado com **403** para perfil Estagiário e com **409** quando o chamado está congelado
-        nos status 5 (Solucionado) ou 6 (Fechado) (Q17/Q27, ADR-006).
+        Negado com **403** para o Estagiário. O `sync-bot` só pode mandar `status` (B → A leve, ADR-014) e
+        `is_deleted` (exclusão feita no B, ADR-015). Chamado na lixeira responde **409** a tudo que não seja restaurar.
+        Como no GLPI, entrar em 5 grava `solvedate`, entrar em 6 grava `closedate` e reabrir limpa as duas.
       requestBody:
         required: true
         content:
@@ -276,7 +338,39 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
-          $ref: '#/components/responses/Frozen'
+          description: "Chamado na lixeira (`ERROR_TICKET_DELETED`): só aceita `is_deleted` 0 (restaurar)"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GlpiError'
+    delete:
+      operationId: deleteTicket
+      summary: Manda o chamado para a lixeira (exclusão reversível)
+      description: |
+        Como o `DELETE` sem `force_purge` da API do GLPI: o chamado ganha `is_deleted: 1`, sai da listagem padrão e
+        continua legível por ID. Restaurar é `PUT {input: {is_deleted: 0}}`. Idempotente: excluir de novo não muda nada.
+        Permitido ao Técnico e ao `sync-bot` (exclusão feita no B, ADR-015); o Estagiário recebe **403**.
+        O evento `ticket.changed` sai como `updated` (o sync relê o chamado e vê o `is_deleted`).
+      responses:
+        '200':
+          description: Chamado na lixeira
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                  properties:
+                    message:
+                      type: string
+              example: [{ "42": true, "message": "" }]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /ITILCategory:
     get:
       operationId: listCategories
@@ -709,6 +803,10 @@ components:
             - $ref: '#/components/schemas/GlpiDateTime'
             - type: 'null'
           description: Preenchida ao entrar no status 6 (Fechado)
+        is_deleted:
+          type: integer
+          enum: [0, 1]
+          description: "`1` = na lixeira (ADR-015). No B, o registro é excluído; restaurar recria o registro"
         attachments:
           type: array
           items:
@@ -727,6 +825,7 @@ components:
         date_mod: "2026-10-18 14:03:22"
         solvedate: null
         closedate: null
+        is_deleted: 0
     TicketInput:
       type: object
       additionalProperties: false
@@ -762,6 +861,10 @@ components:
           oneOf:
             - $ref: '#/components/schemas/GlpiDateTime'
             - type: 'null'
+        is_deleted:
+          type: integer
+          enum: [0, 1]
+          description: "Só na edição (`PUT`). `0` restaura da lixeira; o `sync-bot` pode mandar `status` e `is_deleted`"
         attachments:
           type: array
           items:
@@ -963,14 +1066,6 @@ components:
             $ref: '#/components/schemas/GlpiError'
     NotFound:
       description: Recurso não encontrado no Sistema A
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/GlpiError'
-    Frozen:
-      description: |
-        Chamado congelado nos status 5 (Solucionado) ou 6 (Fechado): edições de campos são bloqueadas
-        com 409 explícito para proteger o SLA; apenas notas (`ITILFollowup`) e decisão da solução são aceitas (Q17/Q27, ADR-006).
       content:
         application/json:
           schema:

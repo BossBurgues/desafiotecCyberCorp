@@ -6,6 +6,7 @@ import {
   ForbiddenError,
   PROFILES,
   can,
+  hashPassword,
   hashToken,
   loadAuthConfig,
   parseAuthorization,
@@ -14,6 +15,7 @@ import {
   verifyPassword,
 } from './auth.js';
 import { CATEGORIES, LOCATIONS, findById, publicUser } from './catalog.js';
+import { validateRegistration } from './users.js';
 import { DEFAULT_DB_PATH, TicketStore } from './store.js';
 import {
   DEFAULT_TIMEZONE,
@@ -29,6 +31,20 @@ import {
 } from './tickets.js';
 import { UI_SECURITY_HEADERS, detectFeatures, loadUiAssets } from './ui.js';
 import { createWebhookDispatcher, loadWebhookConfig } from './webhooks.js';
+
+// O sync-bot mexe só no estado (B → A leve) e na lixeira (exclusão feita no B, ADR-015); o resto é do Técnico
+const SYNC_BOT_FIELDS = new Set(['status']);
+
+const REGISTER_WINDOW_MS = 10 * 60_000;
+const REGISTER_MAX_PER_WINDOW = 10;
+
+class TicketDeletedError extends Error {
+  constructor(id) {
+    super(`Chamado ${id} está na lixeira: restaure antes de editar.`);
+    this.glpiCode = 'ERROR_TICKET_DELETED';
+    this.statusCode = 409;
+  }
+}
 
 const SESSION_ONLY_ROUTES = new Set([
   '/apirest.php/initSession',
@@ -106,6 +122,8 @@ export function buildServer({
   auth = {},
   webhook: webhookOverrides = {},
   trustProxy = env.A_TRUST_PROXY === 'true' || env.A_TRUST_PROXY === true,
+  // Cadastro de Técnico pela tela: só para uso local. Na URL pública fica desligado (padrão)
+  selfRegisterTecnico = env.A_SELF_REGISTER_TECNICO === 'true',
   uiDir,
 } = {}) {
   const authConfig = loadAuthConfig(env, auth);
@@ -126,6 +144,7 @@ export function buildServer({
   emitter.on('ticket.changed', webhook.handle);
 
   const registeredRoutes = [];
+  const registerAttempts = new Map();
 
   app.decorate('store', store);
   app.decorate('authConfig', authConfig);
@@ -244,7 +263,7 @@ export function buildServer({
   app.get('/ui/config.json', (_request, reply) =>
     reply
       .header('cache-control', 'no-store')
-      .send({ appToken: authConfig.uiAppToken, features: uiFeatures }),
+      .send({ appToken: authConfig.uiAppToken, features: uiFeatures, selfRegisterTecnico }),
   );
 
   app.get('/ui/:file', (request, reply) => sendUiAsset(reply, request.params.file));
@@ -254,6 +273,11 @@ export function buildServer({
       api.addHook('preHandler', async (request) => {
         const routeUrl = request.routeOptions.url;
         if (routeUrl === '/apirest.php/initSession') {
+          return;
+        }
+        // Cadastro: ainda não há sessão, mas só quem tem o App-Token (a UI) chega aqui
+        if (routeUrl === '/apirest.php/register') {
+          validateAppTokenHeader(request.headers['app-token'], appTokens);
           return;
         }
         validateAppTokenHeader(request.headers['app-token'], appTokens);
@@ -311,6 +335,31 @@ export function buildServer({
         return { session_token: sessionToken };
       });
 
+      // Cadastro pela tela de login (simplificação do mock: no GLPI quem cria usuários é o administrador).
+      // A pessoa escolhe o nível (Técnico ou Estagiário); o sync-bot nunca é criado por aqui.
+      api.post('/register', async (request, reply) => {
+        // Limite simples por IP: o App-Token da UI é público, então o cadastro é a porta mais exposta do A
+        const ip = request.ip;
+        const instant = typeof now === 'function' ? now() : now;
+        const recent = (registerAttempts.get(ip) ?? []).filter((t) => instant - t < REGISTER_WINDOW_MS);
+        if (recent.length >= REGISTER_MAX_PER_WINDOW) {
+          const err = new Error('Muitas contas criadas a partir deste endereço. Tente de novo em alguns minutos.');
+          err.glpiCode = 'ERROR_TOO_MANY_REQUESTS';
+          err.statusCode = 429;
+          throw err;
+        }
+        registerAttempts.set(ip, [...recent, instant]);
+        const data = validateRegistration(request.body?.input, { allowTecnico: selfRegisterTecnico });
+        const created = store.createUser({ ...data, passwordHash: hashPassword(data.password) });
+        if (!created) {
+          const err = new Error(`O login ${data.login} já existe. Escolha outro ou entre com ele.`);
+          err.glpiCode = 'ERROR_LOGIN_TAKEN';
+          err.statusCode = 409;
+          throw err;
+        }
+        return reply.code(201).send(publicUser(created));
+      });
+
       api.get('/killSession', async (request, reply) => {
         store.deleteSession(request.sessionToken);
         return reply.code(200).send();
@@ -329,10 +378,10 @@ export function buildServer({
         '/Ticket',
         { config: { action: ACTIONS.TICKET_READ } },
         async (request, reply) => {
-          const { offset, start, limit, sort, order, dateModGte } = parseListQuery(request.query);
-          const total = store.count({ dateModGte });
+          const { offset, start, limit, sort, order, dateModGte, isDeleted } = parseListQuery(request.query);
+          const total = store.count({ dateModGte, isDeleted });
           const items =
-            start >= total ? [] : store.list({ offset, limit, sort, order, dateModGte });
+            start >= total ? [] : store.list({ offset, limit, sort, order, dateModGte, isDeleted });
           const { statusCode, contentRange } = buildListMeta({
             start,
             count: items.length,
@@ -462,26 +511,52 @@ export function buildServer({
           }
           if (request.user.profile === PROFILES.SYNC_BOT) {
             const keys = Object.keys(request.body?.input ?? {});
-            if (keys.length !== 1 || keys[0] !== 'status') {
-              throw new ForbiddenError(request.user.profile, `${ACTIONS.TICKET_UPDATE} (só o campo status)`);
+            if (keys.length === 0 || keys.some((k) => !SYNC_BOT_FIELDS.has(k))) {
+              throw new ForbiddenError(request.user.profile, `${ACTIONS.TICKET_UPDATE} (só status)`);
             }
           }
           const patch = lifecycleDates(prepareTicketUpdate(request.body, { now, timeZone }), existing);
+          // Na lixeira, como no GLPI, o chamado só pode ser restaurado (is_deleted: 0) antes de qualquer outra edição
+          if (existing.is_deleted === 1 && patch.is_deleted !== 0) {
+            throw new TicketDeletedError(id);
+          }
           assertReferences(patch, store);
-          const updated = store.update(id, patch);
-          emitter.emit('ticket.changed', {
-            ticketId: updated.id,
-            action: 'updated',
-            dateMod: updated.date_mod,
-            actor: {
-              id: request.user.id,
-              login: request.user.login,
-              profile: request.user.profile,
-            },
-          });
-          return updated;
+          return applyUpdate(request, id, patch);
         },
       );
+
+      // Excluir = mandar para a lixeira (como o DELETE sem force_purge da API do GLPI). Reversível: PUT is_deleted 0
+      api.delete(
+        '/Ticket/:id',
+        { config: { action: ACTIONS.TICKET_UPDATE } },
+        async (request) => {
+          const id = parseTicketId(request.params.id);
+          const existing = store.getById(id);
+          if (!existing) {
+            throw new TicketNotFoundError(`Chamado ${id} não encontrado.`);
+          }
+          if (existing.is_deleted !== 1) {
+            applyUpdate(request, id, prepareTicketUpdate({ input: { is_deleted: 1 } }, { now, timeZone }));
+          }
+          return [{ [id]: true, message: '' }];
+        },
+      );
+
+      // Grava e avisa o sync. A exclusão e a restauração saem como "updated": o evento é só um sinal e o worker relê o A
+      function applyUpdate(request, id, patch) {
+        const updated = store.update(id, patch);
+        emitter.emit('ticket.changed', {
+          ticketId: updated.id,
+          action: 'updated',
+          dateMod: updated.date_mod,
+          actor: {
+            id: request.user.id,
+            login: request.user.login,
+            profile: request.user.profile,
+          },
+        });
+        return updated;
+      }
     },
     { prefix: '/apirest.php' },
   );

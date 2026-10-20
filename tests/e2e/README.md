@@ -29,6 +29,8 @@ A asserção central é `expectSyncedOnce`: cada chamado aparece **exatamente um
 | `e4-b-lento-disjuntor` | E4 | B com 10 s de latência → disjuntor abre, tudo sincroniza na volta |
 | `f4-b-fecha-volta-ao-a-sem-eco` | F4 (B → A leve) | O operador do B fecha com solução → o A fica Fechado com a nota; depois, nenhum lado recebe escrita extra |
 | `g1-conversao-de-campos-do-glpi` | G1 | Categoria, local, requerente e técnico do A chegam como texto no B; solucionar e fechar viram `RESOLVED` e `CLOSED` |
+| `g2-acoes-do-a-chegam-ao-b` | G2 (A como GLPI) | As ações da tela do A (atribuir, solucionar, fechar, reabrir) chegam ao B, sempre no mesmo registro; reabrir limpa as datas |
+| `h1-exclusao-nos-dois-lados` | H1 (ADR-015) | Excluir no A apaga no B e restaurar recria sem duplicar; o operador excluir no B leva o chamado para a lixeira do A, com nota, sem eco |
 
 Cobertos por testes de integração do sync (sem E2E): A4 e H1 (`inbound.test.ts`), A6, B10 e G4 (`scenarios.test.ts`), H2 (`dashboard.test.ts`).
 

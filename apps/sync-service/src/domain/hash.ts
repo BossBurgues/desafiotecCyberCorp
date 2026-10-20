@@ -72,6 +72,10 @@ export function hashTicket(ticket: GlpiTicket): string {
       sha256: item.sha256,
     })),
   };
+  // Só entra quando excluído: o hash dos chamados fora da lixeira continua o mesmo de antes do ADR-015
+  if (ticket.is_deleted === 1) {
+    syncableSlice.is_deleted = 1;
+  }
   return sha256Versioned(syncableSlice);
 }
 

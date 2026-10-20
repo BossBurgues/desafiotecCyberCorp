@@ -8,7 +8,7 @@ public class OperatorUiTests : IDisposable
     private readonly SystemBFactory _f = new();
     private readonly HttpClient _c;
 
-    public OperatorUiTests() => _c = _f.CreateClient(new() { AllowAutoRedirect = false });
+    public OperatorUiTests() => _c = _f.CreateOperatorClient(options: new() { AllowAutoRedirect = false });
 
     public void Dispose() => _f.Dispose();
 

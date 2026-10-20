@@ -50,6 +50,7 @@ test('persiste chamado em arquivo SQLite após fechar e reabrir o banco', () => 
       date_mod: '2026-10-18 14:03:22',
       solvedate: null,
       closedate: null,
+      is_deleted: 0,
     });
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });

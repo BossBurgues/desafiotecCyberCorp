@@ -24,6 +24,8 @@ export interface GlpiTicket {
   date_mod: GlpiDateTime;
   solvedate?: GlpiDateTime | null;
   closedate?: GlpiDateTime | null;
+  /** Lixeira do GLPI (ADR-015): 1 = excluído no A; no B, o registro é excluído. */
+  is_deleted?: 0 | 1;
   attachments?: TicketAttachment[];
 }
 

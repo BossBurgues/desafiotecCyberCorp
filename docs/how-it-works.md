@@ -1,10 +1,12 @@
 # Como funciona: passeio pelo código
 
-Guia para ler o código na ordem em que um chamado viaja do A para o B. Cada seção diz **onde está** e **qual garantia protege**. Os links abrem a função citada. O retorno B → A está na versão leve (seção 11, [ADR-014](adr/014-b-para-a-leve.md)); o desenho completo, com aprovação, está nos ADRs [006](adr/006-b-propoe-a-aprova-congelamento-sla.md), [007](adr/007-exclusao-em-2-passos.md), [009](adr/009-anti-eco.md) e [011](adr/011-concorrencia-a-x-b.md) e no [`out-of-scope.md`](out-of-scope.md), que respondem às duas perguntas do avaliador (anti-eco e concorrência A × B).
+Guia para ler o código na ordem em que um chamado viaja do A para o B. Cada seção diz **onde está** e **qual garantia protege**. Os links abrem a função citada. O retorno B → A está na versão leve (seção 11, [ADR-014](adr/014-b-para-a-leve.md)) e a exclusão nos dois lados na seção 12 ([ADR-015](adr/015-exclusao-nos-dois-lados-e-o-mestre.md)); o desenho completo, com aprovação, está nos ADRs [006](adr/006-b-propoe-a-aprova-congelamento-sla.md), [009](adr/009-anti-eco.md) e [011](adr/011-concorrencia-a-x-b.md) e no [`out-of-scope.md`](out-of-scope.md), que respondem às duas perguntas do avaliador (anti-eco e concorrência A × B).
 
 As três garantias: **sem duplicata** (um chamado vira um registro no B), **sem perda** (toda mudança do A chega) e **sem dado velho** (uma versão antiga nunca sobrescreve uma nova).
 
 ## 0. O caminho de um chamado em 60 segundos
+
+O A é a tela de trabalho, como o GLPI: no detalhe do chamado, o cartão **Ações** do Técnico atribui a si, põe em atendimento ou pendente, soluciona (a solução vira uma nota), fecha, reabre e manda para a lixeira. Cada botão é um `PUT` (ou `DELETE`) da API que o sync já entende. O Estagiário só abre e lê.
 
 O Técnico salva o chamado no A. O A avisa o sync por webhook assinado. Se o aviso se perder, o poller acha a mudança alguns segundos depois. Os dois só enfileiram o **ID** do chamado: um job por chamado. Um worker pega o job com lease, **relê o chamado no A**, compara o hash com o último sincronizado e escreve no B: create com o marcador `⟦s:glpi-<id>⟧` no texto ou update. Depois **relê o registro no B** para confirmar que gravou de verdade. Só então grava o mapeamento, os hashes e a auditoria, numa transação só. Qualquer falha devolve o job à fila com backoff. O que não se resolve vai para a DLQ, de onde é reprocessado relendo o A.
 
@@ -77,7 +79,7 @@ flowchart LR
 
 ## 5. processJob: o chamado chega ao B uma vez só
 
-[`createProcessJob`](../apps/sync-service/src/application/process-job.ts#L123) (S3.6 e S3.8, ADR-004):
+[`createProcessJob`](../apps/sync-service/src/application/process-job.ts#L125) (S3.6 e S3.8, ADR-004):
 
 ```mermaid
 flowchart TD
@@ -100,10 +102,10 @@ flowchart TD
 ```
 
 - **Dado velho:** o job só tem o ID; o estado vem do A na hora (um job atrasado nunca escreve dado velho, C1).
-- **Duplicata:** create ambíguo (timeout, 5xx, 200 com erro: o B pode ter gravado) nunca é reenviado às cegas ([`create`](../apps/sync-service/src/application/process-job.ts#L438)). O chamado fica em `create_uncertain` e o próximo ciclo procura o marcador em todas as páginas da listagem ([`scanForMarker`](../apps/sync-service/src/application/process-job.ts#L515)). Achou → [`adopt`](../apps/sync-service/src/application/process-job.ts#L525). Só depois de `CREATE_UNCERTAIN_SCANS` (2) varreduras sem achar é que recria (A1, A2).
-- **Perda por "ack sem gravar" (S3.8, B5):** depois de todo create e update o sync relê o registro no B ([`verify`](../apps/sync-service/src/application/process-job.ts#L420), `VERIFY_AFTER_WRITE` ligado por padrão) e compara o hash do conteúdo. Só então grava `last_synced_hash`. Se o B respondeu 200 sem gravar, o hash antigo fica, o job volta com backoff, relê o A e reenvia o estado atual. Sem isso o próximo evento viraria no-op e a atualização sumiria para sempre.
-- **Registro sumiu do B (404):** o A é a fonte da verdade. [`recordMissing`](../apps/sync-service/src/application/process-job.ts#L378) procura o marcador na listagem (o registro pode ter outro ID) e adota; não achou → `create_uncertain`, e recria só depois de N varreduras. Um 404 logo depois de um 201 também vira `create_uncertain`, porque pode ser gravação atrasada.
-- **Atomicidade:** [`saveActive`](../apps/sync-service/src/application/process-job.ts#L563) grava mapeamento, hashes e `audit_log` numa transação só. `last_written_hash` é o hash do que escrevemos no B: seria a base do anti-eco no B → A (ADR-009).
+- **Duplicata:** create ambíguo (timeout, 5xx, 200 com erro: o B pode ter gravado) nunca é reenviado às cegas ([`create`](../apps/sync-service/src/application/process-job.ts#L438)). O chamado fica em `create_uncertain` e o próximo ciclo procura o marcador em todas as páginas da listagem ([`scanForMarker`](../apps/sync-service/src/application/process-job.ts#L515)). Achou → [`adopt`](../apps/sync-service/src/application/process-job.ts#L653). Só depois de `CREATE_UNCERTAIN_SCANS` (2) varreduras sem achar é que recria (A1, A2).
+- **Perda por "ack sem gravar" (S3.8, B5):** depois de todo create e update o sync relê o registro no B ([`verify`](../apps/sync-service/src/application/process-job.ts#L545), `VERIFY_AFTER_WRITE` ligado por padrão) e compara o hash do conteúdo. Só então grava `last_synced_hash`. Se o B respondeu 200 sem gravar, o hash antigo fica, o job volta com backoff, relê o A e reenvia o estado atual. Sem isso o próximo evento viraria no-op e a atualização sumiria para sempre.
+- **Registro sumiu do B (404):** o A é a fonte da verdade. [`recordMissing`](../apps/sync-service/src/application/process-job.ts#L503) procura o marcador na listagem (o registro pode ter outro ID) e adota; não achou → `create_uncertain`, e recria só depois de N varreduras. Um 404 logo depois de um 201 também vira `create_uncertain`, porque pode ser gravação atrasada.
+- **Atomicidade:** [`saveActive`](../apps/sync-service/src/application/process-job.ts#L691) grava mapeamento, hashes e `audit_log` numa transação só. `last_written_hash` é o hash do que escrevemos no B: seria a base do anti-eco no B → A (ADR-009).
 - O sync fala com o A como **sync-bot** (`src/adapters/system-a/client.ts`, `user_token`), que só lê chamados e escreve notas. Sessão expirada (401) é reaberta uma vez.
 - A conversão de campos (status, prioridade, HTML → texto, fuso → UTC) é domínio puro: [`mapTicketToRecord`](../apps/sync-service/src/domain/mapper.ts#L50), [`hashTicket`](../apps/sync-service/src/domain/hash.ts#L59) e [`hashRecord`](../apps/sync-service/src/domain/hash.ts#L78). Tabela completa em [`field-mapping.md`](field-mapping.md).
 
@@ -169,7 +171,7 @@ sequenceDiagram
   participant Q as sync_jobs
   participant K as processJob
   participant A as Sistema A
-  O->>B: Fechar (com solução), cabeçalho X-Operator
+  O->>B: Fechar (com solução), logado com a conta dele
   V->>B: lista os registros (a cada 30 s)
   V->>Q: hash ≠ last_written_hash → job b_changed
   K->>A: lê o chamado
@@ -181,12 +183,50 @@ sequenceDiagram
   Note over K,A: o poller vê a mudança no A → hash igual → no-op
 ```
 
-- **Varredura** ([`scanOnce`](../apps/sync-service/src/application/b-scanner.ts#L29)): para cada registro mapeado cujo hash não é o que o sync escreveu, enfileira um job `b_changed` na mesma fila do A → B (lease, retry, DLQ e auditoria valem igual).
-- **Ler antes de escrever** ([`update`](../apps/sync-service/src/application/process-job.ts#L210)): todo update relê o B antes do PUT. Uma edição no A nunca reabre o que o B acabou de fechar, mesmo antes da varredura.
-- **O que fazer com cada mudança** ([`reconcile`](../apps/sync-service/src/application/process-job.ts#L294)), comparando o B atual com o `last_written_record`:
+- **Varredura** ([`scanOnce`](../apps/sync-service/src/application/b-scanner.ts#L36)): para cada registro mapeado cujo hash não é o que o sync escreveu, enfileira um job `b_changed` na mesma fila do A → B (lease, retry, DLQ e auditoria valem igual).
+- **Ler antes de escrever** ([`update`](../apps/sync-service/src/application/process-job.ts#L223)): todo update relê o B antes do PUT. Uma edição no A nunca reabre o que o B acabou de fechar, mesmo antes da varredura.
+- **O que fazer com cada mudança** ([`reconcile`](../apps/sync-service/src/application/process-job.ts#L320)), comparando o B atual com o `last_written_record`:
   - estado mudado só no B → vale o do B (o `sync-bot` aplica no A e escreve a nota);
   - estado mudado nos dois lados → **o A vence**, nota no A dizendo o que o B tinha feito;
   - outro campo mudado no B → o A restaura, com nota.
 - **Anti-eco:** (1) o que o sync escreveu tem o hash do `last_written_hash` e não vira job; (2) o A não manda webhook para escritas do `sync-bot`, e o mapeamento já tem o hash novo do A, então o evento do poller vira no-op; (3) se o B já está igual ao que seria escrito, não há PUT; (4) a nota vai depois de o mapeamento ser gravado, então não duplica se o job repetir.
 - **Risco residual:** o B mudar entre o GET e o PUT (milissegundos). Sem ETag no mock; com `If-Match`, o PUT receberia 412 e releria (ADR-011). A próxima varredura corrige.
 - `B_TO_A_ENABLED=false` desliga a varredura e a aplicação no A; o update continua lendo o B antes e não desfaz o estado que o B mudou.
+
+## 12. Exclusão nos dois lados e quem é o mestre
+
+[ADR-015](adr/015-exclusao-nos-dois-lados-e-o-mestre.md). O A tem a **lixeira do GLPI** (`is_deleted`, reversível) e o B guarda uma **lápide**: o registro excluído responde **410** com quem e quando; o que nunca existiu ou se perdeu continua **404**.
+
+| Mudança | Mestre | O que acontece |
+|---|---|---|
+| Criar, campos | A | Vão ao B; edição de campo no B é desfeita |
+| Status | quem mudou desde a última sincronização; os dois → o A | ADR-014 (seção 11) |
+| Excluir no A | A | [`trashInB`](../apps/sync-service/src/application/process-job.ts#L404): `DELETE` no B e mapeamento `archived`; restaurar recria (o ID antigo vai para `b_record_history`) |
+| Excluir no B | o A decide | [`deletedInB`](../apps/sync-service/src/application/process-job.ts#L441): lixeira do A + nota "Excluído no Sistema B por …"; se o A mudou o chamado depois da última sincronização, o A vence e recria |
+| Some do B sem lápide (404) | A | procura o marcador e recria (S3.8) |
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor O as Operador B
+  participant B as Sistema B
+  participant V as varredura do B
+  participant K as processJob
+  participant A as Sistema A
+  O->>B: Excluir (lápide: Maria, 14:30)
+  V->>B: lista tudo: o B-7 mapeado não apareceu
+  V->>B: GET B-7 → 410 (não foi a paginação)
+  V->>K: job b_changed
+  K->>B: lê antes de escrever → 410 com a lápide
+  alt o A não mudou desde a última sincronização
+    K->>A: sync-bot: DELETE /Ticket/7 (lixeira, sem webhook)
+    K->>K: mapeamento archived com o hash do chamado na lixeira
+    K->>A: nota "Excluído no Sistema B por Maria em …"
+  else o A mudou depois
+    K->>B: recria com o marcador (o A vence) + nota no A
+  end
+```
+
+- **O bug de 19/10:** a varredura só comparava o que **aparecia** na listagem; o excluído sumia dela e nunca era visto. Agora, depois de uma listagem completa, todo registro mapeado ausente é confirmado por `GET` ([`scanOnce`](../apps/sync-service/src/application/b-scanner.ts#L36)). Teste: `deletion.test.ts`, "bug de 19/10".
+- **Anti-eco:** a lixeira feita pelo `sync-bot` não dispara webhook; o poller lê ativos e lixeira e vê o hash já sincronizado; os dois excluindo ao mesmo tempo → o `DELETE` do sync recebe 410 e conta como feito.
+- **Risco residual:** a exclusão no B só é percebida depois de uma listagem completa (30 s por ciclo, mais se a listagem do B estiver instável).

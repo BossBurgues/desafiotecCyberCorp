@@ -1,24 +1,22 @@
-// UI do Sistema A (S1.6): só liga DOM e fetch; a lógica fica em ui-core.js.
+// UI do Sistema A: só liga DOM e fetch; a lógica fica em ui-core.js.
 // Regra de segurança (G2): todo texto entra por textContent; nada de innerHTML.
 import * as core from './ui-core.js';
 
 const API = '/apirest.php';
 const STORAGE_KEY = 'system-a-ui-session';
-const LIST_POLL_MS = 10_000;
-const DETAIL_POLL_MS = 5_000;
+const POLL_MS = 5_000;
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const state = {
   config: null,
   session: null,
   timer: null,
-  detailId: null,
-  ticket: null,
   catalog: null,
+  showTrash: false,
+  tickets: [],
+  detailId: null, // número, 'new' ou null
+  ticket: null,
 };
-
-// Telas extras registradas pelas seções seguintes (detalhe, conversa, aprovações).
-const views = {};
-const detailExtensions = [];
 
 const $ = (id) => document.getElementById(id);
 
@@ -36,11 +34,30 @@ function el(tag, props = {}, ...children) {
     }
   }
   for (const child of children) {
-    if (child !== null && child !== undefined) {
+    if (child !== null && child !== undefined && child !== false) {
       node.append(child);
     }
   }
   return node;
+}
+
+// Ícones desenhados (traço único, 24×24): nada de emoji como ícone
+const ICONS = {
+  building: ['M4 21V6l8-3v18', 'M12 9h8v12', 'M3 21h18', 'M8 8v.01', 'M8 12v.01', 'M8 16v.01', 'M16 13v.01', 'M16 17v.01'],
+  sync: ['M20 11a8 8 0 0 0-14.9-3', 'M4 4v4h4', 'M4 13a8 8 0 0 0 14.9 3', 'M20 20v-4h-4'],
+};
+
+function icon(name) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'icon');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const d of ICONS[name]) {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', d);
+    svg.append(path);
+  }
+  return svg;
 }
 
 function showBanner(node, text) {
@@ -84,16 +101,18 @@ function saveSession(session) {
 function clearSession() {
   state.session = null;
   state.catalog = null;
-  sessionStorage.removeItem(STORAGE_KEY);
-  // Nada da sessão anterior (formulário aberto, aviso de erro) aparece para o próximo usuário.
+  state.showTrash = false;
+  state.tickets = [];
   state.detailId = null;
   state.ticket = null;
+  renderedActionsKey = null;
+  sessionStorage.removeItem(STORAGE_KEY);
+  // Nada da sessão anterior (formulário aberto, aviso de erro) aparece para o próximo usuário
   for (const form of document.querySelectorAll('main form:not(#login-form)')) {
     form.reset();
   }
-  $('new-ticket-form').hidden = true;
-  $('edit-form').hidden = true;
-  for (const banner of document.querySelectorAll('main .banner:not(#login-error)')) {
+  $('ticket-search').value = '';
+  for (const banner of document.querySelectorAll('main .banner:not(#login-error):not(#register-error)')) {
     showBanner(banner, '');
   }
 }
@@ -169,6 +188,22 @@ function expireSession(err) {
 
 // ---------- login ----------
 
+async function signIn(login, password) {
+  const { session_token: token } = await api('GET', '/initSession', undefined, {
+    headers: { Authorization: basicAuth(login.trim().toLowerCase(), password) },
+  });
+  saveSession({ token });
+  const { session } = await api('GET', '/getFullSession');
+  saveSession({
+    token,
+    userId: session.glpiID,
+    login: session.glpiname,
+    profile: session.glpiactiveprofile.name,
+  });
+  renderWho();
+  location.hash = '#/tickets';
+}
+
 async function onLogin(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -176,26 +211,54 @@ async function onLogin(event) {
   showBanner($('login-error'), '');
   button.disabled = true;
   try {
-    const { session_token: token } = await api('GET', '/initSession', undefined, {
-      headers: { Authorization: basicAuth(form.login.value, form.password.value) },
-    });
-    saveSession({ token });
-    const { session } = await api('GET', '/getFullSession');
-    saveSession({
-      token,
-      userId: session.glpiID,
-      login: session.glpiname,
-      profile: session.glpiactiveprofile.name,
-    });
+    await signIn(form.login.value, form.password.value);
     form.password.value = '';
-    renderWho();
-    location.hash = '#/tickets';
   } catch (err) {
     clearSession();
     showBanner($('login-error'), describe(err));
   } finally {
     button.disabled = false;
   }
+}
+
+// Cadastro: a pessoa escolhe o nível e entra direto (o servidor valida tudo de novo)
+async function onRegister(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const error = $('register-error');
+  showBanner(error, '');
+  if (form.password.value !== form.confirm.value) {
+    showBanner(error, 'As duas senhas não são iguais.');
+    form.confirm.focus();
+    return;
+  }
+  const button = form.querySelector('button[type=submit]');
+  button.disabled = true;
+  try {
+    await api('POST', '/register', {
+      input: {
+        name: form.login.value.trim().toLowerCase(),
+        firstname: form.firstname.value.trim(),
+        realname: form.realname.value.trim(),
+        password: form.password.value,
+        profile: form.profile.value,
+      },
+    });
+    await signIn(form.login.value, form.password.value);
+    form.reset();
+  } catch (err) {
+    showBanner(error, err.code === 'ERROR_LOGIN_TAKEN' ? err.message : describe(err));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function showAuth(mode) {
+  const register = mode === 'register';
+  $('login-form').hidden = register;
+  $('register-form').hidden = !register;
+  $('tab-login').setAttribute('aria-selected', String(!register));
+  $('tab-register').setAttribute('aria-selected', String(register));
 }
 
 async function onLogout() {
@@ -212,12 +275,13 @@ async function onLogout() {
 function renderWho() {
   const session = state.session;
   $('who').hidden = !session?.profile;
-  $('who-label').textContent = session?.profile
-    ? `👤 ${core.profileLabel(session.profile)} (${session.login})`
-    : '';
+  const me = state.catalog?.users.find((u) => u.id === session?.userId);
+  const name = core.userName(me) ?? session?.login ?? '';
+  $('who-avatar').textContent = core.initials(name);
+  $('who-label').textContent = session?.profile ? `${name} · ${core.profileLabel(session.profile)}` : '';
 }
 
-// ---------- lista e criação ----------
+// ---------- catálogos e formulários ----------
 
 function badge(status) {
   return el('span', { className: `badge status-${status}`, text: core.statusLabel(status) });
@@ -244,6 +308,7 @@ async function ensureCatalog() {
     api('GET', '/User'),
   ]);
   state.catalog = { categories, locations, users };
+  renderWho();
   return state.catalog;
 }
 
@@ -267,51 +332,110 @@ function fillTicketRefs(prefix, ticket = {}) {
   fillRefOptions($(`${prefix}-location`), locations, (l) => l.name, ticket.locations_id ?? null);
   const tecnicos = users.filter((u) => u.profile === 'tecnico');
   fillRefOptions($(`${prefix}-assign`), tecnicos, core.userLabel, ticket.users_id_assign ?? null);
+  // Requerente: qualquer pessoa (o sync-bot é conta técnica). Chamado novo assume quem abre, como no GLPI
+  const people = users.filter((u) => u.profile !== 'sync-bot');
+  const recipient = Object.hasOwn(ticket, 'id') ? ticket.users_id_recipient ?? null : state.session.userId;
+  fillRefOptions($(`${prefix}-recipient`), people, core.userLabel, recipient);
 }
 
 const refValue = (select) => (select.value === '' ? null : Number(select.value));
-const REF_FIELDS = ['itilcategories_id', 'locations_id', 'users_id_assign'];
+const REF_FIELDS = ['itilcategories_id', 'locations_id', 'users_id_recipient', 'users_id_assign'];
 
-async function refreshTickets() {
-  const tickets = await api('GET', '/Ticket?range=0-49&sort=date_mod&order=DESC');
-  const rows = (tickets || []).map((t) =>
-    el(
-      'tr',
-      { onClick: () => (location.hash = `#/tickets/${t.id}`) },
-      el('td', { text: String(t.id) }),
-      el('td', {}, el('a', { href: `#/tickets/${t.id}`, text: t.name })),
-      el('td', {}, badge(t.status)),
-      el('td', { text: core.priorityLabel(t.priority) }),
-      el('td', { text: t.date_mod }),
-    ),
-  );
-  $('tickets-body').replaceChildren(...rows);
-  $('tickets-empty').hidden = rows.length > 0;
-  $('tickets-updated').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')} (a cada 10 s).`;
+// ---------- lista ----------
+
+async function loadTickets() {
+  const trash = state.showTrash ? 1 : 0;
+  state.tickets = (await api('GET', `/Ticket?range=0-199&sort=date_mod&order=DESC&is_deleted=${trash}`)) || [];
+  renderList();
+  $('tickets-updated').textContent = `Atualizado às ${new Date().toLocaleTimeString('pt-BR')}`;
 }
 
-views.tickets = {
+function renderList() {
+  const trash = state.showTrash;
+  $('tickets-heading').textContent = trash ? 'Lixeira' : 'Chamados';
+  $('trash-toggle').textContent = trash ? 'Voltar aos chamados' : 'Ver lixeira';
+  const query = $('ticket-search').value;
+  const visible = state.tickets.filter((t) => core.matchesSearch(t, query));
+  $('tickets-body').replaceChildren(
+    ...visible.map((t) => {
+      const link = el(
+        'a',
+        { href: `#/tickets/${t.id}`, className: 'ticket-item' },
+        el('span', { className: 'ticket-line' }, el('span', { className: 'ticket-name', text: `#${t.id} · ${t.name}` }), badge(t.status)),
+        el('span', { className: 'ticket-sub', text: `${core.priorityLabel(t.priority)} · ${core.shortDate(t.date_mod)}` }),
+      );
+      if (t.id === state.detailId) {
+        link.setAttribute('aria-current', 'true');
+      }
+      return el('li', {}, link);
+    }),
+  );
+  const empty = $('tickets-empty');
+  empty.hidden = visible.length > 0;
+  empty.textContent = query.trim()
+    ? 'Nenhum chamado bate com a busca.'
+    : trash
+      ? 'A lixeira está vazia.'
+      : 'Nenhum chamado ainda. Use "Novo chamado" para abrir o primeiro.';
+}
+
+// ---------- área de trabalho: lista + detalhe ----------
+
+function showPane(which) {
+  $('detail-placeholder').hidden = which !== 'empty';
+  $('new-ticket-form').hidden = which !== 'new';
+  $('detail').hidden = which !== 'detail';
+  $('screen-tickets').classList.toggle('has-detail', which !== 'empty');
+}
+
+const workspace = {
   screen: 'screen-tickets',
-  pollMs: LIST_POLL_MS,
-  async enter() {
+  async enter({ id }) {
     $('new-ticket-toggle').hidden = !core.canCreate(state.session.profile);
     await ensureCatalog();
-    await refreshTickets();
+    if (id !== state.detailId) {
+      resetDetail();
+    }
+    state.detailId = id;
+    if (id === 'new') {
+      showPane('new');
+      openNewTicket();
+    } else if (id) {
+      showPane('detail');
+    } else {
+      showPane('empty');
+    }
+    await refresh();
   },
-  refresh: refreshTickets,
 };
 
-function toggleNewTicket(open) {
-  const form = $('new-ticket-form');
-  form.hidden = !open;
-  showBanner($('new-ticket-error'), '');
-  if (open) {
-    fillOptions($('new-ticket-priority'), [1, 2, 3, 4, 5, 6], core.priorityLabel, 3);
-    fillTicketRefs('new-ticket');
-    form.name.focus();
-  } else {
-    form.reset();
+async function refresh() {
+  await loadTickets();
+  if (typeof state.detailId === 'number') {
+    await refreshDetail();
   }
+}
+
+function resetDetail() {
+  state.ticket = null;
+  renderedActionsKey = null;
+  $('edit-form').hidden = true;
+  $('timeline').replaceChildren();
+  $('solution-text').value = '';
+  showBanner($('actions-error'), '');
+  showBanner($('edit-error'), '');
+  showBanner($('note-error'), '');
+}
+
+// ---------- novo chamado ----------
+
+function openNewTicket() {
+  const form = $('new-ticket-form');
+  form.reset();
+  showBanner($('new-ticket-error'), '');
+  fillOptions($('new-ticket-priority'), [1, 2, 3, 4, 5, 6], core.priorityLabel, 3);
+  fillTicketRefs('new-ticket');
+  form.name.focus();
 }
 
 async function onCreateTicket(event) {
@@ -328,7 +452,8 @@ async function onCreateTicket(event) {
         ...Object.fromEntries(REF_FIELDS.map((f) => [f, refValue(form[f])])),
       },
     });
-    toggleNewTicket(false);
+    form.reset();
+    state.showTrash = false;
     location.hash = `#/tickets/${created.id}`;
   } catch (err) {
     showBanner($('new-ticket-error'), describe(err, 'abrir chamados'));
@@ -337,118 +462,37 @@ async function onCreateTicket(event) {
   }
 }
 
-// ---------- roteamento por hash ----------
+// ---------- detalhe ----------
 
-function stopPolling() {
-  clearInterval(state.timer);
-  state.timer = null;
+function fact(label, value) {
+  return [el('dt', { text: label }), el('dd', { text: value })];
 }
-
-function startPolling(view) {
-  stopPolling();
-  if (!view.pollMs || !view.refresh) {
-    return;
-  }
-  state.timer = setInterval(() => {
-    if (document.hidden) {
-      return;
-    }
-    view.refresh().catch((err) => showBanner($('global-error'), describe(err)));
-  }, view.pollMs);
-}
-
-function showScreen(id) {
-  for (const screen of document.querySelectorAll('.screen')) {
-    screen.hidden = screen.id !== id;
-  }
-}
-
-function resolveRoute() {
-  const hash = location.hash || '#/tickets';
-  const detail = /^#\/tickets\/(\d+)$/.exec(hash);
-  if (detail && views.detail) {
-    return { view: views.detail, params: { id: Number(detail[1]) } };
-  }
-  if (hash === '#/login') {
-    return { view: null, params: {} };
-  }
-  return { view: views.tickets, params: {} };
-}
-
-let currentView = null;
-
-async function route() {
-  stopPolling();
-  showBanner($('global-error'), '');
-  if (!state.session?.profile) {
-    currentView = null;
-    showScreen('screen-login');
-    if (location.hash !== '#/login') {
-      location.hash = '#/login';
-    }
-    return;
-  }
-  const { view, params } = resolveRoute();
-  if (!view) {
-    location.hash = '#/tickets';
-    return;
-  }
-  currentView = view;
-  showScreen(view.screen);
-  try {
-    await view.enter(params);
-  } catch (err) {
-    showBanner($('global-error'), describe(err));
-  }
-  if (currentView === view) {
-    startPolling(view);
-  }
-}
-
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && currentView?.refresh) {
-    currentView.refresh().catch((err) => showBanner($('global-error'), describe(err)));
-  }
-});
-
-async function start() {
-  $('login-form').addEventListener('submit', onLogin);
-  $('logout').addEventListener('click', onLogout);
-  $('new-ticket-toggle').addEventListener('click', () => toggleNewTicket(true));
-  $('new-ticket-cancel').addEventListener('click', () => toggleNewTicket(false));
-  $('new-ticket-form').addEventListener('submit', onCreateTicket);
-  window.addEventListener('hashchange', route);
-
-  try {
-    state.config = await loadConfig();
-  } catch (err) {
-    showScreen('screen-login');
-    showBanner($('login-error'), describe(err.status ? err : new ApiError(0, 'NETWORK', '')));
-    return;
-  }
-  state.session = loadSession();
-  renderWho();
-  await route();
-}
-
-// Seções seguintes registram views.detail e detailExtensions antes do start.
-queueMicrotask(start);
-
-// ---------- detalhe e edição ----------
 
 function renderTicket(ticket) {
   $('detail-title').textContent = `#${ticket.id} · ${ticket.name}`;
+  $('detail-badges').replaceChildren(
+    badge(ticket.status),
+    ...(ticket.is_deleted === 1 ? [el('span', { className: 'badge trash', text: 'Na lixeira' })] : []),
+  );
   const { categories, locations, users } = state.catalog ?? {};
   const user = (id) => core.userLabel((users || []).find((u) => u.id === id));
-  const closedAt = ticket.closedate ? ` · fechado em ${ticket.closedate}` : ticket.solvedate ? ` · solucionado em ${ticket.solvedate}` : '';
-  $('detail-meta').replaceChildren(
-    badge(ticket.status),
-    ` · Prioridade ${core.priorityLabel(ticket.priority)} · aberto em ${ticket.date} · alterado em ${ticket.date_mod}${closedAt}`,
-    el('br'),
-    `Categoria: ${core.catalogLabel(categories, ticket.itilcategories_id)} · Local: ${core.catalogLabel(locations, ticket.locations_id, (l) => l.name)}` +
-      ` · Requerente: ${user(ticket.users_id_recipient)} · Atribuído a: ${user(ticket.users_id_assign)}`,
-  );
+  $('detail-meta').textContent =
+    `Prioridade ${core.priorityLabel(ticket.priority)} · aberto em ${core.shortDate(ticket.date)} · alterado em ${core.shortDate(ticket.date_mod)}`;
+  const facts = [
+    ...fact('Categoria', core.catalogLabel(categories, ticket.itilcategories_id)),
+    ...fact('Local', core.catalogLabel(locations, ticket.locations_id, (l) => l.name)),
+    ...fact('Requerente', user(ticket.users_id_recipient)),
+    ...fact('Atribuído a', user(ticket.users_id_assign)),
+  ];
+  if (ticket.solvedate) {
+    facts.push(...fact('Solucionado em', core.shortDate(ticket.solvedate)));
+  }
+  if (ticket.closedate) {
+    facts.push(...fact('Fechado em', core.shortDate(ticket.closedate)));
+  }
+  $('detail-facts').replaceChildren(...facts);
   $('detail-content').textContent = core.htmlToText(ticket.content) || '(sem descrição)';
+  $('edit-toggle').hidden = ticket.is_deleted === 1 || !core.canEdit(state.session.profile);
 }
 
 async function refreshDetail() {
@@ -459,9 +503,8 @@ async function refreshDetail() {
   }
   state.ticket = ticket;
   renderTicket(ticket);
-  for (const extension of detailExtensions) {
-    await extension(ticket);
-  }
+  renderActions(ticket);
+  await renderHistory(ticket);
 }
 
 function toggleEdit(open) {
@@ -474,15 +517,7 @@ function toggleEdit(open) {
   const ticket = state.ticket;
   form.name.value = ticket.name;
   form.content.value = core.htmlToText(ticket.content);
-  const statuses = core.editableStatuses();
-  fillOptions($('edit-status'), statuses, core.statusLabel, ticket.status);
-  if (!statuses.includes(ticket.status)) {
-    // Status fora da lista editável aparece só como valor atual, sem poder ser escolhido.
-    const current = el('option', { value: String(ticket.status), text: core.statusLabel(ticket.status) });
-    current.disabled = true;
-    current.selected = true;
-    $('edit-status').prepend(current);
-  }
+  fillOptions($('edit-status'), core.editableStatuses(), core.statusLabel, ticket.status);
   fillOptions($('edit-priority'), [1, 2, 3, 4, 5, 6], core.priorityLabel, ticket.priority);
   fillTicketRefs('edit', ticket);
   form.name.focus();
@@ -519,9 +554,10 @@ async function onSaveTicket(event) {
   button.disabled = true;
   showBanner($('edit-error'), '');
   try {
-    state.ticket = await api('PUT', `/Ticket/${ticket.id}`, { input });
-    renderTicket(state.ticket);
+    await api('PUT', `/Ticket/${ticket.id}`, { input });
     toggleEdit(false);
+    renderedActionsKey = null;
+    await refresh();
   } catch (err) {
     // 403/409: o aviso fica acima do formulário, que continua aberto com o que foi digitado.
     showBanner($('edit-error'), describe(err, 'editar chamados'));
@@ -530,138 +566,139 @@ async function onSaveTicket(event) {
   }
 }
 
-views.detail = {
-  screen: 'screen-detail',
-  pollMs: DETAIL_POLL_MS,
-  async enter({ id }) {
-    if (state.detailId !== id) {
-      toggleEdit(false);
+// ---------- ações do chamado (tela de trabalho do GLPI) ----------
+// Cada botão é um PUT (ou DELETE) da API que o A já tem; o sync leva o resultado ao B.
+
+let renderedActionsKey = null;
+
+function renderActions(ticket) {
+  const card = $('ticket-actions');
+  card.hidden = !core.canAct(state.session?.profile);
+  if (card.hidden) {
+    return;
+  }
+  // O polling de 5 s não recria os botões à toa (o foco e o texto da solução ficam)
+  const key = `${ticket.id}:${ticket.status}:${ticket.users_id_assign}:${ticket.is_deleted}`;
+  if (key === renderedActionsKey) {
+    return;
+  }
+  renderedActionsKey = key;
+  // Só o que vale agora aparece; o próximo passo natural vem preenchido
+  const actions = core.ticketActions(ticket, state.session.userId).filter((a) => a.enabled);
+  $('solution-field').hidden = !actions.some((a) => a.id === 'solve');
+  $('action-buttons').replaceChildren(
+    ...actions.map((action) => {
+      const classes = [action.primary ? '' : 'ghost', action.danger ? 'danger-outline' : ''].filter(Boolean);
+      const button = el('button', { type: 'button', text: action.label, 'data-action': action.id });
+      if (classes.length) {
+        button.className = classes.join(' ');
+      }
+      button.addEventListener('click', () => runAction(action, button));
+      return button;
+    }),
+  );
+}
+
+async function runAction(action, button) {
+  const ticket = state.ticket;
+  const error = $('actions-error');
+  showBanner(error, '');
+  const solution = $('solution-text').value.trim();
+  if (action.id === 'solve' && !solution) {
+    showBanner(error, 'Escreva a solução antes de solucionar.');
+    $('solution-text').focus();
+    return;
+  }
+  if (action.id === 'delete' && !confirm(`Mandar o chamado #${ticket.id} para a lixeira? O registro sai do Sistema B; restaurar o recria.`)) {
+    return;
+  }
+  button.disabled = true;
+  try {
+    if (action.id === 'delete') {
+      await api('DELETE', `/Ticket/${ticket.id}`);
+    } else {
+      if (action.id === 'solve') {
+        // A solução fica no histórico do chamado, como o acompanhamento do GLPI
+        await api('POST', '/ITILFollowup', {
+          input: { itemtype: 'Ticket', items_id: ticket.id, content: core.solutionNote(solution) },
+        });
+      }
+      await api('PUT', `/Ticket/${ticket.id}`, { input: action.input });
     }
-    state.detailId = id;
-    $('edit-toggle').hidden = !core.canEdit(state.session.profile);
-    await ensureCatalog();
-    await refreshDetail();
-  },
-  refresh: refreshDetail,
-};
-
-$('edit-toggle').addEventListener('click', () => toggleEdit($('edit-form').hidden));
-$('edit-cancel').addEventListener('click', () => toggleEdit(false));
-$('edit-form').addEventListener('submit', onSaveTicket);
-
-// ---------- conversa (S1.4) e aprovações (S1.5) ----------
-// Cada seção liga sozinha quando o servidor informa a rota em config.features.
-
-let renderedPendingKey = null;
-
-function bubble(item) {
-  const classes = ['bubble'];
-  if (item.kind !== 'note') {
-    classes.push('event');
-  } else if (item.author.icon === '🏢') {
-    classes.push('from-b');
-  } else if (item.author.icon === '🤖') {
-    classes.push('bot');
+    if (action.id === 'solve') {
+      $('solution-text').value = '';
+    }
+    if (action.id === 'delete' || action.id === 'restore') {
+      state.showTrash = action.id === 'delete';
+    }
+    renderedActionsKey = null;
+    toggleEdit(false);
+    await refresh();
+  } catch (err) {
+    showBanner(error, describe(err, 'mudar o chamado'));
+    button.disabled = false;
   }
-  let title = `${item.author.icon} ${item.author.label} · ${item.date}`;
-  if (item.kind === 'solution') {
-    title += ` · solução proposta (${core.solutionStatusLabel(item.status)})`;
+}
+
+// ---------- histórico de atividade ----------
+
+function avatar(author) {
+  if (author.kind === 'operador') {
+    return el('span', { className: 'avatar from-b', 'aria-hidden': 'true' }, icon('building'));
   }
-  if (item.private) {
-    title += ' · privada';
+  if (author.kind === 'sync') {
+    return el('span', { className: 'avatar bot', 'aria-hidden': 'true' }, icon('sync'));
   }
+  return el('span', { className: `avatar ${author.kind}`, 'aria-hidden': 'true', text: core.initials(author.name) });
+}
+
+function historyItem(item) {
+  const events = item.events.map((event) =>
+    el(
+      'div',
+      { className: `event ${event.type}` },
+      event.tag ? el('span', { className: `tag ${event.type}`, text: event.tag }) : null,
+      el('p', { className: 'event-text', text: event.text }),
+      event.quote ? el('blockquote', { text: `Solução: ${event.quote}` }) : null,
+    ),
+  );
   return el(
     'li',
-    { className: classes.join(' ') },
-    el('div', { className: 'who-line', text: title }),
-    el('div', { className: 'text', text: item.text }),
+    { className: `entry ${item.author.kind}` },
+    avatar(item.author),
+    el(
+      'div',
+      { className: 'entry-body' },
+      el(
+        'div',
+        { className: 'entry-head' },
+        el('strong', { text: item.author.name }),
+        el('span', { className: 'role', text: item.author.role }),
+        item.private ? el('span', { className: 'role', text: 'privada' }) : null,
+        el('time', { text: item.when }),
+      ),
+      ...events,
+    ),
   );
 }
 
-function renderPending(solution, notice) {
-  const box = $('detail-pending');
-  const key = notice ? 'notice' : solution ? `${solution.id}` : 'none';
-  if (key === renderedPendingKey) {
+async function renderHistory(ticket) {
+  if (!state.config.features.followups) {
+    $('conversation').hidden = true;
     return;
   }
-  renderedPendingKey = key;
-  if (notice) {
-    box.replaceChildren(el('p', { className: 'notice', text: notice }));
-    return;
-  }
-  if (!solution) {
-    box.replaceChildren();
-    return;
-  }
-
-  const author = core.authorOf(solution);
-  const card = el(
-    'section',
-    { className: 'card pending' },
-    el('h2', { text: '⏳ Solução aguardando aprovação' }),
-    el('div', { className: 'meta', text: `${author.icon} ${author.label} · ${solution.date_creation}` }),
-    el('p', { text: core.stripMarkers(solution.content) }),
-  );
-
-  if (!core.canDecide(state.session.profile)) {
-    card.append(el('p', { className: 'hint', text: 'Aguardando aprovação de um Técnico.' }));
-    box.replaceChildren(card);
-    return;
-  }
-
-  const error = el('div', { className: 'banner error', role: 'alert' });
-  error.hidden = true;
-  const reason = el('textarea', { rows: '2', placeholder: 'Motivo (obrigatório para recusar)' });
-  const decide = async (status, button) => {
-    const input = { status };
-    if (status === 4) {
-      if (!reason.value.trim()) {
-        showBanner(error, 'Informe o motivo para recusar a solução.');
-        reason.focus();
-        return;
-      }
-      input.content = reason.value.trim();
-    }
-    button.disabled = true;
-    showBanner(error, '');
-    try {
-      await api('PUT', `/ITILSolution/${solution.id}`, { input });
-      renderedPendingKey = null;
-      await refreshDetail();
-    } catch (err) {
-      showBanner(error, describe(err, 'aprovar ou recusar soluções'));
-    } finally {
-      button.disabled = false;
-    }
-  };
-  const approve = el('button', { type: 'button', text: 'Aprovar' });
-  const refuse = el('button', { type: 'button', className: 'danger', text: 'Recusar' });
-  approve.addEventListener('click', () => decide(3, approve));
-  refuse.addEventListener('click', () => decide(4, refuse));
-  card.append(error, el('label', { text: 'Motivo da recusa' }, reason), el('div', { className: 'actions' }, approve, refuse));
-  box.replaceChildren(card);
-}
-
-async function renderConversation(ticket) {
-  const { followups: hasFollowups, solutions: hasSolutions } = state.config.features;
-  const [followups, solutions] = await Promise.all([
-    hasFollowups ? api('GET', `/Ticket/${ticket.id}/ITILFollowup`) : [],
-    hasSolutions ? api('GET', `/Ticket/${ticket.id}/ITILSolution`) : [],
-  ]);
+  const followups = await api('GET', `/Ticket/${ticket.id}/ITILFollowup`);
   if (state.detailId !== ticket.id) {
     return;
   }
-
-  // Conversa (S1.4) e aprovações (S1.5) ficaram fora do escopo: sem a rota no servidor, as seções nem aparecem
-  renderPending(core.pendingSolution(solutions || []), null);
-
-  $('conversation').hidden = !hasFollowups;
-  $('note-form').hidden = !(hasFollowups && core.canAddNote(state.session.profile));
-  const items = core.buildTimeline(followups || [], solutions || []);
-  $('timeline').replaceChildren(...items.map(bubble));
-  if (hasFollowups && items.length === 0) {
-    $('timeline').append(el('li', { className: 'hint', text: 'Nenhuma nota ainda.' }));
-  }
+  $('conversation').hidden = false;
+  $('note-form').hidden = !core.canAddNote(state.session.profile);
+  const items = core.buildTimeline(followups || [], state.catalog?.users);
+  $('timeline').replaceChildren(
+    ...(items.length
+      ? items.map(historyItem)
+      : [el('li', { className: 'hint', text: 'Nada registrado ainda. Notas, a solução e o que o Sistema B mudar aparecem aqui.' })]),
+  );
 }
 
 async function onAddNote(event) {
@@ -687,15 +724,107 @@ async function onAddNote(event) {
   }
 }
 
-const enterDetail = views.detail.enter;
-views.detail.enter = async (params) => {
-  if (state.detailId !== params.id) {
-    renderedPendingKey = null;
-    $('timeline').replaceChildren();
-    $('detail-pending').replaceChildren();
-  }
-  await enterDetail(params);
-};
+// ---------- roteamento por hash ----------
 
-detailExtensions.push(renderConversation);
-$('note-form').addEventListener('submit', onAddNote);
+let currentView = null;
+
+function stopPolling() {
+  clearInterval(state.timer);
+  state.timer = null;
+}
+
+function startPolling() {
+  stopPolling();
+  state.timer = setInterval(() => {
+    if (document.hidden || !currentView) {
+      return;
+    }
+    refresh().catch((err) => showBanner($('global-error'), describe(err)));
+  }, POLL_MS);
+}
+
+function showScreen(id) {
+  for (const screen of document.querySelectorAll('.screen')) {
+    screen.hidden = screen.id !== id;
+  }
+}
+
+function resolveRoute() {
+  const hash = location.hash || '#/tickets';
+  if (hash === '#/login' || hash === '#/register') {
+    return null;
+  }
+  if (hash === '#/tickets/new') {
+    return { id: 'new' };
+  }
+  const detail = /^#\/tickets\/(\d+)$/.exec(hash);
+  return { id: detail ? Number(detail[1]) : null };
+}
+
+async function route() {
+  stopPolling();
+  showBanner($('global-error'), '');
+  if (!state.session?.profile) {
+    currentView = null;
+    showScreen('screen-login');
+    if (location.hash !== '#/login' && location.hash !== '#/register') {
+      location.hash = '#/login';
+      return;
+    }
+    showAuth(location.hash === '#/register' ? 'register' : 'login');
+    return;
+  }
+  const params = resolveRoute();
+  if (!params) {
+    location.hash = '#/tickets';
+    return;
+  }
+  currentView = workspace;
+  showScreen(workspace.screen);
+  try {
+    await workspace.enter(params);
+  } catch (err) {
+    showBanner($('global-error'), describe(err));
+  }
+  startPolling();
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && currentView) {
+    refresh().catch((err) => showBanner($('global-error'), describe(err)));
+  }
+});
+
+async function start() {
+  $('login-form').addEventListener('submit', onLogin);
+  $('register-form').addEventListener('submit', onRegister);
+  $('logout').addEventListener('click', onLogout);
+  $('new-ticket-toggle').addEventListener('click', () => (location.hash = '#/tickets/new'));
+  $('new-ticket-cancel').addEventListener('click', () => (location.hash = '#/tickets'));
+  $('new-ticket-form').addEventListener('submit', onCreateTicket);
+  $('trash-toggle').addEventListener('click', () => {
+    state.showTrash = !state.showTrash;
+    loadTickets().catch((err) => showBanner($('global-error'), describe(err)));
+  });
+  $('ticket-search').addEventListener('input', renderList);
+  $('edit-toggle').addEventListener('click', () => toggleEdit($('edit-form').hidden));
+  $('edit-cancel').addEventListener('click', () => toggleEdit(false));
+  $('edit-form').addEventListener('submit', onSaveTicket);
+  $('note-form').addEventListener('submit', onAddNote);
+  window.addEventListener('hashchange', route);
+
+  try {
+    state.config = await loadConfig();
+  } catch (err) {
+    showScreen('screen-login');
+    showBanner($('login-error'), describe(err.status ? err : new ApiError(0, 'NETWORK', '')));
+    return;
+  }
+  // Técnico pelo cadastro só quando o servidor libera (A_SELF_REGISTER_TECNICO, uso local)
+  $('level-tecnico').hidden = !state.config.selfRegisterTecnico;
+  state.session = loadSession();
+  renderWho();
+  await route();
+}
+
+start();

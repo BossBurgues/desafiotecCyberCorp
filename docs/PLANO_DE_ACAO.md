@@ -39,7 +39,9 @@ Critério: só volta o que cabe até 21/10 sem arriscar o núcleo publicado, e t
 | 7 cenários cortados que já tinham teste (A5, A7, B12, C6, E3, G3, H5) | Reclassificados como concluídos | issues, épico E8 |
 | **A como GLPI** (catálogos de categoria, local e usuário; datas de solução/fechamento; formulário) + conversão completa dos campos | **Entrou** (o PDF pede o GLPI como referência e deixa a conversão por nossa conta) | PR #176 |
 | **B → A leve:** estado, quem alterou e solução voltam ao A; ler antes de escrever; varredura do B; anti-eco e o A vencendo conflitos | **Entrou** (opcional do avaliador, com as duas perguntas respondidas e provadas) | ADR-014, PR do M3 |
-| B → A completo (aprovação, congelamento, exclusão em 2 passos), notas A → B, M2, homologação, GitLab | Continua fora | `out-of-scope.md` |
+| **A como tela de trabalho do GLPI:** cartão Ações (atribuir, atender, pendente, solucionar, fechar, reabrir), requerente no formulário | **Entrou** (pelo PDF, o A é o central) | `Docs/PlanosDeAcao/plano-final-a-central-e-entrega.md`, PR da M5 |
+| **Exclusão nos dois lados:** lixeira do A, lápide 410 no B, o A decide; correção do bug "excluir no B não chega ao A" | **Entrou** (responde "quem é o mestre" em cada mudança) | ADR-015, PR da M5 |
+| B → A completo (aprovação, congelamento), notas A → B, M2, homologação, GitLab | Continua fora | `out-of-scope.md` |
 
 O plano original cresceu além do que o desafio pede. Com o prazo de 22/10, a estratégia passa a ser: **entregar o núcleo A → B à prova de caos, publicado e bem documentado**, e transformar o resto em **desenho documentado** (ADRs + `out-of-scope.md`). O próprio enunciado valoriza mais o raciocínio do que uma solução completa, e o avaliador confirmou que o B → A é opcional.
 
@@ -265,8 +267,8 @@ flowchart LR
 3. Proposta de solução → Solução pendente no A + status 5 + `solvedate` (detecção UTC) + `based_on_hash` + nota do `sync-bot`.
 4. O Técnico aprova (→ 6, B confirmado) ou recusa (→ 2, B revertido, nota com motivo nos dois lados).
 
-### Fluxo de exclusão (2 passos)
-O registro some → `deletion_requested` + nota no A ("autor/motivo não informado pelo B") → o Técnico aprova (A fechado, mapeamento arquivado) ou recusa (recria com marcador, novo ID do B guardado no histórico, entrega os updates retidos).
+### Fluxo de exclusão (substituído pelo ADR-015 em 19/10)
+Desenho original: o registro some → `deletion_requested` + nota no A → o Técnico aprova ou recusa. Entregue: o B guarda uma lápide (410 = excluído, 404 = perdido); excluído no B → lixeira do A com nota (o A vence se mudou o chamado depois); excluído no A → `DELETE` no B; restaurar recria, com o ID antigo em `b_record_history`.
 
 ---
 
@@ -307,7 +309,7 @@ O registro some → `deletion_requested` + nota no A ("autor/motivo não informa
 | Técnico (A) | ✅ | ✅ | ✅ | ✅ (exceto congelado) | ✅ |
 | Estagiário (A) | ✅ | ✅ | ❌ | ❌ | ❌ |
 | sync-bot (A) | ✅ | — | ✅ (notas de sistema) | só aplica decisões do A | ❌ |
-| Operador B | UI do B: resolver, fechar, reabrir (com o nome e a solução) → **volta ao A** pelo B → A leve; editar outros campos → desfeito pelo A; excluir → o sync recria a partir do A |
+| Operador B | UI do B: resolver, fechar, reabrir (com o nome e a solução) → **volta ao A** pelo B → A leve; editar outros campos → desfeito pelo A; excluir → lixeira do A, com nota (o A vence se mudou o chamado depois, ADR-015) |
 
 Ação negada → **403** ou **409**, visível na UI e registrada no `audit_log`.
 
@@ -565,11 +567,11 @@ No fim de cada milestone, o PR `Dev` → `Prod` só exige a **CI verde na `Dev`*
 | Tempo | Bloco |
 |---|---|
 | 0–3 | Problema, as 3 proibições, diagrama |
-| 3–10 | Demo no A (o central): o Estagiário abre → aparece no B com o marcador → o Técnico edita, soluciona e fecha → o B acompanha cada mudança |
-| 10–18 | **Caos ao vivo:** 50% de erro + grava-e-falha → fila, disjuntor, recuperação → contagem no B prova zero duplicatas e a última versão |
-| 18–24 | Como foi provado: CI com os 9 cenários E2E + integração; um exercício de quebra ao vivo |
-| 24–27 | Decisões e trade-offs (caixa-preta, marcador, evento é sinal, fila no Postgres, verificação pós-escrita) e o B → A opcional: como o desenho evita o eco e trata a concorrência (ou o que foi implementado, se a 0.6 aprovar) |
-| 27–30 | Fora do escopo + perguntas |
+| 3–10 | O A é a tela de trabalho (GLPI): cria → aparece no B com o marcador → atribuir, solucionar, fechar e reabrir pelo cartão Ações → o B acompanha |
+| 10–17 | **Caos ao vivo:** 50% de erro + grava-e-falha + ack-sem-gravar → fila, disjuntor, recuperação → contagem no B prova zero duplicatas e a última versão |
+| 17–22 | B → A leve e quem manda em cada mudança: o B fecha → volta ao A sem eco; o B edita campo → desfeito; o B exclui → lixeira do A (ADR-014, ADR-015) |
+| 22–26 | Como foi provado: CI com os 13 cenários E2E + integração; um exercício de quebra ao vivo |
+| 26–30 | Decisões, fora do escopo e perguntas |
 
 Roteiro detalhado, com falas e valores de caos: `docs/demo-script.md` (S9.7).
 

@@ -12,7 +12,7 @@ O desenho completo (ADR-006: proposta, aprovação do Técnico, congelamento a p
 
 ## Decisão
 - **O que volta ao A:** o **estado** que o operador do B mudou (resolver → 5, fechar → 6, reabrir → 1, em espera → 4, em andamento → 2), com **quem alterou** (`updatedBy` do B) e a **solução** (`resolution` do B) numa nota do `sync-bot` na conversa do chamado. Sem aprovação: o A aceita o estado do B.
-- **O que não volta:** edição de outros campos no B (título, descrição, severidade…). O A é a fonte da verdade e restaura o valor, com nota. Exclusão no B segue a S3.8 (procura o marcador e recria).
+- **O que não volta:** edição de outros campos no B (título, descrição, severidade…). O A é a fonte da verdade e restaura o valor, com nota. Exclusão no B: ver o ADR-015 (lixeira do A; o A vence se mudou o chamado depois).
 - **Detecção:** o B não avisa ninguém, então a **varredura do B** (`B_SCAN_INTERVAL_MS`, 30 s) compara cada registro mapeado com o `last_written_hash` (o hash do que o sync escreveu). Diferente → job `b_changed` na mesma fila, com o mesmo lease, retry e auditoria do A → B.
 - **O que mudou, campo a campo:** o mapeamento guarda o `last_written_record` (o que o sync escreveu por último). Comparado com o registro atual do B, diz exatamente o que o B mudou.
 - **Ler antes de escrever:** todo update do A → B relê o B antes do PUT. Assim, uma edição no A nunca reabre um chamado que o B acabou de fechar, mesmo antes da varredura.

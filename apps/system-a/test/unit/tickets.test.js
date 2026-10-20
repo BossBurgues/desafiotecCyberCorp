@@ -144,6 +144,7 @@ test('parseListQuery valida range, sort, order e date_mod_gte', () => {
     sort: 'date_mod',
     order: 'ASC',
     dateModGte: null,
+    isDeleted: 0,
   });
 
   assert.throws(() => parseListQuery({ range: '50-10' }), TicketValidationError);

@@ -43,6 +43,8 @@ services:
       A_TECNICO_PASSWORD: ${A_TECNICO_PASSWORD:?defina A_TECNICO_PASSWORD}
       A_ESTAGIARIO_PASSWORD: ${A_ESTAGIARIO_PASSWORD:?defina A_ESTAGIARIO_PASSWORD}
       A_SYNC_BOT_TOKEN: ${A_SYNC_BOT_TOKEN:?defina A_SYNC_BOT_TOKEN}
+      # Técnico pelo cadastro da tela: desligado salvo pedido explícito (na URL pública, qualquer um viraria Técnico)
+      A_SELF_REGISTER_TECNICO: ${A_SELF_REGISTER_TECNICO:-false}
       # Sinal rápido; o poller do sync é a garantia quando o webhook se perde (Q1, cenário B2)
       A_WEBHOOK_ENABLED: ${A_WEBHOOK_ENABLED:-true}
       A_WEBHOOK_URL: http://sync-service:3000/webhooks/system-a
@@ -62,6 +64,8 @@ services:
       ASPNETCORE_URLS: http://0.0.0.0:5002
       B_DB_PATH: /data/system-b.db
       B_ADMIN_TOKEN: ${B_ADMIN_TOKEN:?defina B_ADMIN_TOKEN}
+      # Convite para criar conta de operador na UI do B (vazio = cadastro aberto, só local)
+      B_OPERATOR_INVITE_CODE: ${B_OPERATOR_INVITE_CODE:-}
       # Caos desligado por padrão; ligado pelo /admin/chaos ou pelo override E2E
       B_CHAOS_SEED: ${B_CHAOS_SEED:-}
       B_CHAOS_LATENCY_MS: ${B_CHAOS_LATENCY_MS:-0}
