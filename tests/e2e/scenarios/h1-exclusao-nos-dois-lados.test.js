@@ -30,10 +30,11 @@ test('H1: o operador exclui no B → o chamado vai para a lixeira do A com nota;
   const rec = await waitFor(async () => (await recordsByTicket()).get(t.id)?.[0], { what: 'o chamado no B' });
 
   await operatorDelete(rec.id, 'Maria');
+  // O sync manda para a lixeira e depois grava a nota (duas escritas no A): espera as duas
   const trashed = await waitFor(async () => {
     const now = await a.get(t.id);
-    return now.is_deleted === 1 ? now : null;
-  }, { what: 'o chamado na lixeira do A' });
+    return now.is_deleted === 1 && (await a.followups(t.id)).length > 0 ? now : null;
+  }, { what: 'o chamado na lixeira do A, com a nota' });
 
   const notes = await a.followups(t.id);
   assert.equal(notes.length, 1);
