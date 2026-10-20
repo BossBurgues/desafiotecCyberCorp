@@ -70,7 +70,7 @@ Também é aproveitado o **desenho completo do B → A** (ADRs 006, 007, 009 e 0
 | 6 | **S4.3 + S4.4** VM + deploy, **um único ambiente** (produção, a partir da `Prod`) | Entregável obrigatório: URL publicada. A `Dev` fica só com a CI | ✅ #166, #169, #170 (rollback testado) |
 | 7 | **14 cenários** do núcleo | A1, A2, A4, A6, B1, B2, B3, B5, B6, B10, C1, E4, H1, H2 | ✅ + B11, G1, G2, G4 |
 | 8 | **Realinhamento ao PDF** (seção 0.5): A soluciona/fecha; UIs sem sobras do B → A | O A é o central no PDF | ✅ #172 · docs em andamento |
-| 9 | **M5:** README, how-it-works final, runbook curto, timelog, roteiro + vídeo, entrega | Entregáveis do enunciado | 🟡 README, how-it-works e runbook ✅ (#168, #171); faltam timelog, roteiro, vídeo e e-mail |
+| 9 | **M5:** README, how-it-works final, runbook curto, timelog, roteiro, entrega | Entregáveis do enunciado | 🟡 README, how-it-works, runbook, roteiro e timelog ✅; vídeo cancelado (20/10); falta o e-mail |
 
 ### 0.3 O que sai (fechado como *not planned*, label `out-of-scope`, explicado no `out-of-scope.md`)
 
@@ -90,7 +90,7 @@ Também é aproveitado o **desenho completo do B → A** (ADRs 006, 007, 009 e 0
 | 18/10 (dom) | Merge do PR #163 (S3.4 + S3.6) | ✅ |
 | 19/10 (seg) | S3.8 · S3.10 + S5.3 · E2E (S4.2) · **URL publicada** (S4.3 + S4.4, adiantadas) · README e how-it-works · realinhamento ao PDF | ✅ |
 | 20/10 (ter) | Docs alinhadas ao PDF · validação do que foi cortado (0.6) e, se aprovado, o opcional escolhido · roteiro da demo · ensaio na URL | ⏳ |
-| 21/10 (qua) | Última release (nenhuma em 22/10) · timelog final · vídeo de backup | ⏳ |
+| 21/10 (qua) | Última release (nenhuma em 22/10) · timelog final (vídeo cancelado em 20/10) | ⏳ |
 | 22/10 (qui) | **Entrega:** e-mail com o repositório, a URL e as credenciais de demo | ⏳ |
 | 23/10 (sex) | Reserva | — |
 
@@ -570,12 +570,12 @@ No fim de cada milestone, o PR `Dev` → `Prod` só exige a **CI verde na `Dev`*
 | 3–10 | O A é a tela de trabalho (GLPI): cria → aparece no B com o marcador → atribuir, solucionar, fechar e reabrir pelo cartão Ações → o B acompanha |
 | 10–17 | **Caos ao vivo:** 50% de erro + grava-e-falha + ack-sem-gravar → fila, disjuntor, recuperação → contagem no B prova zero duplicatas e a última versão |
 | 17–22 | B → A leve e quem manda em cada mudança: o B fecha → volta ao A sem eco; o B edita campo → desfeito; o B exclui → lixeira do A (ADR-014, ADR-015) |
-| 22–26 | Como foi provado: CI com os 13 cenários E2E + integração; um exercício de quebra ao vivo |
+| 22–26 | Como foi provado: CI com os 14 testes E2E + integração; um exercício de quebra ao vivo |
 | 26–30 | Decisões, fora do escopo e perguntas |
 
 Roteiro detalhado, com falas e valores de caos: `docs/demo-script.md` (S9.7).
 
-Plano B: vídeo gravado do mesmo roteiro.
+Plano B: compose local com o mesmo roteiro, ou o E2E rodando ao vivo (o vídeo de backup foi cancelado em 20/10).
 
 ---
 
@@ -599,10 +599,10 @@ Plano B: vídeo gravado do mesmo roteiro.
 Cada item corresponde a um pedido do PDF ("O que esperamos" e "Prazo e regras").
 
 - [x] Repositório com histórico contínuo (Conventional Commits)
-- [ ] README (rodar, URLs, suposições, horas) + docs + ADRs *(falta o total de horas)*
+- [x] README (rodar, URLs, suposições, horas) + docs + ADRs
 - [x] URL pública com HTTPS (A, B, dashboard)
 - [x] `out-of-scope.md` com justificativas
-- [ ] `timelog.md` (o PDF pede: "conte quanto tempo você gastou")
+- [x] `timelog.md` (o PDF pede: "conte quanto tempo você gastou"), regerado pelos registros do GitHub
 - [x] CI verde + deploy automático
-- [ ] Vídeo de backup da demo
+- [x] ~~Vídeo de backup da demo~~ cancelado em 20/10 (#69, *not planned*)
 - [ ] E-mail com o link do repositório + a URL

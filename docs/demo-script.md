@@ -1,6 +1,6 @@
 # Roteiro da demo (30 min)
 
-Roteiro da apresentação e do vídeo de backup (#69). Mesma ordem nos dois: o vídeo é este roteiro gravado.
+Roteiro da apresentação ao vivo (#69). Sem vídeo de backup (cancelado em 20/10): o plano B de cada bloco é o compose local ou o E2E rodando ao vivo.
 
 **URLs de produção** (credenciais só no e-mail da entrega):
 
