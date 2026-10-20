@@ -66,7 +66,7 @@ function sameValue(x: unknown, y: unknown): boolean {
 }
 
 /** Só os campos do RecordInput: o que o sync de fato escreveu (sem id, horários e autor do B). */
-function asInput(r: RecordInput): RecordInput {
+export function asInput(r: RecordInput): RecordInput {
   const keys = ['title', 'description', 'state', 'severity', 'category', 'requester', 'assignee', 'location', 'sourceUpdatedAt', 'attachments', 'resolution'] as const;
   return Object.fromEntries(keys.filter((k) => r[k] !== undefined).map((k) => [k, r[k]])) as unknown as RecordInput;
 }
@@ -115,7 +115,8 @@ export async function getMapping(pool: Pick<Pool, 'query'>, ticketId: number): P
  *
  * 1. Lê o chamado no A agora (nunca o payload do evento): um job atrasado nunca escreve dado velho.
  * 2. Hash igual ao último sincronizado → nada a fazer.
- * 3. Sem mapeamento → create com o marcador ⟦s:glpi-id⟧. Falha ambígua → create_uncertain: o próximo ciclo procura
+ * 3. Sem mapeamento → create com o marcador ⟦s:glpi-id⟧ (o que já estava no B foi adotado na subida, reconcile.ts).
+ *    Falha ambígua → create_uncertain: o próximo ciclo procura
  *    o marcador na listagem do B e só recria depois de N varreduras sem achar. Create às cegas nunca.
  * 4. Com mapeamento → update. Registro sumiu do B (404) → procura o marcador; senão create ambíguo.
  * 5. Verificação pós-escrita (S3.8): relê o registro no B e só segue se o conteúdo bate (ack sem gravar, B5).
