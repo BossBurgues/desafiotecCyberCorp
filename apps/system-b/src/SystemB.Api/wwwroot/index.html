@@ -71,6 +71,11 @@
                 <input type="password" name="confirm" required minlength="8" maxlength="128" autocomplete="new-password" />
               </label>
             </div>
+            <label>
+              Código de convite
+              <span class="field-hint">Peça a quem administra o B. Na instalação local, deixe em branco.</span>
+              <input name="invite" maxlength="128" autocomplete="off" autocapitalize="none" spellcheck="false" />
+            </label>
             <p class="access-note">Toda conta do B é de administrador: vê e altera todos os registros. O B não tem níveis de acesso.</p>
             <div class="banner error" id="register-error" role="alert" hidden></div>
             <button type="submit" class="block">Criar conta e entrar</button>

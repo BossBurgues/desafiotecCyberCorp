@@ -12,8 +12,19 @@ function invalid(message) {
 
 const text = (value) => (typeof value === 'string' ? value.trim() : '');
 
-/** Valida o `input` do POST /register e devolve os campos normalizados (login em minúsculas). */
-export function validateRegistration(input) {
+function forbidden(message) {
+  const err = new Error(message);
+  err.glpiCode = 'ERROR_RIGHT_MISSING';
+  err.statusCode = 403;
+  return err;
+}
+
+/**
+ * Valida o `input` do POST /register e devolve os campos normalizados (login em minúsculas).
+ * O cadastro pela tela cria **Estagiário**. Técnico só com `allowTecnico` (A_SELF_REGISTER_TECNICO=true, para uso
+ * local): na URL pública, qualquer visitante viraria Técnico e poderia editar, fechar e excluir chamados.
+ */
+export function validateRegistration(input, { allowTecnico = false } = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw invalid('O corpo deve ter "input".');
   }
@@ -37,8 +48,12 @@ export function validateRegistration(input) {
   if (typeof input.password !== 'string' || input.password.length < 8 || input.password.length > 128) {
     throw invalid('A senha deve ter de 8 a 128 caracteres.');
   }
-  if (!SELF_SERVICE_PROFILES.includes(input.profile)) {
+  const profile = input.profile ?? 'estagiario';
+  if (!SELF_SERVICE_PROFILES.includes(profile)) {
     throw invalid('Escolha o nível: Técnico ou Estagiário.');
   }
-  return { login, firstname, realname, password: input.password, profile: input.profile };
+  if (profile === 'tecnico' && !allowTecnico) {
+    throw forbidden('O cadastro pela tela cria contas de Estagiário. Para atender chamados, peça a um Técnico.');
+  }
+  return { login, firstname, realname, password: input.password, profile };
 }

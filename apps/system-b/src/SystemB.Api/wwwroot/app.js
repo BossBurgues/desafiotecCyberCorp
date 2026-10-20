@@ -396,7 +396,7 @@ async function onRegister(e) {
   try {
     await api('/operator/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ login: form.login.value.trim().toLowerCase(), name: form.name.value.trim(), password: form.password.value }),
+      body: JSON.stringify({ login: form.login.value.trim().toLowerCase(), name: form.name.value.trim(), password: form.password.value, inviteCode: form.invite.value.trim() }),
     });
     await signIn(form.login.value, form.password.value);
     form.reset();

@@ -33,7 +33,10 @@ import { UI_SECURITY_HEADERS, detectFeatures, loadUiAssets } from './ui.js';
 import { createWebhookDispatcher, loadWebhookConfig } from './webhooks.js';
 
 // O sync-bot mexe só no estado (B → A leve) e na lixeira (exclusão feita no B, ADR-015); o resto é do Técnico
-const SYNC_BOT_FIELDS = new Set(['status', 'is_deleted']);
+const SYNC_BOT_FIELDS = new Set(['status']);
+
+const REGISTER_WINDOW_MS = 10 * 60_000;
+const REGISTER_MAX_PER_WINDOW = 10;
 
 class TicketDeletedError extends Error {
   constructor(id) {
@@ -119,6 +122,8 @@ export function buildServer({
   auth = {},
   webhook: webhookOverrides = {},
   trustProxy = env.A_TRUST_PROXY === 'true' || env.A_TRUST_PROXY === true,
+  // Cadastro de Técnico pela tela: só para uso local. Na URL pública fica desligado (padrão)
+  selfRegisterTecnico = env.A_SELF_REGISTER_TECNICO === 'true',
   uiDir,
 } = {}) {
   const authConfig = loadAuthConfig(env, auth);
@@ -139,6 +144,7 @@ export function buildServer({
   emitter.on('ticket.changed', webhook.handle);
 
   const registeredRoutes = [];
+  const registerAttempts = new Map();
 
   app.decorate('store', store);
   app.decorate('authConfig', authConfig);
@@ -257,7 +263,7 @@ export function buildServer({
   app.get('/ui/config.json', (_request, reply) =>
     reply
       .header('cache-control', 'no-store')
-      .send({ appToken: authConfig.uiAppToken, features: uiFeatures }),
+      .send({ appToken: authConfig.uiAppToken, features: uiFeatures, selfRegisterTecnico }),
   );
 
   app.get('/ui/:file', (request, reply) => sendUiAsset(reply, request.params.file));
@@ -332,7 +338,18 @@ export function buildServer({
       // Cadastro pela tela de login (simplificação do mock: no GLPI quem cria usuários é o administrador).
       // A pessoa escolhe o nível (Técnico ou Estagiário); o sync-bot nunca é criado por aqui.
       api.post('/register', async (request, reply) => {
-        const data = validateRegistration(request.body?.input);
+        // Limite simples por IP: o App-Token da UI é público, então o cadastro é a porta mais exposta do A
+        const ip = request.ip;
+        const instant = typeof now === 'function' ? now() : now;
+        const recent = (registerAttempts.get(ip) ?? []).filter((t) => instant - t < REGISTER_WINDOW_MS);
+        if (recent.length >= REGISTER_MAX_PER_WINDOW) {
+          const err = new Error('Muitas contas criadas a partir deste endereço. Tente de novo em alguns minutos.');
+          err.glpiCode = 'ERROR_TOO_MANY_REQUESTS';
+          err.statusCode = 429;
+          throw err;
+        }
+        registerAttempts.set(ip, [...recent, instant]);
+        const data = validateRegistration(request.body?.input, { allowTecnico: selfRegisterTecnico });
         const created = store.createUser({ ...data, passwordHash: hashPassword(data.password) });
         if (!created) {
           const err = new Error(`O login ${data.login} já existe. Escolha outro ou entre com ele.`);
@@ -495,7 +512,7 @@ export function buildServer({
           if (request.user.profile === PROFILES.SYNC_BOT) {
             const keys = Object.keys(request.body?.input ?? {});
             if (keys.length === 0 || keys.some((k) => !SYNC_BOT_FIELDS.has(k))) {
-              throw new ForbiddenError(request.user.profile, `${ACTIONS.TICKET_UPDATE} (só status e is_deleted)`);
+              throw new ForbiddenError(request.user.profile, `${ACTIONS.TICKET_UPDATE} (só status)`);
             }
           }
           const patch = lifecycleDates(prepareTicketUpdate(request.body, { now, timeZone }), existing);

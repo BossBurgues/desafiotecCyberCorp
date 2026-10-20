@@ -123,7 +123,7 @@ async function operatorHeaders(name = 'Leitor E2E') {
     const password = 'e2e-operador-senha';
     const post = (path, body) =>
       fetch(`${B_URL}/operator/auth/${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    const reg = await post('register', { login, name, password });
+    const reg = await post('register', { login, name, password, inviteCode: process.env.B_OPERATOR_INVITE_CODE ?? '' });
     if (reg.status !== 201) throw new Error(`cadastro do operador ${name}: ${reg.status}`);
     const res = await post('login', { login, password });
     if (!res.ok) throw new Error(`login do operador ${name}: ${res.status}`);

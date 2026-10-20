@@ -69,7 +69,7 @@ test('na lixeira o chamado só aceita restaurar (409); notas continuam valendo',
   }
 });
 
-test('Estagiário não exclui (403); sync-bot exclui e restaura, mas não edita outros campos', async () => {
+test('Estagiário não exclui (403); sync-bot manda para a lixeira, mas não restaura nem edita outros campos', async () => {
   const app = buildTestServer();
   try {
     const tecnico = await login(app, PROFILES.TECNICO);
@@ -81,7 +81,7 @@ test('Estagiário não exclui (403); sync-bot exclui e restaura, mas não edita 
     assert.equal((await app.inject({ method: 'DELETE', url: `/apirest.php/Ticket/${id}`, headers: bot })).statusCode, 200);
     const put = (input) => app.inject({ method: 'PUT', url: `/apirest.php/Ticket/${id}`, headers: bot, payload: { input } });
     assert.equal((await put({ is_deleted: 0, name: 'x' })).statusCode, 403);
-    assert.equal((await put({ is_deleted: 0 })).statusCode, 200);
+    assert.equal((await put({ is_deleted: 0 })).statusCode, 403);
     assert.equal((await app.inject({ method: 'DELETE', url: '/apirest.php/Ticket/999', headers: tecnico })).statusCode, 404);
   } finally {
     await app.close();

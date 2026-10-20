@@ -37,6 +37,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 var dbPath = builder.Configuration["B_DB_PATH"] ?? "./data/system-b.db";
 builder.Services.AddSingleton<IRecordStore>(_ => new SqliteRecordStore(dbPath));
 builder.Services.AddSingleton(_ => new SqliteOperatorStore(dbPath));
+builder.Services.AddSingleton<AuthThrottle>();
 // Criado quando o pipeline monta o middleware, na subida: B_CHAOS_* inválido derruba o processo antes de atender
 builder.Services.AddSingleton(sp => new ChaosEngine(ChaosOptions.FromConfiguration(sp.GetRequiredService<IConfiguration>())));
 

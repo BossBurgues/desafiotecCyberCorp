@@ -43,6 +43,7 @@ O avaliador quer ver, para cada tipo de mudança, **quem manda** e o que acontec
 - **Fica mais fácil:** responder "quem manda" para cada mudança; excluir é reversível nos dois sentidos (a lixeira do A guarda tudo, inclusive a conversa); o bug de 19/10 tem teste que o reproduz.
 - **Fica mais difícil:** o B precisa da capacidade `tombstone`. Um B sem ela devolve 404 ao excluir, e o sync trata como perda (recria): o A continua mestre, só sem a lixeira automática.
 - **Risco que sobra:** a varredura precisa de uma listagem completa para suspeitar de um registro; com a listagem do B atrasada ou instável, a exclusão é percebida alguns ciclos depois (30 s cada). Um registro excluído no B logo antes de o A mudar o chamado é recriado (o A vence), o que é a regra, mas pode surpreender o operador do B: a nota no A registra o caso.
+- **Quem pode excluir:** excluir no B leva o chamado para a lixeira do A, então a conta do operador do B é uma porta para o A. Na URL pública, criar conta no B exige o código de convite (`B_OPERATOR_INVITE_CODE`), a sessão expira em 12 h e o login tem limite de tentativas; no A, o cadastro pela tela cria só Estagiário (Técnico com `A_SELF_REGISTER_TECNICO=true`, uso local). O `sync-bot` manda para a lixeira, mas não restaura: restaurar é decisão de um Técnico.
 
 ## Alternativas consideradas
 | Alternativa | Por que não |

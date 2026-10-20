@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildTestServer, TEST_AUTH_CONFIG } from '../helpers/session.js';
 
-// Cadastro pela tela de login: a pessoa escolhe o nível (Técnico ou Estagiário) e entra em seguida.
+// Cadastro pela tela de login: cria Estagiário. Técnico só com A_SELF_REGISTER_TECNICO=true (uso local).
 
 const register = (app, input, appToken = TEST_AUTH_CONFIG.uiAppToken) =>
   app.inject({ method: 'POST', url: '/apirest.php/register', headers: { 'App-Token': appToken }, payload: { input } });
@@ -17,8 +17,8 @@ const login = (app, user, password) =>
     },
   });
 
-test('cadastro cria o usuário com o nível escolhido, sem sessão, e ele entra com a senha', async () => {
-  const app = buildTestServer();
+test('com a flag local, cadastro cria Técnico, sem sessão, e ele entra com a senha', async () => {
+  const app = buildTestServer({ selfRegisterTecnico: true });
   try {
     const res = await register(app, { name: 'Carla.Dias', firstname: ' Carla ', realname: 'Dias', password: 'senha-forte-1', profile: 'tecnico' });
     assert.equal(res.statusCode, 201);
@@ -83,6 +83,38 @@ test('cadastro recusa login repetido (409), nível sync-bot, dados inválidos (4
       assert.equal((await register(app, bad)).statusCode, 400, JSON.stringify(bad));
     }
     assert.equal((await register(app, { ...ok, name: 'outro' }, 'errado')).statusCode, 401);
+  } finally {
+    await app.close();
+  }
+});
+
+test('sem a flag, cadastro de Técnico é recusado (403), a UI não oferece e sem nível vira Estagiário', async () => {
+  const app = buildTestServer();
+  try {
+    const res = await register(app, { name: 'mal', firstname: 'Mal', realname: '', password: 'senha-forte-4', profile: 'tecnico' });
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.json()[0], 'ERROR_RIGHT_MISSING');
+    const config = (await app.inject({ method: 'GET', url: '/ui/config.json' })).json();
+    assert.equal(config.selfRegisterTecnico, false);
+
+    const plain = await register(app, { name: 'leo', firstname: 'Leo', realname: '', password: 'senha-forte-5' });
+    assert.equal(plain.statusCode, 201);
+    assert.equal(plain.json().profile, 'estagiario');
+  } finally {
+    await app.close();
+  }
+});
+
+test('cadastro limita tentativas por endereço (429) e libera depois da janela', async () => {
+  let clock = Date.parse('2026-10-20T12:00:00Z');
+  const app = buildTestServer({ now: () => clock });
+  try {
+    const attempt = (i) => register(app, { name: `pessoa${i}`, firstname: 'U', realname: '', password: 'senha-forte-6', profile: 'estagiario' });
+    for (let i = 0; i < 10; i += 1) assert.equal((await attempt(i)).statusCode, 201);
+    const limited = await attempt(10);
+    assert.equal(limited.statusCode, 429);
+    clock += 10 * 60_000 + 1;
+    assert.equal((await attempt(11)).statusCode, 201);
   } finally {
     await app.close();
   }

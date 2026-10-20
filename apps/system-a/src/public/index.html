@@ -79,15 +79,15 @@
             </div>
             <fieldset class="levels">
               <legend>Nível de acesso</legend>
-              <label class="level">
-                <input type="radio" name="profile" value="tecnico" required />
+              <label class="level" id="level-tecnico" hidden>
+                <input type="radio" name="profile" value="tecnico" />
                 <span class="level-body">
                   <strong>Técnico</strong>
                   <span>Atende, edita, soluciona, fecha, reabre e exclui chamados. Escreve notas.</span>
                 </span>
               </label>
               <label class="level">
-                <input type="radio" name="profile" value="estagiario" />
+                <input type="radio" name="profile" value="estagiario" checked required />
                 <span class="level-body">
                   <strong>Estagiário</strong>
                   <span>Abre chamados e acompanha o andamento. Não edita nem escreve notas.</span>

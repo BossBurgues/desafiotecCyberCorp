@@ -14,6 +14,12 @@ public sealed record Operator(long Id, string Login, string Name);
 public sealed class SqliteOperatorStore
 {
     private const int Iterations = 120_000;
+
+    /// <summary>A sessão do operador vale por este tempo desde o login; depois, entrar de novo.</summary>
+    public static readonly TimeSpan SessionTtl = TimeSpan.FromHours(12);
+
+    // Hash de uma senha qualquer, calculado uma vez: o login inexistente paga o mesmo PBKDF2 que o existente
+    private static readonly string DummyHash = HashPassword("conta-inexistente");
     private readonly string _connectionString;
 
     public SqliteOperatorStore(string dbPath)
@@ -94,7 +100,7 @@ public sealed class SqliteOperatorStore
             }
         }
         // Login inexistente também passa pelo PBKDF2: o tempo de resposta não revela quem tem conta
-        var ok = VerifyPassword(password, stored ?? HashPassword("conta-inexistente"));
+        var ok = VerifyPassword(password, stored ?? DummyHash);
         if (op is null || !ok) return null;
 
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
@@ -107,16 +113,18 @@ public sealed class SqliteOperatorStore
         return (token, op);
     }
 
-    public Operator? FindBySession(string? token)
+    /// <summary>Operador de uma sessão aberta depois de <paramref name="notBefore"/> (mesmo formato ISO do created_at).</summary>
+    public Operator? FindBySession(string? token, string notBefore)
     {
         if (string.IsNullOrEmpty(token)) return null;
         using var conn = Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT o.id, o.login, o.name FROM operator_sessions s JOIN operators o ON o.id = s.operator_id
-            WHERE s.token_hash = $h
+            WHERE s.token_hash = $h AND s.created_at > $nb
             """;
         cmd.Parameters.AddWithValue("$h", TokenHash(token));
+        cmd.Parameters.AddWithValue("$nb", notBefore);
         using var r = cmd.ExecuteReader();
         return r.Read() ? new Operator(r.GetInt64(0), r.GetString(1), r.GetString(2)) : null;
     }

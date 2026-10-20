@@ -72,6 +72,53 @@ public class OperatorAuthTests : IDisposable
     }
 
     [Fact]
+    public async Task Com_convite_definido_cadastro_sem_o_codigo_certo_responde_403()
+    {
+        using var f = new SystemBFactory { Settings = { ["B_OPERATOR_INVITE_CODE"] = "convite-secreto" } };
+        var c = f.CreateClient();
+        StringContent WithInvite(string login, string? invite) => Api.Json(new JsonObject
+        {
+            ["login"] = login, ["name"] = "Maria", ["password"] = "senha-forte-1", ["inviteCode"] = invite,
+        }.ToJsonString());
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.PostAsync("/operator/auth/register", Account("sem-convite"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.PostAsync("/operator/auth/register", WithInvite("errado", "outro"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await c.PostAsync("/operator/auth/register", WithInvite("certo", "convite-secreto"))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Sessao_expira_depois_de_12_horas()
+    {
+        await _c.PostAsync("/operator/auth/register", Account("lia"));
+        var token = (string)(await (await _c.PostAsync("/operator/auth/login", Credentials("lia"))).Obj())["token"]!;
+        HttpRequestMessage Me()
+        {
+            var m = new HttpRequestMessage(HttpMethod.Get, "/operator/auth/me");
+            m.Headers.Add("X-Session-Token", token);
+            return m;
+        }
+
+        _f.Clock.Advance(TimeSpan.FromHours(11));
+        Assert.Equal(HttpStatusCode.OK, (await _c.SendAsync(Me())).StatusCode);
+        _f.Clock.Advance(TimeSpan.FromHours(1));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _c.SendAsync(Me())).StatusCode);
+    }
+
+    [Fact]
+    public async Task Login_errado_demais_responde_429_ate_a_janela_passar()
+    {
+        await _c.PostAsync("/operator/auth/register", Account("rui"));
+        for (var i = 0; i < 10; i++)
+            Assert.Equal(HttpStatusCode.Unauthorized, (await _c.PostAsync("/operator/auth/login", Credentials("rui", "senha-errada"))).StatusCode);
+        // Bloqueado mesmo com a senha certa; outro usuário do mesmo endereço não é afetado
+        Assert.Equal((HttpStatusCode)429, (await _c.PostAsync("/operator/auth/login", Credentials("rui"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _c.PostAsync("/operator/auth/login", Credentials("outra"))).StatusCode);
+
+        _f.Clock.Advance(TimeSpan.FromMinutes(16));
+        Assert.Equal(HttpStatusCode.OK, (await _c.PostAsync("/operator/auth/login", Credentials("rui"))).StatusCode);
+    }
+
+    [Fact]
     public void Senha_guardada_com_PBKDF2_e_salt_proprio()
     {
         var a = SystemB.Api.Storage.SqliteOperatorStore.HashPassword("senha-forte-1");

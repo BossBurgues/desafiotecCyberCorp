@@ -820,6 +820,8 @@ async function start() {
     showBanner($('login-error'), describe(err.status ? err : new ApiError(0, 'NETWORK', '')));
     return;
   }
+  // Técnico pelo cadastro só quando o servidor libera (A_SELF_REGISTER_TECNICO, uso local)
+  $('level-tecnico').hidden = !state.config.selfRegisterTecnico;
   state.session = loadSession();
   renderWho();
   await route();
