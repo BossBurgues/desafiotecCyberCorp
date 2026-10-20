@@ -33,6 +33,9 @@ export interface ScanResult {
  * completa, todo registro mapeado que não apareceu é suspeito e é confirmado por GET (a listagem pode ter pulado uma
  * página): 200 → foi a paginação; 410 (lápide) ou 404 (perdido) → job b_changed, e o processJob decide.
  */
+/** Teto de GETs de confirmação por ciclo: uma listagem que veio curta não pode virar uma rajada contra um B instável. */
+export const MAX_SUSPECTS_PER_SCAN = 25;
+
 export async function scanOnce(deps: BScannerDeps): Promise<ScanResult> {
   const { rows } = await deps.pool.query<{ a_ticket_id: string; b_record_id: string; last_written_hash: string | null }>(
     `SELECT a_ticket_id, b_record_id, last_written_hash FROM ticket_mapping
@@ -62,11 +65,16 @@ export async function scanOnce(deps: BScannerDeps): Promise<ScanResult> {
   if (changed.size > 0) deps.logger.info({ seen, changed: [...changed] }, 'varredura do B: mudanças feitas no B');
 
   let missing = 0;
+  let checked = 0;
   for (const [recordId, m] of mapped) {
     if (listed.has(recordId) || changed.has(m.ticketId)) continue;
+    // O resto fica para o próximo ciclo (a suspeita não se perde: o registro continua fora da listagem)
+    if (++checked > MAX_SUSPECTS_PER_SCAN) break;
     try {
       const rec = await deps.b.getRecord(recordId);
       if (rec) {
+        // Mesmo filtro da listagem: o marcador precisa apontar para o mesmo chamado
+        if (findMarker(rec[deps.markerField]) !== m.ticketId) continue;
         // Estava lá: a listagem pulou a página. Se mudou, entra como qualquer mudança do B
         if (hashRecord(rec as RecordInput) !== m.hash) {
           changed.add(m.ticketId);
@@ -77,6 +85,11 @@ export async function scanOnce(deps: BScannerDeps): Promise<ScanResult> {
     } catch (err) {
       // Só o 410 confirma; erro transitório deixa a suspeita para o próximo ciclo
       if (!(err instanceof BError && err.reason === 'gone')) {
+        // B fora ou pedindo calma: insistir agora só piora. Para o ciclo; o próximo retoma
+        if (err instanceof BError && (err.reason === 'circuit_open' || err.reason === 'rate_limited')) {
+          deps.logger.info({ reason: err.reason }, 'varredura do B: confirmação interrompida (B indisponível)');
+          break;
+        }
         deps.logger.debug({ err, b_record_id: recordId }, 'varredura do B: não deu para confirmar o registro sumido');
         continue;
       }

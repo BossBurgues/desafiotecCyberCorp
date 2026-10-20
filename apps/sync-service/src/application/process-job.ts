@@ -158,7 +158,15 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
       return;
     }
     if (mapping?.state === 'archived') {
-      // Restaurado da lixeira do A: o registro antigo é lápide no B (ou nunca existiu), então nasce um novo
+      // Restaurado da lixeira do A: o registro antigo é lápide no B (ou nunca existiu). Antes de criar, procura o
+      // marcador: um create ambíguo antigo pode ter gravado depois do arquivamento, e recriar seria duplicata
+      const orphan = await scanForMarker(ticket.id, correlationId);
+      if (orphan) {
+        const adopted = await adopt(mapping, orphan, correlationId);
+        log.info({ b_record_id: orphan.id }, 'chamado restaurado da lixeira do A: registro com o marcador achado no B e adotado');
+        await update(ticket, input, ticketHash, adopted, signal, correlationId, log, false, toRecord);
+        return;
+      }
       log.info({ old_b_record_id: mapping.b_record_id }, 'chamado restaurado da lixeira do A: recriando no B');
       await create(ticket, input, ticketHash, signal, correlationId, log);
       return;
@@ -239,7 +247,8 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     try {
       current = await b.getRecord(mapping.b_record_id!, { correlationId });
     } catch (err) {
-      if (allowMissing && err instanceof BError && err.reason === 'gone') {
+      // 410 é uma exclusão feita no B: a matriz do ADR-015 decide, mesmo num update logo depois de adotar
+      if (err instanceof BError && err.reason === 'gone') {
         await deletedInB(ticket, input, ticketHash, mapping, err, signal, correlationId, log);
         return;
       }
@@ -280,7 +289,17 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
         }
         throw err;
       }
-      const outcome = await verify(ticket.id, recordId, toWrite, correlationId);
+      let outcome: VerifyOutcome;
+      try {
+        outcome = await verify(ticket.id, recordId, toWrite, correlationId);
+      } catch (err) {
+        // Excluído no B entre o PUT e a releitura: a matriz do ADR-015 decide, em vez de mandar o job para a DLQ
+        if (err instanceof BError && err.reason === 'gone') {
+          await deletedInB(finalTicket, toWrite, finalHash, mapping, err, signal, correlationId, log);
+          return;
+        }
+        throw err;
+      }
       if (outcome === 'missing' && allowMissing) {
         await recordMissing(finalTicket, toWrite, finalHash, mapping, signal, correlationId, log);
         return;
@@ -300,11 +319,7 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     // A nota vai por último, depois do mapeamento gravado: se o job repetir, a mudança já foi registrada e a nota não
     // duplica. Se a nota falhar, a mudança continua aplicada (a nota é o registro, não a garantia)
     if (bToA && notes.length > 0) {
-      try {
-        await a.addFollowup(ticket.id, `${notes.join('\n')} ⟦from-b:${current.id}⟧`);
-      } catch (err) {
-        log.warn({ err }, 'B → A: mudança aplicada, mas a nota no A falhou');
-      }
+      await note(ticket.id, `${notes.join('\n')} ⟦from-b:${current.id}⟧`, log);
     }
   }
 
@@ -409,15 +424,62 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     log: Logger,
   ): Promise<void> {
     if (!mapping || mapping.state === 'archived') {
-      // Nunca chegou ao B, ou já foi excluído lá: nada a escrever
-      if (mapping) await archive(ticket.id, mapping.b_record_id, ticketHash);
+      // Nunca chegou ao B, ou já foi excluído lá: nada a escrever. O mapeamento arquivado (com o hash do chamado na
+      // lixeira) faz o poller parar de reenfileirar o mesmo chamado a cada ciclo
+      await archive(ticket.id, mapping?.b_record_id ?? null, ticketHash);
       await recordAudit(pool, { ticketId: ticket.id, direction: 'a_to_b', action: 'noop', actor: ACTOR, correlationId, outcome: 'deleted_in_a' });
       return;
+    }
+    if (mapping.state === 'quarantine' || mapping.state === 'deletion_requested') {
+      // Estados retidos têm fluxo próprio (S3.7, ADR-007): a lixeira do A não passa por cima deles
+      await recordAudit(pool, { ticketId: ticket.id, direction: 'a_to_b', action: 'skip', actor: ACTOR, correlationId, outcome: `held_${mapping.state}` });
+      return;
+    }
+    if (mapping.state === 'active' && mapping.b_record_id) {
+      // O B pode ter excluído primeiro (ex.: o job do deletedInB caiu depois de pôr o chamado na lixeira do A). Aí a
+      // exclusão é do B: registra assim, com a nota de quem excluiu, em vez de atribuir ao A
+      try {
+        await b.getRecord(mapping.b_record_id, { correlationId });
+      } catch (err) {
+        if (err instanceof BError && err.reason === 'gone') {
+          await archive(ticket.id, mapping.b_record_id, ticketHash);
+          const who = err.tombstone?.deletedBy ?? 'autor não informado pelo B';
+          const when = err.tombstone ? ` em ${utcToGlpiLocal(err.tombstone.deletedAt, deps.timeZone)}` : '';
+          await recordAudit(pool, {
+            ticketId: ticket.id,
+            direction: 'b_to_a',
+            action: 'b_delete',
+            actor: ACTOR,
+            correlationId,
+            request: { b_record_id: mapping.b_record_id, by: err.tombstone?.deletedBy ?? null, at: err.tombstone?.deletedAt ?? null },
+            outcome: 'deleted_in_b',
+          });
+          if (bToA) {
+            await note(ticket.id, `Excluído no Sistema B por ${who}${when}: o chamado foi para a lixeira do A (restaurar recria o registro no B). ⟦from-b:${mapping.b_record_id}⟧`, log);
+          }
+          return;
+        }
+        throw err;
+      }
     }
     let recordId = mapping.b_record_id;
     if (!recordId && mapping.state === 'create_uncertain') recordId = (await scanForMarker(ticket.id, correlationId))?.id ?? null;
     const started = Date.now();
     const outcome = recordId ? await b.deleteRecord(recordId, { correlationId }) : 'not_found';
+    if (recordId && outcome === 'deleted' && verifyAfterWrite) {
+      // O B respondeu 204: conferir que excluiu de verdade (410 ou 404) antes de arquivar. Sem isso, um 204 que não
+      // excluiu deixaria o registro vivo no B com o mapeamento arquivado, que ninguém mais olha
+      let stillThere = false;
+      try {
+        stillThere = (await b.getRecord(recordId, { correlationId })) !== null;
+      } catch (err) {
+        if (!(err instanceof BError && err.reason === 'gone')) throw err;
+      }
+      if (stillThere) {
+        await recordAudit(pool, { ticketId: ticket.id, direction: 'a_to_b', action: 'verify', actor: ACTOR, correlationId, response: { b_record_id: recordId }, outcome: 'delete_not_applied' });
+        throw new VerifyMismatchError(ticket.id, recordId);
+      }
+    }
     await archive(ticket.id, recordId, ticketHash);
     await recordAudit(pool, {
       ticketId: ticket.id,

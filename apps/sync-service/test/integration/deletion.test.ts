@@ -1,6 +1,7 @@
 import type pg from 'pg';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { scanOnce } from '../../src/application/b-scanner.js';
+import { BError } from '../../src/adapters/system-b/errors.js';
 import { pollOnce } from '../../src/application/poller.js';
 import { createProcessJob, getMapping } from '../../src/application/process-job.js';
 import { migrate } from '../../src/infra/db/migrate.js';
@@ -151,12 +152,102 @@ describe.skipIf(!TEST_DATABASE_URL)('exclusão nos dois lados: lixeira do A e l�
     expect(B.tombstones.has('B-1')).toBe(true);
   });
 
-  it('os dois excluem ao mesmo tempo: o DELETE do sync recebe 410 e conta como feito', async () => {
+  it('os dois excluem ao mesmo tempo: o sync vê a lápide antes do DELETE e registra a exclusão do B, com quem excluiu', async () => {
     B.operatorDelete('B-1', 'Maria');
     await aEdits({ is_deleted: 1 }, '2026-10-18 10:05:00');
     await work();
     expect((await getMapping(pool, 1))!.state).toBe('archived');
-    expect(await audit()).toEqual(['delete:already_deleted']);
+    expect(await audit()).toEqual(['b_delete:deleted_in_b']);
+    expect(A.followups.get(1)!.at(-1)).toContain('Excluído no Sistema B por Maria');
     expect(B.calls.create).toBe(1);
+  });
+
+  it('o job que pôs o chamado na lixeira do A cai antes de arquivar: o retry registra a exclusão como do B, sem nota duplicada', async () => {
+    B.operatorDelete('B-1', 'Maria');
+    // O deletedInB já levou o chamado para a lixeira do A, mas o job morreu antes de arquivar e escrever a nota
+    A.put({ ...A.tickets.get(1)!, is_deleted: 1, date_mod: '2026-10-18 10:06:00' });
+    await enqueue(pool, 1);
+    await work();
+    expect((await getMapping(pool, 1))!.state).toBe('archived');
+    expect(await audit()).toEqual(['b_delete:deleted_in_b']);
+    expect(A.followups.get(1)).toHaveLength(1);
+  });
+  describe('ajustes da revisão do #179', () => {
+    it('restaurar com um registro órfão do marcador vivo no B: adota em vez de recriar (sem duplicata)', async () => {
+      const original = structuredClone(B.records.get('B-1')!);
+      await aEdits({ is_deleted: 1 }, '2026-10-18 10:05:00');
+      await work();
+      expect((await getMapping(pool, 1))!.state).toBe('archived');
+      // um create ambíguo antigo gravou depois do arquivamento: o registro com o marcador está vivo no B
+      B.records.set('B-9', { ...original, id: 'B-9' });
+      await aEdits({ is_deleted: 0 }, '2026-10-18 10:10:00');
+      await work();
+      expect((await getMapping(pool, 1))!).toMatchObject({ state: 'active', b_record_id: 'B-9' });
+      expect(B.calls.create).toBe(1);
+    });
+
+    it('o B responde 204 ao DELETE sem excluir: o sync confere, não arquiva e o job volta', async () => {
+      B.client.deleteRecord = async () => 'deleted';
+      await aEdits({ is_deleted: 1 }, '2026-10-18 10:05:00');
+      await work();
+      expect((await getMapping(pool, 1))!.state).toBe('active');
+      const { rows } = await pool.query(`SELECT outcome FROM audit_log WHERE action = 'verify'`);
+      expect(rows.map((r) => r.outcome)).toContain('delete_not_applied');
+      const job = await pool.query(`SELECT status FROM sync_jobs ORDER BY id DESC LIMIT 1`);
+      expect(job.rows[0].status).toBe('pending');
+    });
+
+    it('excluído no B entre o PUT e a releitura: segue a matriz do ADR-015 (o A mudou, então recria), sem ir para a DLQ', async () => {
+      const original = B.client.updateRecord;
+      B.client.updateRecord = async (id, input, o) => {
+        const rec = await original(id, input, o);
+        B.operatorDelete(id, 'Maria');
+        B.client.updateRecord = original;
+        return rec;
+      };
+      await aEdits({ name: 'Título novo' }, '2026-10-18 10:05:00');
+      await work();
+      expect(await audit()).toEqual(['b_delete:a_wins']);
+      const dead = await pool.query(`SELECT count(*)::int AS n FROM sync_jobs WHERE status = 'dead'`);
+      expect(dead.rows[0].n).toBe(0);
+      expect((await getMapping(pool, 1))!.state).toBe('active');
+    });
+
+    it('mapeamento em quarentena: a lixeira do A não manda DELETE ao B', async () => {
+      await pool.query(`UPDATE ticket_mapping SET state = 'quarantine' WHERE a_ticket_id = 1`);
+      let deletes = 0;
+      const original = B.client.deleteRecord;
+      B.client.deleteRecord = async (id, o) => {
+        deletes++;
+        return original(id, o);
+      };
+      await aEdits({ is_deleted: 1 }, '2026-10-18 10:05:00');
+      await work();
+      expect(deletes).toBe(0);
+      expect(B.records.has('B-1')).toBe(true);
+    });
+
+    it('varredura: registro fora da listagem com o marcador trocado não vira job', async () => {
+      B.records.set('B-1', { ...B.records.get('B-1')!, description: 'texto sem o marcador do chamado 1 ⟦s:glpi-99⟧' });
+      B.hideFromList(1);
+      const r = await scan();
+      expect(r.changed).toBe(0);
+      const jobs = await pool.query(`SELECT count(*)::int AS n FROM sync_jobs WHERE status = 'pending'`);
+      expect(jobs.rows[0].n).toBe(0);
+    });
+
+    it('varredura: com o disjuntor aberto, a confirmação para no primeiro GET (não martela o B)', async () => {
+      A.put(ticket(2));
+      await enqueue(pool, 2);
+      await work();
+      B.hideFromList(1);
+      let gets = 0;
+      B.client.getRecord = async () => {
+        gets++;
+        throw new BError('circuit_open', 'disjuntor aberto');
+      };
+      await scan();
+      expect(gets).toBe(1);
+    });
   });
 });
