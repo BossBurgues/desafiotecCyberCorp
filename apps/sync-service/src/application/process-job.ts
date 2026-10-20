@@ -66,7 +66,7 @@ function sameValue(x: unknown, y: unknown): boolean {
 }
 
 /** Só os campos do RecordInput: o que o sync de fato escreveu (sem id, horários e autor do B). */
-function asInput(r: RecordInput): RecordInput {
+export function asInput(r: RecordInput): RecordInput {
   const keys = ['title', 'description', 'state', 'severity', 'category', 'requester', 'assignee', 'location', 'sourceUpdatedAt', 'attachments', 'resolution'] as const;
   return Object.fromEntries(keys.filter((k) => r[k] !== undefined).map((k) => [k, r[k]])) as unknown as RecordInput;
 }
@@ -99,6 +99,7 @@ export class VerifyMismatchError extends Error {
 type VerifyOutcome = 'ok' | 'mismatch' | 'missing';
 
 const ACTOR = 'sync';
+const UNKNOWN_AUTHOR = 'autor não informado pelo B';
 
 export async function getMapping(pool: Pick<Pool, 'query'>, ticketId: number): Promise<MappingRow | null> {
   const { rows } = await pool.query<MappingRow & { a_ticket_id: string }>(
@@ -114,7 +115,8 @@ export async function getMapping(pool: Pick<Pool, 'query'>, ticketId: number): P
  *
  * 1. Lê o chamado no A agora (nunca o payload do evento): um job atrasado nunca escreve dado velho.
  * 2. Hash igual ao último sincronizado → nada a fazer.
- * 3. Sem mapeamento → create com o marcador ⟦s:glpi-id⟧. Falha ambígua → create_uncertain: o próximo ciclo procura
+ * 3. Sem mapeamento → create com o marcador ⟦s:glpi-id⟧ (o que já estava no B foi adotado na subida, reconcile.ts).
+ *    Falha ambígua → create_uncertain: o próximo ciclo procura
  *    o marcador na listagem do B e só recria depois de N varreduras sem achar. Create às cegas nunca.
  * 4. Com mapeamento → update. Registro sumiu do B (404) → procura o marcador; senão create ambíguo.
  * 5. Verificação pós-escrita (S3.8): relê o registro no B e só segue se o conteúdo bate (ack sem gravar, B5).
@@ -236,8 +238,8 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     signal: AbortSignal,
     correlationId: string,
     log: Logger,
-    allowMissing = true,
-    toRecord: (t: GlpiTicket) => RecordInput = (t) => mapTicketToRecord(t, { timeZone: deps.timeZone, markerField: deps.markerField }),
+    allowMissing: boolean,
+    toRecord: (t: GlpiTicket) => RecordInput,
   ): Promise<void> {
     signal.throwIfAborted();
     const started = Date.now();
@@ -256,7 +258,7 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     }
     if (!current) {
       if (allowMissing) {
-        await recordMissing(ticket, input, ticketHash, mapping, signal, correlationId, log);
+        await recordMissing(ticket, input, ticketHash, mapping, signal, correlationId, log, toRecord);
         return;
       }
       throw new BError('not_found', `GET /records/${mapping.b_record_id}: 404 logo depois de adotar`);
@@ -280,7 +282,7 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
         recordId = (await b.updateRecord(mapping.b_record_id!, toWrite, { correlationId })).id;
       } catch (err) {
         if (allowMissing && err instanceof BError && err.reason === 'not_found') {
-          await recordMissing(finalTicket, toWrite, finalHash, mapping, signal, correlationId, log);
+          await recordMissing(finalTicket, toWrite, finalHash, mapping, signal, correlationId, log, toRecord);
           return;
         }
         if (allowMissing && err instanceof BError && err.reason === 'gone') {
@@ -301,7 +303,7 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
         throw err;
       }
       if (outcome === 'missing' && allowMissing) {
-        await recordMissing(finalTicket, toWrite, finalHash, mapping, signal, correlationId, log);
+        await recordMissing(finalTicket, toWrite, finalHash, mapping, signal, correlationId, log, toRecord);
         return;
       }
       if (outcome !== 'ok') {
@@ -346,7 +348,7 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     const changed = SYNCED_FIELDS.filter((f) => !sameValue(current[f], last[f]));
     if (changed.length === 0) return { ticket, input, notes: [] };
 
-    const who = current.updatedBy ?? 'autor não informado pelo B';
+    const who = current.updatedBy ?? UNKNOWN_AUTHOR;
     const notes: string[] = [];
     let outTicket = ticket;
     let outInput = input;
@@ -443,20 +445,9 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
       } catch (err) {
         if (err instanceof BError && err.reason === 'gone') {
           await archive(ticket.id, mapping.b_record_id, ticketHash);
-          const who = err.tombstone?.deletedBy ?? 'autor não informado pelo B';
-          const when = err.tombstone ? ` em ${utcToGlpiLocal(err.tombstone.deletedAt, deps.timeZone)}` : '';
-          await recordAudit(pool, {
-            ticketId: ticket.id,
-            direction: 'b_to_a',
-            action: 'b_delete',
-            actor: ACTOR,
-            correlationId,
-            request: { b_record_id: mapping.b_record_id, by: err.tombstone?.deletedBy ?? null, at: err.tombstone?.deletedAt ?? null },
-            outcome: 'deleted_in_b',
-          });
-          if (bToA) {
-            await note(ticket.id, `Excluído no Sistema B por ${who}${when}: o chamado foi para a lixeira do A (restaurar recria o registro no B). ⟦from-b:${mapping.b_record_id}⟧`, log);
-          }
+          const t = tombstone(err, mapping.b_record_id);
+          await recordAudit(pool, { ticketId: ticket.id, direction: 'b_to_a', action: 'b_delete', actor: ACTOR, correlationId, request: t.request, outcome: 'deleted_in_b' });
+          if (bToA) await note(ticket.id, trashedNote(t, mapping.b_record_id), log);
           return;
         }
         throw err;
@@ -510,11 +501,9 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     correlationId: string,
     log: Logger,
   ): Promise<void> {
-    const who = err.tombstone?.deletedBy ?? 'autor não informado pelo B';
-    const when = err.tombstone ? ` em ${utcToGlpiLocal(err.tombstone.deletedAt, deps.timeZone)}` : '';
-    const marker = `⟦from-b:${mapping.b_record_id}⟧`;
+    const t = tombstone(err, mapping.b_record_id);
+    const { who, when, request } = t;
     const aChanged = mapping.last_synced_hash !== ticketHash;
-    const request = { b_record_id: mapping.b_record_id, by: err.tombstone?.deletedBy ?? null, at: err.tombstone?.deletedAt ?? null };
 
     if (!bToA || aChanged) {
       await recordAudit(pool, { ticketId: ticket.id, direction: 'b_to_a', action: 'b_delete', actor: ACTOR, correlationId, request, outcome: 'a_wins' });
@@ -524,7 +513,7 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
         await note(
           ticket.id,
           `O Sistema B excluiu o registro ${mapping.b_record_id} (por ${who}${when}), mas o chamado mudou no A depois da última ` +
-            `sincronização: prevaleceu o A e o registro foi recriado no B. ${marker}`,
+            `sincronização: prevaleceu o A e o registro foi recriado no B. ⟦from-b:${mapping.b_record_id}⟧`,
           log,
         );
       }
@@ -536,7 +525,20 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     await archive(ticket.id, mapping.b_record_id, after ? hashTicket(after) : ticketHash);
     await recordAudit(pool, { ticketId: ticket.id, direction: 'b_to_a', action: 'b_delete', actor: ACTOR, correlationId, request, outcome: 'trashed_in_a' });
     log.info({ b_record_id: mapping.b_record_id, by: who }, 'B → A: registro excluído no B, chamado na lixeira do A');
-    await note(ticket.id, `Excluído no Sistema B por ${who}${when}: o chamado foi para a lixeira do A (restaurar recria o registro no B). ${marker}`, log);
+    await note(ticket.id, trashedNote(t, mapping.b_record_id), log);
+  }
+
+  /** Quem excluiu no B e quando (da lápide do 410), para a auditoria e a nota no A. */
+  function tombstone(err: BError, bRecordId: string | null) {
+    return {
+      who: err.tombstone?.deletedBy ?? UNKNOWN_AUTHOR,
+      when: err.tombstone ? ` em ${utcToGlpiLocal(err.tombstone.deletedAt, deps.timeZone)}` : '',
+      request: { b_record_id: bRecordId, by: err.tombstone?.deletedBy ?? null, at: err.tombstone?.deletedAt ?? null },
+    };
+  }
+
+  function trashedNote(t: { who: string; when: string }, bRecordId: string | null): string {
+    return `Excluído no Sistema B por ${t.who}${t.when}: o chamado foi para a lixeira do A (restaurar recria o registro no B). ⟦from-b:${bRecordId}⟧`;
   }
 
   async function note(ticketId: number, content: string, log: Logger): Promise<void> {
@@ -570,6 +572,7 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     signal: AbortSignal,
     correlationId: string,
     log: Logger,
+    toRecord: (t: GlpiTicket) => RecordInput,
   ): Promise<void> {
     await recordAudit(pool, {
       ticketId: ticket.id,
@@ -584,7 +587,7 @@ export function createProcessJob(deps: ProcessJobDeps): JobProcessor {
     if (found && found.id !== mapping.b_record_id) {
       const adopted = await adopt(mapping, found, correlationId);
       log.warn({ old_b_record_id: mapping.b_record_id, b_record_id: found.id }, 'registro sumiu do B, marcador achado em outro ID: adotado');
-      await update(ticket, input, ticketHash, adopted, signal, correlationId, log, false);
+      await update(ticket, input, ticketHash, adopted, signal, correlationId, log, false, toRecord);
       return;
     }
     const scans = 1;

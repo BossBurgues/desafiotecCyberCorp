@@ -5,6 +5,7 @@ import { createSystemBClient } from './adapters/system-b/client.js';
 import { startBScanner } from './application/b-scanner.js';
 import { startPoller } from './application/poller.js';
 import { createProcessJob } from './application/process-job.js';
+import { startReconcile } from './application/reconcile.js';
 import { ConfigError, loadConfig } from './config.js';
 import { migrate } from './infra/db/migrate.js';
 import { buildServer } from './infra/http/server.js';
@@ -79,8 +80,19 @@ async function main(): Promise<void> {
     permanentMaxAttempts: config.QUEUE_PERMANENT_MAX_ATTEMPTS,
   };
 
-  const worker = startWorkerLoop({
+  // Banco do sync perdido ou restaurado de backup: adota pelo marcador o que já está no B antes de criar qualquer coisa
+  const reconcile = startReconcile({
+    pool,
+    b,
+    logger,
+    markerField: config.B_MARKER_FIELD,
+    pageSize: config.B_LIST_PAGE_SIZE,
+    retryMs: config.READY_CHECK_INTERVAL_MS,
     isReady: readiness.isReady,
+  });
+
+  const worker = startWorkerLoop({
+    isReady: () => readiness.isReady() && reconcile.isDone(),
     tick: async () => {
       await drain({ pool, processor, logger, leaseMs: config.QUEUE_LEASE_MS, policy, maxJobs: config.WORKER_MAX_JOBS_PER_TICK });
     },
@@ -136,6 +148,7 @@ async function main(): Promise<void> {
     stopping = true;
     logger.info({ signal }, 'desligando');
     clearInterval(readinessTimer);
+    reconcile.stop();
     await app.close();
     await poller.stop();
     await bScanner?.stop();

@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using SystemB.Api.Chaos;
 using SystemB.Api.Models;
@@ -22,10 +20,7 @@ public static class AdminEndpoints
         {
             if (string.IsNullOrEmpty(token))
                 return Results.Json(new ApiError(ApiError.Forbidden, "Admin desligado: defina B_ADMIN_TOKEN"), JsonDefaults.Options, statusCode: 403);
-            var sent = ctx.HttpContext.Request.Headers[TokenHeader].ToString();
-            // Comparação em tempo constante: o tempo de resposta não revela quantos caracteres batem
-            var ok = CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(sent), Encoding.UTF8.GetBytes(token));
-            return ok
+            return Secrets.Matches(token, ctx.HttpContext.Request.Headers[TokenHeader].ToString())
                 ? await next(ctx)
                 : Results.Json(new ApiError(ApiError.Unauthorized, $"{TokenHeader} ausente ou inválido"), JsonDefaults.Options, statusCode: 401);
         });

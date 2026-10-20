@@ -11,7 +11,7 @@ alias dc='docker compose -f infra/docker-compose.yml --env-file .env'
 
 | Sinal | Onde |
 |---|---|
-| Fila, DLQ, mapeamentos, disjuntor, alertas | `https://sync.<DOMAIN>/dashboard` (pede login) |
+| Fila, DLQ, atividade recente, mapeamentos, disjuntor, alertas | `https://sync.<DOMAIN>/dashboard` (pede login) |
 | Dependências de pé | `https://sync.<DOMAIN>/ready` (Postgres, A e B) |
 | Métricas | `https://sync.<DOMAIN>/metrics` (login): `sync_jobs{status}`, `sync_dlq_pending`, `sync_ticket_mappings{state}`, disjuntor |
 | Logs com `correlation_id` | `dc logs -f --since 10m sync-service` |
@@ -31,7 +31,8 @@ alias dc='docker compose -f infra/docker-compose.yml --env-file .env'
 | **Certificado HTTPS não sai** | `dc logs caddy` | Porta 80 fechada no iptables da VM ou no Security List da Oracle. Limite do Let's Encrypt no sslip.io → trocar para DuckDNS |
 | **Deploy com problema** | Run do `deploy-prod` no Actions | **Rollback:** *Run workflow* com a tag `sha-…` anterior (sem rebuild) |
 | **Deploy durante a sincronização** | — | Seguro: Postgres e volumes não são recriados, só os apps trocam. Jobs `running` voltam pelo lease (B3) |
-| **B reiniciado vazio** (restauração, wipe) | Jobs com `duplicate key … ticket_mapping_b_record_id_key` | Fora do escopo: o B reusa IDs que já estão mapeados. Limpar os mapeamentos (`DELETE FROM ticket_mapping`) faz o sync recriar tudo pelo marcador |
+| **Banco do sync perdido ou restaurado de backup** | Log `reconciliação pelo marcador` na subida; `audit_log` com `outcome=reconciled_by_marker` | Automático. Na subida, antes de liberar o worker, o sync lista o B e adota todo registro com `⟦s:glpi-<id>⟧` que está sem mapeamento. O worker fica parado até uma listagem completa. Depois, o poller relê o A e cada chamado é **atualizado** no registro adotado, sem ser criado de novo. Se uma duplicata antiga já existir, fica o registro mais antigo e o log lista os chamados afetados |
+| **B reiniciado vazio** (restauração, wipe) | Jobs com `duplicate key … ticket_mapping_b_record_id_key` | Fora do escopo: o B reusa IDs que já estão mapeados. Limpar os mapeamentos (`DELETE FROM ticket_mapping`) e **reiniciar o sync**: na subida, ele adota pelo marcador o que ainda está no B e recria o resto |
 
 ## Demo de caos
 

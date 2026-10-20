@@ -42,6 +42,7 @@
   .muted { color: var(--muted); }
   .row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
   #msg { min-height: 1.4em; }
+  .hint { margin: -4px 0 10px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -54,8 +55,20 @@
 </header>
 <main>
   <section class="wide">
-    <h2>Fila</h2>
+    <h2>Fila de sincronização</h2>
+    <p class="muted hint">Cada criação ou edição no A vira um job que leva o chamado ao B. Sem caos, o job sai da fila em menos de 1 s; "concluídos" é o histórico de entregas, não o status do chamado.</p>
     <div class="tiles" id="jobs"></div>
+    <div class="scroll"><table style="margin-top:10px">
+      <thead><tr><th>Job</th><th>Chamado</th><th>Tipo</th><th>Situação</th><th>Tentativas</th><th>Próxima tentativa</th><th>Último erro</th></tr></thead>
+      <tbody id="queue"></tbody>
+    </table></div>
+  </section>
+  <section class="wide">
+    <h2>Atividade recente</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Quando</th><th>Chamado</th><th>Sentido</th><th>O que aconteceu</th><th>Registro B</th></tr></thead>
+      <tbody id="activity"></tbody>
+    </table></div>
   </section>
   <section class="wide">
     <h2>DLQ (não reprocessados)</h2>
@@ -98,6 +111,36 @@ const el = (tag, text, cls) => { const e = document.createElement(tag); if (text
 const when = (iso) => new Date(iso).toLocaleTimeString('pt-BR');
 let controlsEnabled = false;
 
+const MAPPING_STATE = { active: 'ativo', create_uncertain: 'create incerto', archived: 'arquivado (excluído)' };
+const JOB_STATUS = { pending: 'na fila', running: 'processando' };
+const JOB_KIND = { sync_ticket: 'A → B', b_changed: 'B mudou' };
+const DIRECTION = { a_to_b: 'A → B', b_to_a: 'B → A', inbound: 'entrada' };
+// O que cada linha da auditoria quer dizer, em português; o que não estiver aqui aparece como "ação · resultado"
+const ACTIVITY = {
+  'create:ok': 'criado no B',
+  'create:ambiguous': 'create ambíguo: o B pode ter gravado, o marcador decide',
+  'update:ok': 'atualizado no B',
+  'adopt:found_by_marker': 'registro achado pelo marcador e adotado (sem duplicar)',
+  'record_missing:not_found': 'registro sumiu do B: procurando o marcador',
+  'verify:mismatch': 'o B confirmou, mas não gravou: nova tentativa',
+  'verify:missing': 'o B confirmou, mas o registro não aparece: nova tentativa',
+  'verify:delete_not_applied': 'o B confirmou a exclusão, mas o registro continua: nova tentativa',
+  'delete:deleted': 'excluído no A → excluído no B',
+  'delete:already_deleted': 'excluído no A (o B já tinha excluído)',
+  'delete:not_found': 'excluído no A (o registro não existia no B)',
+  'noop:deleted_in_a': 'excluído no A (nunca chegou ao B)',
+  'b_state:applied_to_a': 'estado mudado no B aplicado no A',
+  'b_state:kept_in_b': 'estado mudado no B mantido',
+  'conflict:a_wins': 'A e B mudaram o estado juntos: o A venceu',
+  'b_edit:reverted': 'campo editado no B: o A restaurou',
+  'b_delete:trashed_in_a': 'excluído no B → lixeira do A',
+  'b_delete:deleted_in_b': 'excluído no B → lixeira do A',
+  'b_delete:a_wins': 'excluído no B, mas o A mudou depois: recriado',
+  'skip:missing_in_a': 'chamado não existe no A: ignorado',
+  'webhook:rejected': 'webhook do A recusado (assinatura inválida ou fora da janela)',
+};
+const activityLabel = (a) => ACTIVITY[`${a.action}:${a.outcome}`] ?? `${a.action} · ${a.outcome}`;
+
 function tiles(target, entries) {
   target.replaceChildren(...entries.map(([label, n, tone]) => {
     const t = el('div', undefined, `tile ${n > 0 ? tone : ''}`);
@@ -116,8 +159,16 @@ async function refresh() {
     const r = await fetch('/api/dashboard/summary');
     const s = await r.json();
     controlsEnabled = s.controlsEnabled;
-    tiles($('jobs'), [['pendentes', s.jobs.pending, 'warn'], ['rodando', s.jobs.running, 'ok'], ['concluídos', s.jobs.done, 'ok'], ['DLQ', s.dlq.length, 'bad']]);
-    tiles($('mappings'), [['ativos', s.mappings.active, 'ok'], ['create incerto', s.mappings.create_uncertain, 'warn']]); // quarentena e exclusão pedida são do desenho B → A (fora do escopo)
+    tiles($('jobs'), [['na fila', s.jobs.pending, 'warn'], ['processando', s.jobs.running, 'ok'], ['DLQ', s.dlq.length, 'bad'], ['concluídos (histórico)', s.jobs.done, 'ok']]);
+    rows($('queue'), s.queue, (j) => [
+      el('td', j.id), el('td', j.ticket_id), el('td', JOB_KIND[j.kind] ?? j.kind), el('td', JOB_STATUS[j.status] ?? j.status),
+      el('td', j.attempts), el('td', when(j.next_run_at)), el('td', j.last_error ?? '', 'err'),
+    ], 'Fila vazia: tudo entregue ao B.');
+    rows($('activity'), s.activity, (a) => [
+      el('td', when(a.occurred_at)), el('td', a.ticket_id ?? ''), el('td', DIRECTION[a.direction] ?? ''), el('td', activityLabel(a)), el('td', a.b_record_id ?? ''),
+    ], 'Nenhuma atividade ainda.');
+    // quarentena e exclusão pedida são do desenho antigo do B → A (ADR-007, fora do escopo): nunca acontecem
+    tiles($('mappings'), [['ativos', s.mappings.active, 'ok'], ['create incerto', s.mappings.create_uncertain, 'warn'], ['arquivados (excluídos)', s.mappings.archived, 'ok']]);
     rows($('dlq'), s.dlq, (j) => {
       const b = el('button', 'Reprocessar');
       b.disabled = !controlsEnabled;
@@ -126,7 +177,7 @@ async function refresh() {
       const act = el('td'); act.append(b);
       return [el('td', j.id), el('td', j.ticket_id), el('td', j.attempts), el('td', j.error_class ?? ''), el('td', j.last_error ?? '', 'err'), el('td', when(j.updated_at)), act];
     }, 'DLQ vazia.');
-    rows($('recent'), s.recentMappings, (m) => [el('td', m.a_ticket_id), el('td', m.b_record_id ?? '—'), el('td', m.state), el('td', when(m.updated_at))], 'Nenhum chamado sincronizado ainda.');
+    rows($('recent'), s.recentMappings, (m) => [el('td', m.a_ticket_id), el('td', m.b_record_id ?? '—'), el('td', MAPPING_STATE[m.state] ?? m.state), el('td', when(m.updated_at))], 'Nenhum chamado sincronizado ainda.');
     rows($('alerts'), s.alerts, (a) => [el('td', a.kind), el('td', a.ticket_id ?? ''), el('td', a.message), el('td', when(a.created_at))], 'Nenhum alerta.');
     const br = $('breaker');
     br.textContent = `disjuntor do B: ${({ closed: 'fechado', half_open: 'meia-abertura', open: 'aberto' })[s.breaker]}`;

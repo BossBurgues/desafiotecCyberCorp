@@ -683,10 +683,6 @@ function historyItem(item) {
 }
 
 async function renderHistory(ticket) {
-  if (!state.config.features.followups) {
-    $('conversation').hidden = true;
-    return;
-  }
   const followups = await api('GET', `/Ticket/${ticket.id}/ITILFollowup`);
   if (state.detailId !== ticket.id) {
     return;

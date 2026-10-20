@@ -40,9 +40,9 @@ export async function enqueue(db: Db, ticketId: number, kind = DEFAULT_JOB_KIND)
     `INSERT INTO sync_jobs (ticket_id, kind) VALUES ($1, $2)
      ON CONFLICT (ticket_id) WHERE status IN ('pending', 'running')
      DO UPDATE SET rerun = sync_jobs.rerun OR sync_jobs.status = 'running', updated_at = now(),
-       kind = CASE WHEN EXCLUDED.kind = 'b_changed' THEN EXCLUDED.kind ELSE sync_jobs.kind END
+       kind = CASE WHEN EXCLUDED.kind = $3 THEN EXCLUDED.kind ELSE sync_jobs.kind END
      RETURNING id, (xmax <> 0) AS coalesced`,
-    [ticketId, kind],
+    [ticketId, kind, B_CHANGED_JOB_KIND],
   );
   return { id: Number(rows[0]!.id), coalesced: rows[0]!.coalesced };
 }

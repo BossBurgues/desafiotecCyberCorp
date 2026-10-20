@@ -13,7 +13,6 @@ Mantém os chamados de um sistema estilo **GLPI (Sistema A)** sincronizados num 
 | **Sistema B** (caixa-preta instável) | https://b.150-230-231-210.sslip.io/ui/ |
 | **Dashboard do sync** (fila, DLQ, caos) | https://sync.150-230-231-210.sslip.io/dashboard |
 | Saúde do sync | https://sync.150-230-231-210.sslip.io/ready |
-| Vídeo da demo | _no e-mail da entrega_ |
 | Backlog (Project) | https://github.com/users/BossBurgues/projects/2 |
 
 As **credenciais de demonstração** (Técnico, Estagiário e dashboard) foram enviadas por e-mail junto com a entrega. Em produção elas são aleatórias e nunca entram no repositório. Também dá para **criar a própria conta** na tela de entrada: no A, escolhendo o nível (Técnico ou Estagiário); no B, toda conta é de administrador (o B não tem níveis).
@@ -26,7 +25,7 @@ As **credenciais de demonstração** (Técnico, Estagiário e dashboard) foram e
 | **perder** uma atualização | Evento gravado antes do 200; poller com sobreposição cobre webhook perdido; retry com backoff por até 24 h e DLQ reprocessável; **verificação pós-escrita** (o B pode responder 200 sem gravar) | [`b1-b-fora-jobs-esperam-e-drenam`](tests/e2e/scenarios/b1-b-fora-jobs-esperam-e-drenam.test.js), [`b2-webhook-perdido-poller-recupera`](tests/e2e/scenarios/b2-webhook-perdido-poller-recupera.test.js), [`b3-sync-cai-no-meio-do-job`](tests/e2e/scenarios/b3-sync-cai-no-meio-do-job.test.js), [`e4-b-lento-disjuntor`](tests/e2e/scenarios/e4-b-lento-disjuntor.test.js), B5 (integração) |
 | **sobrescrever** dado novo com velho | O evento é só um sinal: o worker sempre relê o estado atual do A; um job por chamado | [`c1-eventos-fora-de-ordem`](tests/e2e/scenarios/c1-eventos-fora-de-ordem.test.js), [`b6-vinte-updates-terminam-no-ultimo`](tests/e2e/scenarios/b6-vinte-updates-terminam-no-ultimo.test.js), B10 (integração) |
 
-Os 13 cenários E2E sobem os três sistemas de verdade, ligam o caos do B e derrubam containers ([`tests/e2e/README.md`](tests/e2e/README.md)). O passeio pelo código, com exercícios de quebra, está em [`docs/how-it-works.md`](docs/how-it-works.md).
+Os 14 testes E2E sobem os três sistemas de verdade, ligam o caos do B e derrubam containers ([`tests/e2e/README.md`](tests/e2e/README.md)). O passeio pelo código, com exercícios de quebra, está em [`docs/how-it-works.md`](docs/how-it-works.md).
 
 ## O opcional do avaliador: B → A leve
 
@@ -83,7 +82,7 @@ npm ci
 npm test                 # unitários (A e sync); integração do sync com TEST_DATABASE_URL apontando para um Postgres
 npm run test:b           # Sistema B (.NET)
 docker compose -f infra/docker-compose.yml -f infra/docker-compose.e2e.yml --env-file .env.example up -d --build --wait
-npm run e2e              # 13 cenários sob caos, ~4 min
+npm run e2e              # 14 testes sob caos, ~4 min
 ```
 
 ## Demo de caos (para repetir na URL)
@@ -121,7 +120,7 @@ O avaliador confirmou que só o **A → B** é obrigatório; o B → A entrou na
 
 ## Horas
 
-**Total: 21,5 h**, pelos registros do GitHub (commits, merges, PRs e issues; pausas acima de 1 h descontadas). Por dia e por issue em [`docs/timelog.md`](docs/timelog.md).
+**Total: 25 h** (até 20/10), pelos registros do GitHub (commits, merges, PRs e issues; pausas acima de 1 h descontadas). Por dia e por issue em [`docs/timelog.md`](docs/timelog.md).
 
 ## Documentação
 
@@ -134,7 +133,7 @@ O avaliador confirmou que só o **A → B** é obrigatório; o B → A entrou na
 | [`docs/runbook.md`](docs/runbook.md) | O que fazer quando algo foge do normal |
 | [`docs/out-of-scope.md`](docs/out-of-scope.md) | O que ficou de fora e como seria feito |
 | [`docs/timelog.md`](docs/timelog.md) | Horas |
-| [`docs/demo-script.md`](docs/demo-script.md) | Roteiro da apresentação de 30 min (e do vídeo), com plano B por bloco |
+| [`docs/demo-script.md`](docs/demo-script.md) | Roteiro da apresentação de 30 min, com plano B por bloco |
 | [`docs/PLANO_DE_ACAO.md`](docs/PLANO_DE_ACAO.md) | Plano completo e catálogo de cenários |
 | [`infra/README.md`](infra/README.md) | Compose, VM, deploy e rollback |
 | [`tests/e2e/README.md`](tests/e2e/README.md) | Como rodar e o que prova cada cenário |

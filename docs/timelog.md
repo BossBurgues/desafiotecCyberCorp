@@ -10,15 +10,15 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 |---|---|---|---|
 | 16/10 | issues, milestones e Project criados (primeira issue às 19:43); sem commits | plano 2,5 h · backlog 1 h · resposta do avaliador 2 h (informado) | 5,5 |
 | 17/10 | nada | — | 0 |
-| 18/10 | 321 eventos (commits, merges, PRs, issues) | 08:41–13:14 · 14:23–17:37 · 19:28–21:43 | 10 |
-| 19/10 | 122 eventos (commits, merges, PRs, issues); registro até 18:47 | 07:29–07:44 · 10:07–12:10 · 13:13–16:43 · 18:35–18:42 | 6 |
-| **Total** | | | **21,5** |
+| 18/10 | 399 eventos (commits, merges, PRs, issues) | 08:41–13:14 · 14:23–17:37 · 19:28–21:43 | 10 |
+| 19/10 | 131 eventos (commits, merges, PRs, issues) | 07:29–07:44 · 10:07–12:10 · 13:13–16:43 · 18:35–18:47 · 20:12–21:20 | 7,25 |
+| 20/10 | 21 eventos (commits, merges, PRs, issues) | 09:11–10:55 · 13:59–14:34 | 2,25 |
+| **Total** | | | **25** |
 
 ## Por issue (do primeiro ao último commit no dia, + 15 min)
 
 | Dia | Issue | Milestone | Commits | Horas |
 |---|---|---|---|---|
-| 18/10 | #135 #135 | — | 1 | 0,25 |
 | 18/10 | #12 [S0.1] Estrutura do monorepo, README inicial, CONTRIBUTING e timelog | M0 · Fundação | 1 | 0,25 |
 | 18/10 | #13 [S0.2] CI esqueleto com detecção de mudanças por app | M0 · Fundação | 4 | 0,25 |
 | 18/10 | #14 [S0.3] ADRs 001–010 | M0 · Fundação | 14 | 0,25 |
@@ -43,9 +43,9 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 18/10 | #39 [S4.1] Docker Compose completo (local = produção) + override E2E | M1 · Núcleo A→B (3 garantias) | 3 | 0,25 |
 | 18/10 | #34 [S3.6] processJob: create/update idempotente com marcador | M1 · Núcleo A→B (3 garantias) | 6 | 0,5 |
 | 18/10 | #32 [S3.4] Entrada: webhook HMAC + poller com sobreposição | M1 · Núcleo A→B (3 garantias) | 4 | 0,25 |
-| 18/10 | #98 [B10] reprocessar da DLQ relê o A | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
 | 18/10 | #121 [G4] obrigatório vazio → 422 | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
 | 18/10 | #84 [A6] dois workers no mesmo chamado | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
+| 18/10 | #98 [B10] reprocessar da DLQ relê o A | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
 | 18/10 | #38 [S3.10] Dashboard básico: fila, DLQ, mapeamentos, controles de caos | M1 · Núcleo A→B (3 garantias) | 2 | 1,25 |
 | 18/10 | #91 [B3] sync cai no meio do job | M1 · Núcleo A→B (3 garantias) | 2 | 1,5 |
 | 18/10 | #36 [S3.8] Verificação pós-escrita e tratamento de 404 | M1 · Núcleo A→B (3 garantias) | 5 | 0,75 |
@@ -53,23 +53,24 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 18/10 | #46 [S5.3] Login no dashboard e proteção dos controles de caos | M1 · Núcleo A→B (3 garantias) | 5 | 0,25 |
 | 18/10 | #124 [H2] dashboard sem login | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
 | 18/10 | #40 [S4.2] Pipeline CI completo (lint, testes, integração, E2E) | M1 · Núcleo A→B (3 garantias) | 10 | 0,5 |
-| 18/10 | #79 [A1] commit-then-fail não duplica | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
 | 18/10 | #80 [A2] timeout com gravação tardia não duplica | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
+| 18/10 | #79 [A1] commit-then-fail não duplica | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
 | 18/10 | #94 [B6] 20 updates em 1 s | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
 | 18/10 | #101 [C1] eventos fora de ordem | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
 | 18/10 | #90 [B2] webhook perdido | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
-| 18/10 | #164 [E4] B lento (10 s por requisição) | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
 | 18/10 | #89 [B1] B fora por 1 h | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
+| 18/10 | #164 [E4] B lento (10 s por requisição) | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
 | 18/10 | #41 [S4.3] VM Oracle Always Free + Caddy HTTPS | M1 · Núcleo A→B (3 garantias) | 4 | 0,25 |
 | 18/10 | #42 [S4.4] Deploy automático na Prod (GHCR + SSH + smoke + rollback) | M1 · Núcleo A→B (3 garantias) | 3 | 0,25 |
 | 18/10 | #66 [S9.4] field-mapping.md e runbook.md | M5 · Entrega | 1 | 0,25 |
 | 19/10 | #41 [S4.3] VM Oracle Always Free + Caddy HTTPS | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
 | 19/10 | #65 [S9.3] how-it-works.md: passeio guiado pelo código | M5 · Entrega | 2 | 0,25 |
-| 19/10 | #63 [S9.1] README completo | M5 · Entrega | 4 | 1,25 |
-| 19/10 | #174 [S9.9] Realinhamento ao PDF: o A é o central, o B só recebe | M5 · Entrega | 22 | 4,25 |
+| 19/10 | #63 [S9.1] README completo | M5 · Entrega | 5 | 6,75 |
+| 19/10 | #174 [S9.9] Realinhamento ao PDF: o A é o central, o B só recebe | M5 · Entrega | 28 | 6,75 |
 | 19/10 | #118 [G1] todos os valores de status/prioridade | M1 · Núcleo A→B (3 garantias) | 1 | 0,25 |
 | 19/10 | #130 [C7] A e B alteram o mesmo campo ao mesmo tempo | M3 · B→A Propostas & Aprovação (opcional) | 1 | 0,25 |
 | 19/10 | #69 [S9.7] Roteiro da demo e vídeo de backup | M5 · Entrega | 1 | 0,25 |
+| 19/10 | #68 [S9.6] timelog.md final | M5 · Entrega | 1 | 0,25 |
 
 ## Por milestone (soma das linhas por issue; passa do relógio pelas sobreposições)
 
@@ -78,7 +79,6 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | M0 · Fundação | 1,25 |
 | M1 · Núcleo A→B (3 garantias) | 18,25 |
 | M3 · B→A Propostas & Aprovação (opcional) | 0,25 |
-| M5 · Entrega | 7 |
-| sem milestone | 0,25 |
+| M5 · Entrega | 15,25 |
 
-Gerado a partir do `git log` e da API do GitHub em 19/10/2026 18:47 (horário de Brasília).
+Gerado a partir do `git log` e da API do GitHub em 20/10/2026 14:36 (horário de Brasília).

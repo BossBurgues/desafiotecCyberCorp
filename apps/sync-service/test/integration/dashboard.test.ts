@@ -5,6 +5,7 @@ import { migrate } from '../../src/infra/db/migrate.js';
 import { dashboardPlugin, type DashboardOptions } from '../../src/infra/http/dashboard.js';
 import { createReadiness } from '../../src/infra/http/readiness.js';
 import { buildServer } from '../../src/infra/http/server.js';
+import { recordAudit } from '../../src/infra/audit.js';
 import { claim, enqueue, fail } from '../../src/infra/queue/queue.js';
 import { memoryLogger } from '../helpers.js';
 import { TEST_DATABASE_URL, isolatedPool } from './db.js';
@@ -62,6 +63,17 @@ describe.skipIf(!TEST_DATABASE_URL)('dashboard básico (S3.10)', () => {
     expect(s.mappings).toMatchObject({ active: 1, create_uncertain: 1, quarantine: 0 });
     expect(s.alerts).toEqual([expect.objectContaining({ kind: 'dlq', ticket_id: 1 })]);
     expect(s).toMatchObject({ breaker: 'open', controlsEnabled: true, chaosAvailable: false });
+  });
+
+  it('fila lista os jobs esperando e rodando; atividade traz a auditoria sem os "nada mudou" do poller', async () => {
+    await seed();
+    await pool.query(`INSERT INTO ticket_mapping (a_ticket_id, b_record_id, state) VALUES (12, 'B-12', 'archived')`);
+    await recordAudit(pool, { ticketId: 12, direction: 'a_to_b', action: 'delete', actor: 'sync', response: { b_record_id: 'B-12' }, outcome: 'deleted' });
+    await recordAudit(pool, { ticketId: 10, direction: 'a_to_b', action: 'noop', actor: 'sync', outcome: 'unchanged' });
+    const s = (await server().inject({ method: 'GET', url: '/api/dashboard/summary' })).json();
+    expect(s.queue.map((j: { ticket_id: number; status: string }) => [j.ticket_id, j.status]).sort()).toEqual([[2, 'running'], [3, 'pending']]);
+    expect(s.activity).toEqual([expect.objectContaining({ ticket_id: 12, direction: 'a_to_b', action: 'delete', outcome: 'deleted', b_record_id: 'B-12' })]);
+    expect(s.mappings).toMatchObject({ active: 1, create_uncertain: 1, archived: 1 });
   });
 
   it('/metrics no formato do Prometheus, com todas as séries mesmo zeradas', async () => {

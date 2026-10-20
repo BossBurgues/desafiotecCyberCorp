@@ -16,7 +16,7 @@ export interface AuditEntry {
 
 /**
  * Grava uma linha na trilha técnica. Só resumos (IDs, hashes, status), nunca o texto do chamado nem tokens.
- * A proteção append-only, o mascaramento e a retenção entram na S5.1 (#44).
+ * Proteção append-only, mascaramento e retenção ficaram fora do escopo (docs/out-of-scope.md).
  */
 export async function recordAudit(db: Db, entry: AuditEntry): Promise<void> {
   await db.query(
