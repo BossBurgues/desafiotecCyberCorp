@@ -7,7 +7,7 @@ export interface WorkerLoop {
 
 /**
  * Laço do worker. Antes de cada tick consulta a prontidão: se Postgres, A ou B não estão de pé, não pega job
- * (pegar job sem conseguir entregar só gastaria tentativas). O processamento de jobs entra na S3.3 via `tick`.
+ * (pegar job sem conseguir entregar só gastaria tentativas). Cada tick drena a fila (`drain` do runner).
  */
 export function startWorkerLoop(options: {
   isReady: () => boolean;
