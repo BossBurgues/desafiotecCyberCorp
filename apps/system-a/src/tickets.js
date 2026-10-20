@@ -29,21 +29,27 @@ const NULLABLE_DATE_FIELDS = ['solvedate', 'closedate'];
 
 export const DEFAULT_TIMEZONE = 'America/Sao_Paulo';
 
-export class TicketValidationError extends Error {
-  constructor(message) {
+/** Erro com código e status do GLPI: o handler do servidor responde `[código, mensagem]` com o status. */
+export class GlpiError extends Error {
+  constructor(glpiCode, statusCode, message) {
     super(message);
-    this.name = 'TicketValidationError';
-    this.glpiCode = 'ERROR_INVALID_INPUT';
-    this.statusCode = 400;
+    this.name = 'GlpiError';
+    this.glpiCode = glpiCode;
+    this.statusCode = statusCode;
   }
 }
 
-export class TicketNotFoundError extends Error {
+export class TicketValidationError extends GlpiError {
+  constructor(message) {
+    super('ERROR_INVALID_INPUT', 400, message);
+    this.name = 'TicketValidationError';
+  }
+}
+
+export class TicketNotFoundError extends GlpiError {
   constructor(message = 'Chamado não encontrado.') {
-    super(message);
+    super('ERROR_ITEM_NOT_FOUND', 404, message);
     this.name = 'TicketNotFoundError';
-    this.glpiCode = 'ERROR_ITEM_NOT_FOUND';
-    this.statusCode = 404;
   }
 }
 

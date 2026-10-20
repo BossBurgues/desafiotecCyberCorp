@@ -97,24 +97,11 @@ test('config.json traz o token da UI, não o A_APP_TOKEN, e no-store', async () 
   }
 });
 
-test('features: conversa ligada (rota de acompanhamentos existe) e aprovações desligadas (sem a rota de solução)', async () => {
+test('config.json leva só o App-Token da UI e se o cadastro oferece Técnico', async () => {
   const app = buildTestServer();
   try {
     const res = await app.inject({ method: 'GET', url: '/ui/config.json' });
-    assert.deepEqual(res.json().features, { followups: true, solutions: false });
-  } finally {
-    await app.close();
-  }
-});
-
-test('features liga quando a rota existe', async () => {
-  const app = buildTestServer();
-  try {
-    // Mesmo caminho que a S1.5 registraria (a de acompanhamentos já existe).
-    app.put('/apirest.php/ITILSolution/:id', async () => ({}));
-    await app.ready();
-    const res = await app.inject({ method: 'GET', url: '/ui/config.json' });
-    assert.deepEqual(res.json().features, { followups: true, solutions: true });
+    assert.deepEqual(Object.keys(res.json()).sort(), ['appToken', 'selfRegisterTecnico']);
   } finally {
     await app.close();
   }

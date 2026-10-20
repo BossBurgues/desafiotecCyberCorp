@@ -1,23 +1,13 @@
 // Cadastro de usuário pela tela de login: validação pura (o servidor grava, a UI só mostra as frases).
+import { GlpiError } from './tickets.js';
 
 export const SELF_SERVICE_PROFILES = Object.freeze(['tecnico', 'estagiario']);
 const LOGIN_PATTERN = /^[a-z0-9][a-z0-9._-]{2,31}$/;
 
-function invalid(message) {
-  const err = new Error(message);
-  err.glpiCode = 'ERROR_INVALID_INPUT';
-  err.statusCode = 400;
-  return err;
-}
+const invalid = (message) => new GlpiError('ERROR_INVALID_INPUT', 400, message);
+const forbidden = (message) => new GlpiError('ERROR_RIGHT_MISSING', 403, message);
 
 const text = (value) => (typeof value === 'string' ? value.trim() : '');
-
-function forbidden(message) {
-  const err = new Error(message);
-  err.glpiCode = 'ERROR_RIGHT_MISSING';
-  err.statusCode = 403;
-  return err;
-}
 
 /**
  * Valida o `input` do POST /register e devolve os campos normalizados (login em minúsculas).
