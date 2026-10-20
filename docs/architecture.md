@@ -180,44 +180,43 @@ sequenceDiagram
   Note over AU,A: se o A mudou o mesmo campo antes da decisão,<br/>a proposta vira superseded (based_on_hash ≠ estado atual)
 ```
 
-## Exclusão em 2 passos (desenho, não implementado)
+## Exclusão nos dois lados (ADR-015)
 
-Na entrega, um registro que some do B é procurado pelo marcador e, se não aparecer, **recriado** (S3.8): o A é a fonte da verdade. O fluxo abaixo, com decisão humana, é o desenho para quando o B → A existir.
-
-Para o sync, "excluído no B" e "perdido pelo B" parecem iguais (404). Quem decide é uma pessoa (ADR-007).
+O B guarda uma lápide: o registro excluído responde **410** com quem e quando; o que nunca existiu ou se perdeu continua **404**. O A tem a lixeira do GLPI (`is_deleted`, reversível). O A decide.
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant OP as Operador B
   participant B as Sistema B
-  participant AU as Auditor do sync
+  participant V as Varredura do B
+  participant K as processJob
   participant DB as Postgres
   participant A as Sistema A
   participant T as Técnico
 
-  OP->>B: DELETE /operator/records/B-7
-  AU->>B: GET /records/B-7
-  B-->>AU: 404
-  AU->>DB: mapping = deletion_requested + proposals (delete)
-  AU->>A: nota "Exclusão solicitada pelo B (autor/motivo não informado pelo B)"
-  Note over DB: updates do A para o 42 ficam retidos na fila
-  alt Técnico aprova
-    T->>A: aprova
-    AU->>A: fecha o chamado (status 6, nunca exclui)
-    AU->>DB: mapping = archived
-  else Técnico recusa
-    T->>A: recusa
-    AU->>B: procura ⟦s:glpi-42⟧ na listagem (não duplicar)
-    AU->>B: POST novo registro → B-12
-    AU->>DB: b_record_history += B-7, b_record_id = B-12
-    AU->>B: entrega os updates retidos
+  OP->>B: DELETE /operator/records/B-7 (lápide: Maria)
+  V->>B: listagem completa: B-7 mapeado não apareceu
+  V->>B: GET /records/B-7 → 410 (confirma: não foi a paginação)
+  V->>DB: job b_changed
+  K->>B: lê antes de escrever → 410
+  alt o A não mudou desde a última sincronização
+    K->>A: DELETE /Ticket/42 (sync-bot, lixeira, sem webhook)
+    K->>DB: mapping = archived (hash do chamado na lixeira)
+    K->>A: nota "Excluído no Sistema B por Maria em …"
+  else o A mudou depois
+    K->>B: POST novo registro com ⟦s:glpi-42⟧ → B-12 (o A vence)
+    K->>DB: b_record_history += B-7, b_record_id = B-12
   end
+  T->>A: Restaurar (PUT is_deleted 0)
+  K->>B: POST novo registro (o B-7 é lápide) e mapping = active
 ```
+
+Excluir no A faz o caminho inverso: o job vê `is_deleted = 1`, manda `DELETE /records/{id}` ao B (410 = já excluído, conta como feito) e arquiva o mapeamento.
 
 ## Estados
 
-Os estados `quarantine`, `deletion_requested` e `archived` existem no schema para o desenho do B → A, mas a entrega não os usa.
+`archived` é o chamado na lixeira do A (registro excluído no B, ADR-015). `quarantine` e `deletion_requested` existem no schema para o desenho do B → A completo, mas a entrega não os usa.
 
 ```mermaid
 stateDiagram-v2
@@ -228,6 +227,8 @@ stateDiagram-v2
     create_uncertain --> active: marcador achado na varredura (adota)
     create_uncertain --> active: N varreduras sem achar (recria)
     active --> create_uncertain: registro sumiu do B e o marcador não está na listagem
+    active --> archived: excluído no A (DELETE no B) ou no B (410 → lixeira do A)
+    archived --> create_uncertain: restaurado no A (recria no B)
   }
 ```
 

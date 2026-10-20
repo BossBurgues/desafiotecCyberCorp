@@ -57,9 +57,9 @@ public static class AdminEndpoints
             return Results.Json(engine.Options, JsonDefaults.Options);
         });
 
-        // Perda de dados simulada: some do B sem passar pela UI do operador (autocura pelo auditor, cenários D)
+        // Perda de dados simulada: some do B sem lápide (404, não 410), como se o B tivesse perdido o registro (S3.8)
         g.MapDelete("/records/{id}", (string id, IRecordStore store) =>
-            store.Delete(id) ? Results.NoContent() : ErrorResults.NotFound($"Registro {id} não encontrado"));
+            store.Purge(id) ? Results.NoContent() : ErrorResults.NotFound($"Registro {id} não encontrado"));
 
         g.MapPost("/wipe", (IRecordStore store) => Results.Json(new { deleted = store.Wipe() }, JsonDefaults.Options));
     }

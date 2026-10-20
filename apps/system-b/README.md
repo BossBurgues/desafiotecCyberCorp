@@ -4,7 +4,7 @@ O sistema externo em que **não confiamos**. Pelo PDF, ele **recebe** os chamado
 
 - **sem** busca por referência externa e **sem** `Idempotency-Key`;
 - **caos configurável** (S2.2): latência, 5xx, timeout, "grava e devolve erro", "devolve sucesso e não grava", 200 com corpo de erro, 429, texto truncado, paginação instável e drift de formato;
-- **quem alterou** (`updatedBy`, definido pelo servidor: o operador pelo cabeçalho `X-Operator`, ou "integração (sync)") e **texto da solução** (`resolution`) como capacidades opcionais, usadas pelo B → A leve (ADR-014). Comentários e ETag não foram implementados.
+- **quem alterou** (`updatedBy`, definido pelo servidor: o operador pelo nome da conta com que entrou na UI, ou "integração (sync)") e **texto da solução** (`resolution`) como capacidades opcionais, usadas pelo B → A leve (ADR-014). Comentários e ETag não foram implementados.
 
 O projeto mira `net8.0`; o `global.json` aceita SDKs mais novos (`rollForward: latestMajor`).
 
@@ -26,7 +26,7 @@ dotnet test apps/system-b                            # testes xUnit (mesmo coman
 
 ## UI do Operador B (S2.4)
 
-`http://localhost:5002/ui/`: a tela do operador do sistema de terceiro. Ele vê o que chegou do A (com o marcador `⟦s:glpi-<id>⟧`), informa o próprio nome (vai para o A como "quem alterou") e pode resolver, fechar e reabrir com um texto de solução: com o B → A leve, isso **volta ao A** em até 30 s. Editar outros campos é desfeito pelo A (fonte da verdade), e excluir faz o sync recriar o registro a partir do A. Sem papéis nem login (o B é caixa-preta).
+`http://localhost:5002/ui/`: a tela do operador do sistema de terceiro. Ele **entra com uma conta** (ou cria a sua na aba "Criar conta": nome, usuário, senha e, na URL pública, o código de convite `B_OPERATOR_INVITE_CODE`; toda conta é de administrador, porque o B não tem níveis). O nome da conta é o que vai para o A como "quem alterou". Ele vê o que chegou do A (com o marcador `⟦s:glpi-<id>⟧`), filtra, e pode resolver, fechar e reabrir com um texto de solução: com o B → A leve, isso **volta ao A** em até 30 s. Editar outros campos é desfeito pelo A (fonte da verdade). Excluir deixa uma lápide com o nome dele, e o sync leva o chamado para a lixeira do A, a não ser que o A tenha mudado o chamado depois (o A vence, ADR-015).
 
 - Usa as rotas `/operator/records`, que ficam fora do contrato e **fora do caos**: a demo continua operável com o caos ligado.
 - Mostra o chamado do A ligado ao registro (lido do marcador `⟦s:glpi-<id>⟧`). Editar a descrição pode apagar o marcador de propósito. Hoje, a próxima alteração no A regrava a descrição com o marcador; o auditor que regravaria sozinho (S3.9) ficou fora do escopo.
@@ -99,11 +99,15 @@ docker buildx build --platform linux/amd64,linux/arm64 apps/system-b        # im
 | Método e rota | Resposta |
 |---|---|
 | `POST /api/v2/records` | 201 + `Record` + cabeçalho `Location` |
-| `GET /api/v2/records/{id}` | 200 `Record` · 404 |
-| `PUT /api/v2/records/{id}` | 200 `Record` (substituição completa) · 404 |
+| `GET /api/v2/records/{id}` | 200 `Record` · 404 · 410 (excluído: `{ error, message, deletedBy, deletedAt }`) |
+| `PUT /api/v2/records/{id}` | 200 `Record` (substituição completa) · 404 · 410 (excluído não ressuscita) |
+| `DELETE /api/v2/records/{id}` | 204 · 404 · 410 (já excluído). Exclusão com lápide, autor `integração (sync)` (capacidade opcional, ADR-015) |
 | `GET /api/v2/records?page&pageSize` | 200 `RecordPage` (`page` ≥ 1, `pageSize` 1–200, padrão 1 e 50) |
-| `GET/PUT /operator/records[/{id}]` | Mesmas respostas da API, **sem caos** (usadas pela UI do operador) |
-| `DELETE /operator/records/{id}` | 204 · 404 (exclusão física pelo operador) |
+| `POST /operator/auth/register` | `{ login, name, password, inviteCode }` → 201 `{ login, name }` · 403 (convite errado, quando `B_OPERATOR_INVITE_CODE` está definido, como em produção) · 409 (usuário já existe) · 422 (dados inválidos) · 429 (mais de 20 cadastros por IP em 15 min). Toda conta é de administrador: o B não tem níveis |
+| `POST /operator/auth/login` | `{ login, password }` → 200 `{ token, login, name }` · 401 (mesma resposta para senha errada e usuário inexistente) · 429 (10 erros por IP + usuário em 15 min). A sessão vale 12 h |
+| `GET /operator/auth/me` · `POST /operator/auth/logout` | Quem é a sessão do `X-Session-Token` · encerra a sessão |
+| `GET/PUT /operator/records[/{id}]` | Exigem `X-Session-Token` (senão 401). Mesmas respostas da API, **sem caos** (usadas pela UI do operador); o autor (`updatedBy`) é o nome da conta |
+| `DELETE /operator/records/{id}` | Exige `X-Session-Token`. 204 · 404 · 410. Mesma lápide da API, com o nome da conta |
 | `/admin/*` | Caos, drift, apagar registro e wipe, com `X-Admin-Token` (seção Admin) |
 | `GET /ui/` | UI do Operador B |
 | `GET /health` | 200 `{ "status": "ok" }` |
@@ -112,7 +116,8 @@ Erros sempre `{ "error": "...", "message": "..." }`:
 
 - **400** `BAD_REQUEST`: JSON malformado, tipo errado, enum inválido, campo desconhecido (inclui `id`, `createdAt`, `updatedBy`), `page`/`pageSize` inválidos;
 - **422** `VALIDATION_ERROR`: `title` vazio ou com mais de 200 caracteres (após trim), `lat`/`lng` fora da faixa, `sha256` fora do padrão, `size` negativo;
-- **404** `NOT_FOUND`: registro ou rota inexistente.
+- **404** `NOT_FOUND`: registro ou rota inexistente (inclusive o apagado pelo admin, que simula perda);
+- **410** `GONE`: registro excluído, com `deletedBy` e `deletedAt` (a lápide).
 
 `description` é guardada e devolvida exatamente como recebida (inclusive `⟦s:glpi-42⟧` e quebras de linha). `title` recebe trim.
 
@@ -120,7 +125,6 @@ Erros sempre `{ "error": "...", "message": "..." }`:
 
 - **Busca por referência**: parâmetros como `externalId`, `search`, `ref` e `q` na listagem são ignorados; não há rota de busca.
 - **`Idempotency-Key`**: o cabeçalho é ignorado; dois POSTs iguais criam dois registros.
-- **DELETE na API do sync**: `DELETE /api/v2/records/{id}` não existe (ADR-003). A exclusão fica em `/operator/records/{id}`, fora de `/api/v2` e fora do contrato, usada pela UI do Operador B. Para o sync, excluído e perdido parecem iguais (404) e quem decide é uma pessoa (ADR-007).
 - Webhooks e autenticação.
 
 ## Ainda não implementado
@@ -142,5 +146,7 @@ curl -s $B/api/v2/records/B-1
 curl -s -X PUT $B/api/v2/records/B-1 -H 'Content-Type: application/json' -d '{
   "title":"Impressora ok","description":"Resolvido","state":"RESOLVED","severity":"LOW"}'
 curl -s "$B/api/v2/records?page=1&pageSize=50"
-curl -s -X DELETE $B/operator/records/B-1 -i   # 204; depois o GET devolve 404
+curl -s -X POST $B/operator/auth/register -H 'Content-Type: application/json' -d '{"login":"maria","name":"Maria","password":"<senha>","inviteCode":"<convite, se definido>"}'
+T=$(curl -s -X POST $B/operator/auth/login -H 'Content-Type: application/json' -d '{"login":"maria","password":"<senha>"}' | jq -r .token)
+curl -s -X DELETE $B/operator/records/B-1 -H "X-Session-Token: $T" -i   # 204; depois o GET devolve 410 com a lápide
 ```

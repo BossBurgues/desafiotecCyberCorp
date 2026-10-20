@@ -10,7 +10,7 @@ public class ChaosApiTests : IDisposable
     private readonly SystemBFactory _f = new();
     private readonly HttpClient _c;
 
-    public ChaosApiTests() => _c = _f.CreateClient();
+    public ChaosApiTests() => _c = _f.CreateOperatorClient();
 
     public void Dispose() => _f.Dispose();
 

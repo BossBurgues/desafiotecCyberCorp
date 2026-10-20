@@ -141,6 +141,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.system-b == 'true'
     runs-on: ubuntu-latest
+    # A suíte roda em segundos: um travamento (ex.: bloqueio no contexto do xUnit com 2 núcleos) não prende a CI por horas
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4

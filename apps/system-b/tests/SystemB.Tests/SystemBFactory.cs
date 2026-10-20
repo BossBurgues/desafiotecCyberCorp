@@ -4,6 +4,8 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Time.Testing;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace SystemB.Tests;
 
@@ -17,6 +19,31 @@ public sealed class SystemBFactory : WebApplicationFactory<Program>
 
     /// <summary>Configurações extras (ex.: B_CHAOS_*), aplicadas como se viessem do ambiente.</summary>
     public Dictionary<string, string?> Settings { get; init; } = [];
+
+    /// <summary>Cliente que já entrou na UI do operador (as rotas /operator/records exigem sessão), com o nome dado.</summary>
+    /// <remarks>
+    /// Os construtores dos testes são síncronos, então o login é esperado com bloqueio. Ele roda no pool de threads
+    /// (Task.Run), fora do contexto do xUnit: bloquear dentro dele trava a suíte quando há poucos núcleos (o xUnit usa
+    /// uma thread por núcleo e todas ficariam esperando continuações que só elas poderiam executar; a CI tem 2).
+    /// </remarks>
+    public HttpClient CreateOperatorClient(string name = "Maria", WebApplicationFactoryClientOptions? options = null)
+    {
+        var c = options is null ? CreateClient() : CreateClient(options);
+        var token = Task.Run(() => SignInAsync(c, name)).GetAwaiter().GetResult();
+        c.DefaultRequestHeaders.Add("X-Session-Token", token);
+        return c;
+    }
+
+    private static async Task<string> SignInAsync(HttpClient c, string name)
+    {
+        var login = $"op-{Guid.NewGuid():N}"[..12];
+        var account = new JsonObject { ["login"] = login, ["name"] = name, ["password"] = "senha-de-teste" }.ToJsonString();
+        (await c.PostAsync("/operator/auth/register", Api.Json(account))).EnsureSuccessStatusCode();
+        var credentials = new JsonObject { ["login"] = login, ["password"] = "senha-de-teste" }.ToJsonString();
+        var res = await c.PostAsync("/operator/auth/login", Api.Json(credentials));
+        res.EnsureSuccessStatusCode();
+        return (string)JsonNode.Parse(await res.Content.ReadAsStringAsync())!["token"]!;
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

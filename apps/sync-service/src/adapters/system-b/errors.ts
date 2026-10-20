@@ -12,6 +12,7 @@ export type BErrorReason =
   | 'precondition_failed' // 412 com If-Match: o registro mudou no B, reler e tentar de novo
   | 'rejected' // 400/422 e demais 4xx
   | 'not_found' // 404
+  | 'gone' // 410: excluído no B, com lápide (quem e quando, ADR-015)
   | 'schema_drift'; // 2xx com JSON fora do contrato (campo renomeado, tipo trocado)
 
 const TRANSIENT: ReadonlySet<BErrorReason> = new Set([
@@ -40,6 +41,11 @@ const MAYBE_WRITTEN: ReadonlySet<BErrorReason> = new Set([
   'schema_drift',
 ]);
 
+export interface Tombstone {
+  deletedBy: string;
+  deletedAt: string;
+}
+
 export class BError extends Error {
   public readonly reason: BErrorReason;
   public readonly errorClass: ErrorClass;
@@ -48,11 +54,13 @@ export class BError extends Error {
   public readonly status: number | undefined;
   /** Quanto esperar antes de tentar de novo (Retry-After do 429, tempo restante do disjuntor). */
   public readonly retryAfterMs: number | undefined;
+  /** Só no 410: quem excluiu o registro no B e quando (null se o corpo não trouxe a lápide). */
+  public readonly tombstone: Tombstone | null;
 
   constructor(
     reason: BErrorReason,
     message: string,
-    options: { write?: boolean; status?: number; retryAfterMs?: number; cause?: unknown } = {},
+    options: { write?: boolean; status?: number; retryAfterMs?: number; cause?: unknown; tombstone?: Tombstone | null } = {},
   ) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'BError';
@@ -61,6 +69,7 @@ export class BError extends Error {
     this.ambiguous = (options.write ?? false) && MAYBE_WRITTEN.has(reason);
     this.status = options.status;
     this.retryAfterMs = options.retryAfterMs;
+    this.tombstone = options.tombstone ?? null;
   }
 
   get transient(): boolean {
@@ -72,6 +81,7 @@ export class BError extends Error {
 export function reasonForStatus(status: number): BErrorReason {
   if (status === 429) return 'rate_limited';
   if (status === 404) return 'not_found';
+  if (status === 410) return 'gone';
   if (status === 412) return 'precondition_failed';
   if (status === 408 || status >= 500) return 'server_error';
   return 'rejected';

@@ -22,6 +22,7 @@ export const ticketSchema = z.object({
   date_mod: glpiDateTime,
   solvedate: glpiDateTime.nullable().optional(),
   closedate: glpiDateTime.nullable().optional(),
+  is_deleted: z.union([z.literal(0), z.literal(1)]).optional(),
   attachments: z
     .array(z.object({ name: z.string(), size: z.number().int().min(0), sha256: z.string() }))
     .optional(),
@@ -68,14 +69,16 @@ export interface TicketPage {
 export interface SystemAClient {
   /** null = 404: o chamado não existe (mais) no A. */
   getTicket(id: number): Promise<GlpiTicket | null>;
-  /** Chamados com date_mod >= `dateModGteLocal` (no fuso do A), em ordem de date_mod. */
-  listChangedSince(dateModGteLocal: string, start: number, limit: number): Promise<TicketPage>;
+  /** Chamados com date_mod >= `dateModGteLocal` (no fuso do A), em ordem de date_mod. `deleted`: os da lixeira. */
+  listChangedSince(dateModGteLocal: string, start: number, limit: number, deleted?: boolean): Promise<TicketPage>;
   /** Catálogos do GLPI (categorias, usuários e locais) já no formato do B, para o mapper converter os IDs. */
   getLookups(): Promise<Lookups>;
   /** B → A leve: o sync-bot muda só o status (o A recusa qualquer outro campo vindo dele). null = chamado sumiu. */
   updateStatus(id: number, status: GlpiTicket['status']): Promise<GlpiTicket | null>;
   /** B → A leve: nota na conversa do chamado, como sync-bot. */
   addFollowup(id: number, content: string): Promise<void>;
+  /** Exclusão feita no B (ADR-015): manda o chamado para a lixeira do A. false = o chamado não existe. */
+  trashTicket(id: number): Promise<boolean>;
 }
 
 export interface SystemAClientOptions {
@@ -156,12 +159,13 @@ export function createSystemAClient(options: SystemAClientOptions): SystemAClien
       return parsed.data as GlpiTicket;
     },
 
-    async listChangedSince(dateModGteLocal, start, limit) {
+    async listChangedSince(dateModGteLocal, start, limit, deleted = false) {
       const query = new URLSearchParams({
         date_mod_gte: dateModGteLocal,
         range: `${start}-${start + limit - 1}`,
         sort: 'date_mod',
         order: 'ASC',
+        is_deleted: deleted ? '1' : '0',
       });
       const path = `/Ticket?${query.toString()}`;
       const res = await authed(path);
@@ -187,6 +191,14 @@ export function createSystemAClient(options: SystemAClientOptions): SystemAClien
     async addFollowup(id, content) {
       const res = await authed('/ITILFollowup', 'POST', { input: { itemtype: 'Ticket', items_id: id, content } });
       if (!res.ok) throw new AError(`POST ${API_PREFIX}/ITILFollowup: ${res.status}`, res.status);
+    },
+
+    async trashTicket(id) {
+      const path = `/Ticket/${id}`;
+      const res = await authed(path, 'DELETE');
+      if (res.status === 404) return false;
+      if (!res.ok) throw new AError(`DELETE ${API_PREFIX}${path}: ${res.status}`, res.status);
+      return true;
     },
 
     async getLookups() {

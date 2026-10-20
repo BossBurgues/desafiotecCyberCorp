@@ -18,7 +18,7 @@ export const LOCATIONS = Object.freeze([
   { id: 4, name: 'Home office', completename: 'Home office', latitude: null, longitude: null },
 ]);
 
-// Nome de exibição dos usuários semeados (o login vem do banco; senha e token nunca saem por esta rota).
+// Nome de exibição dos usuários semeados; quem se cadastra pela tela tem o nome no banco. Senha e token nunca saem.
 const DISPLAY = Object.freeze({
   tecnico: { firstname: 'Ana', realname: 'Souza' },
   estagiario: { firstname: 'Bruno', realname: 'Lima' },
@@ -27,7 +27,13 @@ const DISPLAY = Object.freeze({
 
 export function publicUser(row) {
   const display = DISPLAY[row.login] ?? { firstname: '', realname: row.login };
-  return { id: row.id, name: row.login, firstname: display.firstname, realname: display.realname, profile: row.profile };
+  return {
+    id: row.id,
+    name: row.login,
+    firstname: row.firstname ?? display.firstname,
+    realname: row.realname ?? display.realname,
+    profile: row.profile,
+  };
 }
 
 export function findById(list, id) {

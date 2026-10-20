@@ -108,24 +108,36 @@ curl http://localhost:3001/health   # {"status":"ok"}
 
 ## Interface web (S1.6 · #21)
 
-Com o servidor de pé, abra **http://localhost:3001/ui/** (`GET /` redireciona para lá) e entre como `tecnico` ou `estagiario` com as senhas do `.env`. O `sync-bot` é conta técnica e não entra pela interface (Q31).
+Com o servidor de pé, abra **http://localhost:3001/ui/** (`GET /` redireciona para lá) e entre como `tecnico` ou `estagiario` com as senhas do `.env`, ou **crie uma conta** na aba "Criar conta": nome, sobrenome, usuário e senha. A conta criada pela tela é de **Estagiário**; escolher Técnico só aparece com `A_SELF_REGISTER_TECNICO=true` (uso local; na URL pública ficaria aberto a qualquer visitante, já que o App-Token da UI é público). O cadastro chama `POST /apirest.php/register` (só com o App-Token da UI) e entra em seguida. O `sync-bot` é conta técnica e não entra pela interface nem é criado por aqui (Q31).
 
 - **Sem build e sem framework:** HTML + CSS + JavaScript em módulos ES em `src/public/`. A lógica que não toca o DOM fica em `ui-core.js`, importado pelo navegador e pelos testes (`node --test`).
 - **Servida pelo próprio A, mesma origem da API (sem CORS):** lista fechada de 4 arquivos lidos na subida (`index.html`, `app.js`, `ui-core.js`, `styles.css`); qualquer outro nome em `/ui/` é `404` (sem *path traversal*). Falta de arquivo impede o servidor de subir.
 - **Quem sou eu:** depois do `initSession`, a UI chama `GET /apirest.php/getFullSession` para saber o perfil.
-- **Atualização ao vivo:** o detalhe relê chamado, notas e soluções a cada 5 s; a lista, a cada 10 s; pausa com a aba escondida.
+- **Lista + detalhe lado a lado:** a lista (com busca por número ou título, e a lixeira) fica à esquerda e o chamado aberto à direita; abaixo de 900 px vira uma coluna e o detalhe toma a tela, com "Voltar para a lista".
+- **Atualização ao vivo:** lista e chamado aberto são relidos a cada 5 s; pausa com a aba escondida.
 
 | Na tela | Técnico | Estagiário |
 |---|---|---|
-| Lista, detalhe, novo chamado | ✅ | ✅ |
-| Botão **Editar** (título, descrição, status 1–6 e prioridade) | ✅ | aparece; o servidor responde `403` e a UI mostra a frase (D7) |
+| Lista, detalhe, novo chamado (com requerente) | ✅ | ✅ |
+| Cartão **Ações**: Atribuir a mim · Em atendimento · Pendente · Solucionar (com texto) · Fechar · Reabrir · Excluir/Restaurar | ✅ | escondido (o servidor responde `403` de qualquer jeito) |
+| Botão **Editar** (título, descrição, status, prioridade, categoria, local, requerente, técnico) | ✅ | aparece; o servidor responde `403` e a UI mostra a frase (D7) |
 | Adicionar nota | ✅ | escondido |
+| **Ver lixeira** na lista | ✅ | ✅ (só leitura) |
 
-O A é o sistema central (PDF): o Técnico soluciona (5) e fecha (6) como no GLPI, e o sync leva `RESOLVED`/`CLOSED` ao B. A regra "5 e 6 só via aprovação" (Q26) pertence ao B → A opcional, que não foi implementado.
+O A é o sistema central (PDF) e a tela de trabalho, como no GLPI. Cada ação do cartão é uma chamada que a API já tinha, e o botão que não vale no status atual fica apagado (mesma regra da UI do B; regras em `ticketActions`, `ui-core.js`):
 
-**Conversa (B → A leve, ADR-014) e aprovações (não implementadas).** `GET /ui/config.json` devolve `{ appToken, features: { followups, solutions } }`, calculado das rotas registradas no `onReady`. A rota de acompanhamentos existe, então a **conversa** aparece no detalhe: o Técnico escreve notas, e o `sync-bot` registra o que veio do B (estado, quem alterou e solução), mostrado como 🏢 Operador B. A rota de soluções com aprovação (S1.5) não existe, então essa seção não aparece.
+| Ação | Chamada | Chega ao B como |
+|---|---|---|
+| Atribuir a mim | `PUT users_id_assign = eu` (+ `status 2` se estava Novo) | `assignee` + `IN_PROGRESS` |
+| Em atendimento · Pendente | `PUT status 2 / 4` | `IN_PROGRESS` / `ON_HOLD` |
+| Solucionar | nota "Solução: …" (`POST /ITILFollowup`) + `PUT status 5` | `RESOLVED` (a solução fica só no A) |
+| Fechar | `PUT status 6` | `CLOSED` |
+| Reabrir (só em 5/6) | `PUT status 2` (o A limpa as datas) | `IN_PROGRESS` |
+| Excluir · Restaurar | `DELETE /Ticket/:id` · `PUT is_deleted 0` | registro excluído no B · recriado (ADR-015) |
 
-**Mensagens de erro** (`errorMessage` em `ui-core.js`): `403 ERROR_RIGHT_MISSING` → "Seu perfil (Estagiário) não pode … Peça a um Técnico."; `409 ERROR_TICKET_FROZEN` → "Chamado congelado … só aceita notas. A edição não foi salva."; sessão inválida → "Sua sessão expirou" e volta ao login; `ERROR_GLPI_LOGIN` → "Usuário ou senha incorretos."; falha de rede → "Sistema A fora do ar"; código desconhecido → mensagem do servidor + código. O formulário de edição não fecha nem perde o que foi digitado.
+**Histórico de atividade (B → A leve, ADR-014; exclusão, ADR-015).** `GET /ui/config.json` devolve `{ appToken, features }`, calculado das rotas registradas no `onReady`; com a rota de acompanhamentos, o histórico aparece no detalhe. Cada nota vira uma entrada com **quem** (a pessoa do A pelo nome do catálogo, o operador do B pelo nome que ele informou, ou o sincronizador), **quando** e um ou mais **eventos** com etiqueta: *Estado alterado no B* (com a solução à parte), *Conflito: o A venceu*, *Edição desfeita*, *Excluído no B*, *Solução*. As frases que o sync escreve são reconhecidas em `describeNote` (`ui-core.js`); uma frase desconhecida aparece como nota comum.
+
+**Mensagens de erro** (`errorMessage` em `ui-core.js`): `403 ERROR_RIGHT_MISSING` → "Seu perfil (Estagiário) não pode … Peça a um Técnico."; `409 ERROR_TICKET_DELETED` → "O chamado está na lixeira: restaure antes de editar."; sessão inválida → "Sua sessão expirou" e volta ao login; `ERROR_GLPI_LOGIN` → "Usuário ou senha incorretos."; falha de rede → "Sistema A fora do ar"; código desconhecido → mensagem do servidor + código. O formulário de edição não fecha nem perde o que foi digitado.
 
 **Segurança:**
 - todo texto entra no DOM por `textContent`; `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write` e `eval` são proibidos por teste estático (`ui-static.test.js`). O `content` do chamado (HTML no GLPI) passa por `htmlToText()` antes de exibir (G2);
@@ -157,7 +169,9 @@ Quando `A_WEBHOOK_ENABLED=true`, toda criação (`POST /apirest.php/Ticket`) ou 
 | `GET` | `/ui/config.json` | `{ appToken, features }` para a UI (`no-store`); não faz parte do contrato da API |
 | `POST` | `/apirest.php/Ticket` | Cria chamado a partir de `{ "input": { ... } }` (`201`). `name` e `content` obrigatórios; `status` assume `1`, `priority` assume `3` e `users_id_recipient` assume o usuário da sessão quando omitidos |
 | `GET` | `/apirest.php/Ticket/:id` | Lê chamado por ID (`200`) ou retorna `404` `["ERROR_ITEM_NOT_FOUND", "..."]` |
-| `GET` | `/apirest.php/Ticket` | Lista chamados com `range=<início>-<fim>` (padrão `0-49`, máx. `500`), `sort=date_mod\|id`, `order=ASC\|DESC` e filtro opcional `date_mod_gte=YYYY-MM-DD HH:MM:SS`. Retorna cabeçalho `Content-Range` (`200` ou `206`) |
+| `GET` | `/apirest.php/Ticket` | Lista chamados com `range=<início>-<fim>` (padrão `0-49`, máx. `500`), `sort=date_mod\|id`, `order=ASC\|DESC` e filtro opcional `date_mod_gte=YYYY-MM-DD HH:MM:SS` e `is_deleted=0` ou `1` (padrão `0`: fora da lixeira). Retorna cabeçalho `Content-Range` (`200` ou `206`) |
+| `POST` | `/apirest.php/register` | Cadastro pela tela de entrada, sem sessão (só com o App-Token): `{ "input": { "name": "<login>", "firstname", "realname", "password", "profile": "estagiario" } }` → `201` com o usuário (sem senha); sem `profile`, Estagiário. `"tecnico"` só com `A_SELF_REGISTER_TECNICO=true`, senão `403`. Login repetido `409 ERROR_LOGIN_TAKEN`; dados inválidos `400`; mais de 10 cadastros por IP em 10 min `429`. Simplificação do mock: no GLPI quem cria usuários é o administrador |
+| `DELETE` | `/apirest.php/Ticket/:id` | Manda para a **lixeira** (`is_deleted = 1`, como o `DELETE` sem `force_purge` do GLPI): `200 [{"<id>": true, "message": ""}]`. Restaurar: `PUT {"input": {"is_deleted": 0}}`. Na lixeira, qualquer outra edição responde `409 ERROR_TICKET_DELETED`. Técnico e `sync-bot`; Estagiário `403`. Restaurar é só do Técnico |
 | `GET` | `/health` | Saúde do Sistema A, sem autenticação (`200 {"status":"ok"}` ou `503`) |
 | `PUT` | `/apirest.php/Ticket/:id` | Atualiza campos parciais via `{ "input": { ... } }`, recalcula `date_mod` no fuso `A_TIMEZONE` e emite o evento interno `ticket.changed` com `{ ticketId, action, dateMod, actor }` |
 | `GET` | `/apirest.php/ITILCategory`, `/ITILCategory/:id` | Catálogo de categorias (`id`, `name`, `completename`) |
@@ -178,14 +192,14 @@ Erros seguem o formato do GLPI: `["ERROR_CODIGO", "Mensagem legível"]`.
 - **Filtro `date_mod_gte` na própria listagem (`GET /Ticket`):** substitui a query de IDs numéricos de campo do `/search/Ticket` do GLPI. Como `date_mod` tem formato fixo `YYYY-MM-DD HH:MM:SS` no fuso `A_TIMEZONE`, a comparação é textual e inclusiva (`date_mod >= valor`).
 - **Dropdowns como IDs:** `itilcategories_id`, `locations_id`, `users_id_recipient` e `users_id_assign` trafegam como inteiros (`>= 1` ou `null`); o de-para fica no serviço de sincronização.
 - **Defaults de domínio na criação:** `status = 1` (Novo), `priority = 3` (Média) e `users_id_recipient = <id da sessão>` quando omitidos no `POST /Ticket`.
-- **Sessão e segurança do mock:** sessões ficam no SQLite sem expiração automática (encerradas via `/killSession`); não há tela de gestão de usuários (trocar a senha no ambiente e reiniciar atualiza o hash no seed); não há rate-limit/bloqueio de força bruta (risco conhecido de mock de demonstração, mitigado pelo registro de todas as tentativas em `access_denials`); as negações ficam no SQLite e no log do A (a linha do tempo unificada de auditoria entra na M2).
+- **Sessão e segurança do mock:** sessões ficam no SQLite sem expiração automática (encerradas via `/killSession`); não há tela de gestão de usuários (trocar a senha no ambiente e reiniciar atualiza o hash no seed); o login não tem rate-limit/bloqueio de força bruta (risco conhecido de mock de demonstração, mitigado pelo registro de todas as tentativas em `access_denials`); o cadastro tem limite por IP; as negações ficam no SQLite e no log do A (a linha do tempo unificada de auditoria entra na M2).
 - **Interface web (S1.6):** o `App-Token` da UI (`A_UI_APP_TOKEN`) chega ao navegador, então é público por natureza; o que protege é a senha e a sessão. Ele é separado do `A_APP_TOKEN` do sync para poder ser trocado sozinho. Sem atualização por *push* (polling de 5 s/10 s) e sem testes de navegador automatizados (QA manual; a lógica fica coberta em `ui-core.test.js`).
 - **Webhook sem fila nem retry no A:** não há retentativa local no Sistema A porque o polling periódico com sobreposição é a garantia de entrega (ADR-005, cenário B2); o descarte de `A_WEBHOOK_DROP_RATE` é feito por sorteio uniforme em cada disparo.
 
 ## B → A leve (ADR-014) e o que ficou de fora
 
 - **Acompanhamentos:** `GET /apirest.php/Ticket/:id/ITILFollowup` e `POST /apirest.php/ITILFollowup` (`{ input: { itemtype: "Ticket", items_id, content, is_private } }`). Técnico e `sync-bot` escrevem; Estagiário recebe `403`.
-- **O `sync-bot` muda só o status:** `PUT /Ticket/:id` com qualquer outro campo vindo dele responde `403 ERROR_RIGHT_MISSING`. É assim que o estado mudado no B chega ao A, sem webhook de volta (anti-eco).
+- **O `sync-bot` muda só o status e manda para a lixeira:** `PUT /Ticket/:id` com qualquer campo além de `status` vindo dele responde `403 ERROR_RIGHT_MISSING` (restaurar é decisão de um Técnico); a lixeira é pelo `DELETE`. É assim que o estado mudado no B e a exclusão feita no B (ADR-015) chegam ao A, sem webhook de volta (anti-eco).
 
 Previsto no contrato do A, mas não implementado (B → A completo, `docs/out-of-scope.md`):
 

@@ -43,6 +43,9 @@ export const recordPageSchema = z.strictObject({
   total: z.number().int().min(0),
 });
 
+/** Corpo do 410 (capacidade "tombstone"): o erro de sempre mais quem excluiu e quando. */
+export const goneSchema = z.object({ error: z.string(), message: z.string(), deletedBy: z.string(), deletedAt: z.string() });
+
 /** Corpo de erro do B. Num 2xx, é o "200 com erro" do caos (transitório), não drift. */
 export const apiErrorSchema = z.object({ error: z.string(), message: z.string() });
 

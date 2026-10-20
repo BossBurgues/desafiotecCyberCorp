@@ -1,6 +1,6 @@
 # ADR-007: Exclusão em 2 passos; "excluído ou perdido" é decisão humana
 
-- **Status:** Aceito (aplica-se só ao fluxo B→A — M3, opcional, não implementado; ver ADR-013)
+- **Status:** Substituído pelo [ADR-015](015-exclusao-nos-dois-lados-e-o-mestre.md) (19/10/2026): implementado sem aprovação, com a lixeira do A e a lápide do B (410 = excluído, 404 = perdido)
 - **Data:** 16/10/2026
 - **Decisões do plano:** Q5, Q9, Q12, Q20 (seções 2, 4, 5 e 8 do `PLANO_DE_ACAO.md`)
 

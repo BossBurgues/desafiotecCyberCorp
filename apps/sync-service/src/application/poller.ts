@@ -47,45 +47,48 @@ export async function pollOnce(deps: PollerDeps): Promise<PollResult> {
   let enqueued = 0;
   let maxMs = checkpointMs;
 
-  for (let start = 0; ; start += deps.pageSize) {
-    const page = await deps.a.listChangedSince(lowerLocal, start, deps.pageSize);
-    for (const ticket of page.items) {
-      seen++;
-      const dateModUtc = glpiLocalToUtc(ticket.date_mod, deps.timeZone);
-      maxMs = Math.max(maxMs, Date.parse(dateModUtc));
-      const client = await deps.pool.connect();
-      try {
-        await client.query('BEGIN');
-        // Nada a registrar quando: já entregue (mesmo hash); já esperando na fila (o job pendente vai reler o A); ou
-        // esta versão já foi para a DLQ (morreu pelo menos 1 s depois do date_mod). Sem a última regra, a sobreposição
-        // reenfileiraria a cada ciclo um chamado que o B recusa, e a DLQ encheria do mesmo chamado. Se o A mudar o
-        // chamado de novo, o date_mod passa da morte e ele volta. Job rodando não conta: o enqueue marca rerun
-        const fresh = await client.query(
-          `SELECT 1 FROM ticket_mapping WHERE a_ticket_id = $1 AND state = 'active' AND last_synced_hash = $2
-           UNION ALL
-           SELECT 1 FROM sync_jobs WHERE ticket_id = $1 AND status = 'pending'
-           UNION ALL
-           SELECT 1 FROM sync_jobs WHERE ticket_id = $1 AND status = 'dead' AND reprocessed_at IS NULL
-             AND updated_at >= $3::timestamptz + interval '1 second'`,
-          [ticket.id, hashTicket(ticket), dateModUtc],
-        );
-        if (fresh.rowCount === 0) {
-          await client.query(`INSERT INTO inbound_events (source, ticket_id, payload) VALUES ('poll', $1, $2)`, [
-            ticket.id,
-            { date_mod: ticket.date_mod },
-          ]);
-          await enqueue(client, ticket.id);
-          enqueued++;
+  // Duas listas, como no GLPI: os chamados ativos e os da lixeira (exclusão e restauração também são mudança)
+  for (const deleted of [false, true]) {
+    for (let start = 0; ; start += deps.pageSize) {
+      const page = await deps.a.listChangedSince(lowerLocal, start, deps.pageSize, deleted);
+      for (const ticket of page.items) {
+        seen++;
+        const dateModUtc = glpiLocalToUtc(ticket.date_mod, deps.timeZone);
+        maxMs = Math.max(maxMs, Date.parse(dateModUtc));
+        const client = await deps.pool.connect();
+        try {
+          await client.query('BEGIN');
+          // Nada a registrar quando: já entregue (mesmo hash); já esperando na fila (o job pendente vai reler o A); ou
+          // esta versão já foi para a DLQ (morreu pelo menos 1 s depois do date_mod). Sem a última regra, a sobreposição
+          // reenfileiraria a cada ciclo um chamado que o B recusa, e a DLQ encheria do mesmo chamado. Se o A mudar o
+          // chamado de novo, o date_mod passa da morte e ele volta. Job rodando não conta: o enqueue marca rerun
+          const fresh = await client.query(
+            `SELECT 1 FROM ticket_mapping WHERE a_ticket_id = $1 AND state IN ('active', 'archived') AND last_synced_hash = $2
+             UNION ALL
+             SELECT 1 FROM sync_jobs WHERE ticket_id = $1 AND status = 'pending'
+             UNION ALL
+             SELECT 1 FROM sync_jobs WHERE ticket_id = $1 AND status = 'dead' AND reprocessed_at IS NULL
+               AND updated_at >= $3::timestamptz + interval '1 second'`,
+            [ticket.id, hashTicket(ticket), dateModUtc],
+          );
+          if (fresh.rowCount === 0) {
+            await client.query(`INSERT INTO inbound_events (source, ticket_id, payload) VALUES ('poll', $1, $2)`, [
+              ticket.id,
+              { date_mod: ticket.date_mod },
+            ]);
+            await enqueue(client, ticket.id);
+            enqueued++;
+          }
+          await client.query('COMMIT');
+        } catch (err) {
+          await client.query('ROLLBACK').catch(() => undefined);
+          throw err;
+        } finally {
+          client.release();
         }
-        await client.query('COMMIT');
-      } catch (err) {
-        await client.query('ROLLBACK').catch(() => undefined);
-        throw err;
-      } finally {
-        client.release();
       }
+      if (page.items.length < deps.pageSize || start + page.items.length >= page.total) break;
     }
-    if (page.items.length < deps.pageSize || start + page.items.length >= page.total) break;
   }
 
   // Nunca além de agora: um date_mod no futuro (relógio do A adiantado) não pode pular a janela dos próximos ciclos

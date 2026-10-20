@@ -35,6 +35,14 @@ public sealed class SqliteRecordStore : IRecordStore
             cmd.CommandText = "ALTER TABLE records ADD COLUMN updated_by TEXT";
             cmd.ExecuteNonQuery();
         }
+
+        // Lápide (ADR-015): excluído = deleted_at preenchido. Aditiva, como a updated_by
+        cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('records') WHERE name = 'deleted_at'";
+        if ((long)cmd.ExecuteScalar()! == 0)
+        {
+            cmd.CommandText = "ALTER TABLE records ADD COLUMN deleted_at TEXT; ALTER TABLE records ADD COLUMN deleted_by TEXT";
+            cmd.ExecuteNonQuery();
+        }
     }
 
     private SqliteConnection Open()
@@ -86,7 +94,7 @@ public sealed class SqliteRecordStore : IRecordStore
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT {Columns} FROM records WHERE id = $id";
+        cmd.CommandText = $"SELECT {Columns} FROM records WHERE id = $id AND deleted_at IS NULL";
         cmd.Parameters.AddWithValue("$id", id);
         using var r = cmd.ExecuteReader();
         return r.Read() ? Read(r) : null;
@@ -98,7 +106,7 @@ public sealed class SqliteRecordStore : IRecordStore
         using var tx = conn.BeginTransaction();
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
-        cmd.CommandText = "UPDATE records SET body = $b, updated_at = $n, updated_by = $u WHERE id = $id RETURNING created_at";
+        cmd.CommandText = "UPDATE records SET body = $b, updated_at = $n, updated_by = $u WHERE id = $id AND deleted_at IS NULL RETURNING created_at";
         cmd.Parameters.AddWithValue("$b", Serialize(input));
         cmd.Parameters.AddWithValue("$n", now);
         cmd.Parameters.AddWithValue("$u", (object?)updatedBy ?? DBNull.Value);
@@ -115,7 +123,7 @@ public sealed class SqliteRecordStore : IRecordStore
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT {Columns} FROM records WHERE ($c IS NULL OR created_at <= $c) ORDER BY seq ASC LIMIT $l OFFSET $o";
+        cmd.CommandText = $"SELECT {Columns} FROM records WHERE deleted_at IS NULL AND ($c IS NULL OR created_at <= $c) ORDER BY seq ASC LIMIT $l OFFSET $o";
         cmd.Parameters.AddWithValue("$c", (object?)createdAtOrBefore ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$l", limit);
         cmd.Parameters.AddWithValue("$o", offset);
@@ -130,18 +138,39 @@ public sealed class SqliteRecordStore : IRecordStore
         using var conn = Open();
         using var cmd = conn.CreateCommand();
         // created_at é ISO 8601 em UTC com milissegundos fixos: a comparação de texto respeita a ordem do tempo
-        cmd.CommandText = "SELECT COUNT(*) FROM records WHERE ($c IS NULL OR created_at <= $c)";
+        cmd.CommandText = "SELECT COUNT(*) FROM records WHERE deleted_at IS NULL AND ($c IS NULL OR created_at <= $c)";
         cmd.Parameters.AddWithValue("$c", (object?)createdAtOrBefore ?? DBNull.Value);
         return (int)(long)cmd.ExecuteScalar()!;
     }
 
-    public bool Delete(string id)
+    public bool Delete(string id, string now, string deletedBy)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE records SET deleted_at = $n, deleted_by = $u WHERE id = $id AND deleted_at IS NULL";
+        cmd.Parameters.AddWithValue("$n", now);
+        cmd.Parameters.AddWithValue("$u", deletedBy);
+        cmd.Parameters.AddWithValue("$id", id);
+        return cmd.ExecuteNonQuery() > 0;
+    }
+
+    public bool Purge(string id)
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM records WHERE id = $id";
         cmd.Parameters.AddWithValue("$id", id);
         return cmd.ExecuteNonQuery() > 0;
+    }
+
+    public Tombstone? GetTombstone(string id)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT deleted_by, deleted_at FROM records WHERE id = $id AND deleted_at IS NOT NULL";
+        cmd.Parameters.AddWithValue("$id", id);
+        using var r = cmd.ExecuteReader();
+        return r.Read() ? new Tombstone(r.IsDBNull(0) ? "desconhecido" : r.GetString(0), r.GetString(1)) : null;
     }
 
     public int Wipe()

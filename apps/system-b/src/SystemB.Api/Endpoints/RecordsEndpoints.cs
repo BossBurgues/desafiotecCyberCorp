@@ -11,18 +11,12 @@ public static class RecordsEndpoints
     private static string Now(TimeProvider clock) =>
         clock.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
 
-    public const string OperatorHeader = "X-Operator";
-
     /// <summary>
-    /// Quem alterou (capacidade "updatedBy"): na API do sync é a integração; nas rotas do operador, o nome que a UI manda
-    /// no cabeçalho X-Operator. O valor do corpo é ignorado: o cliente não escolhe o próprio autor.
+    /// Quem alterou (capacidade "updatedBy"): na API do sync é a integração; nas rotas do operador, o nome da conta que
+    /// entrou na UI. O valor do corpo é ignorado: o cliente não escolhe o próprio autor.
     /// </summary>
-    private static string Author(HttpRequest req)
-    {
-        if (!req.Path.StartsWithSegments("/operator")) return "integração (sync)";
-        var name = req.Headers[OperatorHeader].ToString().Trim();
-        return name.Length == 0 ? "Operador B" : name.Length > 80 ? name[..80] : name;
-    }
+    private static string Author(HttpRequest req) =>
+        OperatorEndpoints.Current(req.HttpContext)?.Name ?? "integração (sync)";
 
     /// <summary>Lê e desserializa o corpo; qualquer falha de formato vira 400.</summary>
     private static async Task<(RecordInput? Input, IResult? Error)> ReadInput(HttpRequest req)
@@ -63,6 +57,7 @@ public static class RecordsEndpoints
         g.MapGet("/", List);
         g.MapGet("/{id}", Get);
         g.MapPut("/{id}", Put);
+        g.MapDelete("/{id}", Delete);
     }
 
     // Handlers compartilhados com as rotas do operador (/operator/records), que ficam fora do caos
@@ -86,7 +81,11 @@ public static class RecordsEndpoints
     public static IResult Get(string id, IRecordStore store) =>
         store.Get(id) is { } r
             ? Results.Json(r, JsonDefaults.Options)
-            : ErrorResults.NotFound($"Registro {id} não encontrado");
+            : ErrorResults.Missing(id, store);
+
+    /// <summary>Exclusão com lápide (capacidade opcional "delete", ADR-015): 204; já excluído 410; nunca existiu 404.</summary>
+    public static IResult Delete(string id, HttpRequest req, IRecordStore store, TimeProvider clock) =>
+        store.Delete(id, Now(clock), Author(req)) ? Results.NoContent() : ErrorResults.Missing(id, store);
 
     public static async Task<IResult> Put(string id, HttpRequest req, IRecordStore store, TimeProvider clock)
     {
@@ -95,9 +94,10 @@ public static class RecordsEndpoints
         var (input, problems) = RecordValidator.Validate(raw!);
         if (problems.Count > 0) return ErrorResults.Validation(problems);
 
+        // Registro excluído não ressuscita por PUT: 410 com a lápide; quem decide recriar é o cliente (POST)
         return store.Replace(id, input, Now(clock), Author(req)) is { } r
             ? Results.Json(r, JsonDefaults.Options)
-            : ErrorResults.NotFound($"Registro {id} não encontrado");
+            : ErrorResults.Missing(id, store);
     }
 }
 

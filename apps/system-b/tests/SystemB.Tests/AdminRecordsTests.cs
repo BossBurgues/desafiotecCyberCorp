@@ -9,7 +9,7 @@ public class AdminRecordsTests : IDisposable
     private readonly SystemBFactory _f = new();
     private readonly HttpClient _c;
 
-    public AdminRecordsTests() => _c = _f.CreateClient();
+    public AdminRecordsTests() => _c = _f.CreateOperatorClient();
 
     public void Dispose() => _f.Dispose();
 

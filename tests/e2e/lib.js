@@ -88,6 +88,23 @@ export async function tecnico() {
       if (!r.ok) throw new Error(`GET /Ticket/${id}: ${r.status}`);
       return json(r);
     },
+    /** Lixeira do A (ADR-015): DELETE sem force_purge. */
+    async remove(id) {
+      // Sem corpo: sem Content-Type (o Fastify recusa JSON vazio)
+      const { 'Content-Type': _ct, ...noBody } = headers;
+      const r = await fetch(`${A_URL}/apirest.php/Ticket/${id}`, { method: 'DELETE', headers: noBody });
+      if (!r.ok) throw new Error(`DELETE /Ticket/${id}: ${r.status}`);
+      return json(r);
+    },
+    async note(id, content) {
+      const r = await fetch(`${A_URL}/apirest.php/ITILFollowup`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ input: { itemtype: 'Ticket', items_id: id, content } }),
+      });
+      if (r.status !== 201) throw new Error(`POST /ITILFollowup: ${r.status}`);
+      return json(r);
+    },
     async followups(id) {
       const r = await fetch(`${A_URL}/apirest.php/Ticket/${id}/ITILFollowup`, { headers });
       if (!r.ok) throw new Error(`GET /Ticket/${id}/ITILFollowup: ${r.status}`);
@@ -96,24 +113,57 @@ export async function tecnico() {
   };
 }
 
-/** O operador do B muda um registro pela UI dele (rotas /operator, fora do caos), com o nome como autor. */
+// As rotas do operador do B exigem login (sem papéis: toda conta é administradora). Uma conta por nome, criada na
+// primeira vez; o nome da conta é o que o B grava como "quem alterou".
+const operatorTokens = new Map();
+
+async function operatorHeaders(name = 'Leitor E2E') {
+  if (!operatorTokens.has(name)) {
+    const login = `e2e-${Math.random().toString(36).slice(2, 10)}`;
+    const password = 'e2e-operador-senha';
+    const post = (path, body) =>
+      fetch(`${B_URL}/operator/auth/${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const reg = await post('register', { login, name, password, inviteCode: process.env.B_OPERATOR_INVITE_CODE ?? '' });
+    if (reg.status !== 201) throw new Error(`cadastro do operador ${name}: ${reg.status}`);
+    const res = await post('login', { login, password });
+    if (!res.ok) throw new Error(`login do operador ${name}: ${res.status}`);
+    operatorTokens.set(name, (await res.json()).token);
+  }
+  return { 'x-session-token': operatorTokens.get(name) };
+}
+
+/** O operador do B muda um registro pela UI dele (rotas /operator, fora do caos); a conta dele é o autor. */
 export async function operatorUpdate(recordId, changes, operator = 'Carla (suporte)') {
-  const cur = await (await fetch(`${B_URL}/operator/records/${recordId}`)).json();
+  const headers = await operatorHeaders(operator);
+  const cur = await (await fetch(`${B_URL}/operator/records/${recordId}`, { headers })).json();
   const { id, createdAt, updatedAt, updatedBy, ...input } = cur;
   const r = await fetch(`${B_URL}/operator/records/${recordId}`, {
     method: 'PUT',
-    headers: { 'content-type': 'application/json', 'x-operator': operator },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify({ ...input, ...changes }),
   });
   if (!r.ok) throw new Error(`PUT /operator/records/${recordId}: ${r.status} ${JSON.stringify(await json(r))}`);
   return json(r);
 }
 
+/** O operador do B exclui um registro pela UI dele (lápide com o nome dele, ADR-015). */
+export async function operatorDelete(recordId, operator = 'Carla (suporte)') {
+  const r = await fetch(`${B_URL}/operator/records/${recordId}`, { method: 'DELETE', headers: await operatorHeaders(operator) });
+  if (r.status !== 204) throw new Error(`DELETE /operator/records/${recordId}: ${r.status}`);
+}
+
+/** Lápide de um registro do B (410), ou null se ele não está excluído. */
+export async function tombstoneOf(recordId) {
+  const r = await fetch(`${B_URL}/operator/records/${recordId}`, { headers: await operatorHeaders() });
+  return r.status === 410 ? json(r) : null;
+}
+
 /** Todos os registros do B pela rota do operador (fora do caos), agrupados pelo ID do A do marcador. */
 export async function recordsByTicket() {
   const all = [];
+  const headers = await operatorHeaders();
   for (let page = 1; ; page++) {
-    const r = await fetch(`${B_URL}/operator/records?page=${page}&pageSize=200`);
+    const r = await fetch(`${B_URL}/operator/records?page=${page}&pageSize=200`, { headers });
     if (!r.ok) throw new Error(`GET /operator/records: ${r.status}`);
     const body = await json(r);
     all.push(...body.items);
