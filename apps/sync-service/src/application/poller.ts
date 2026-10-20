@@ -3,6 +3,7 @@ import type { Logger } from 'pino';
 import type { SystemAClient } from '../adapters/system-a/client.js';
 import { glpiLocalToUtc, hashTicket, pollLowerBoundLocal } from '../domain/index.js';
 import { enqueue } from '../infra/queue/queue.js';
+import { startLoop, type Loop } from '../infra/loop.js';
 
 export const POLL_SOURCE = 'system-a';
 
@@ -105,29 +106,14 @@ export async function pollOnce(deps: PollerDeps): Promise<PollResult> {
   return { seen, enqueued, checkpoint };
 }
 
-/** Laço do poller: um ciclo a cada `intervalMs`; erro num ciclo é logado e o próximo tenta de novo. */
-export function startPoller(deps: PollerDeps & { intervalMs: number; isReady: () => boolean }): { stop(): Promise<void> } {
-  let stopped = false;
-  let timer: NodeJS.Timeout | undefined;
-  let running: Promise<void> = Promise.resolve();
-  const loop = () => {
-    running = (async () => {
-      if (!deps.isReady()) return;
-      try {
-        await pollOnce(deps);
-      } catch (err) {
-        deps.logger.warn({ err }, 'poll do A falhou; tenta de novo no próximo ciclo');
-      }
-    })().finally(() => {
-      if (!stopped) timer = setTimeout(loop, deps.intervalMs);
-    });
-  };
-  timer = setTimeout(loop, 0);
-  return {
-    async stop() {
-      stopped = true;
-      clearTimeout(timer);
-      await running;
-    },
-  };
+/** Laço do poller: o primeiro ciclo na hora, depois um a cada `intervalMs`. */
+export function startPoller(deps: PollerDeps & { intervalMs: number; isReady: () => boolean }): Loop {
+  return startLoop({
+    run: () => pollOnce(deps),
+    intervalMs: deps.intervalMs,
+    firstDelayMs: 0,
+    isReady: deps.isReady,
+    logger: deps.logger,
+    failMessage: 'poll do A falhou; tenta de novo no próximo ciclo',
+  });
 }

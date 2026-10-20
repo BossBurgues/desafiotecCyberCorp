@@ -34,7 +34,7 @@ Roteiro da apresentação e do vídeo de backup (#69). Mesma ordem nos dois: o v
    - **Fala:** "O marcador é a idempotência: o B não tem chave de idempotência nem busca, então a identidade do chamado mora no próprio dado."
 3. No detalhe do A, o cartão **Ações**: **Atribuir a mim** → no B, `assignee` e *Em andamento*.
 4. Escrever a solução e **Solucionar** → a solução vira nota no A; no B, *Resolvido*. **Fechar** → *Fechado*. **Reabrir** → volta a *Em andamento* e o A limpa as datas, como o GLPI.
-5. No dashboard, os jobs `done` e o mapeamento `A #id ↔ B-n`.
+5. No dashboard, a **Atividade recente** (criado, atualizado, excluído, com o registro do B) e o mapeamento `A #id ↔ B-n`. A fila mostra os jobs só enquanto esperam: sem caos, saem em menos de 1 s.
 6. (30 s) Sair e entrar como **Estagiário**: abre e lê, mas não vê as ações; **Editar** responde 403 com a frase. A aba "Criar conta" cria Estagiário (Técnico pela tela só no ambiente local, com `A_SELF_REGISTER_TECNICO=true`).
 
 **Plano B:** `docker compose -f infra/docker-compose.yml --env-file .env up -d --build --wait` e o mesmo fluxo em `localhost:3001/ui/` e `localhost:5002/ui/`.
@@ -44,7 +44,7 @@ Roteiro da apresentação e do vídeo de backup (#69). Mesma ordem nos dois: o v
 1. Dashboard → painel **Caos do Sistema B**: *erro 5xx* `0.5`, *grava e falha* `0.2`, *ack sem gravar* `0.2` → **Aplicar**.
    - **Fala:** "Metade das chamadas falha; 20% gravam e respondem erro (o retry ingênuo duplicaria); 20% respondem sucesso sem gravar (o ingênuo perderia)."
 2. No A, criar **5 chamados** e editar o título de 2 deles.
-3. No dashboard: a fila cresce, retries com backoff, o disjuntor abre e fecha. **A DLQ continua vazia.**
+3. No dashboard: a fila lista os jobs esperando, com tentativas e próxima tentativa (backoff); o disjuntor abre e fecha. **A DLQ continua vazia.**
 4. **Desligar tudo** → a fila drena em segundos.
 5. No B, contar: **cada chamado uma vez**, com o título editado.
    - **Fala:** "Grava-e-falha: o create é ambíguo, então o sync procura o marcador antes de recriar. Ack-sem-gravar: o sync relê o B depois de cada escrita e só grava o hash se o B gravou de verdade."
@@ -65,7 +65,7 @@ Roteiro da apresentação e do vídeo de backup (#69). Mesma ordem nos dois: o v
 
 ## 22–26 · Como foi provado
 
-- GitHub Actions → último run da CI verde: testes do A, do B (xUnit), do sync (unitários + integração com Postgres) e o job **e2e**: 13 cenários com os três sistemas de verdade, o caos ligado e containers derrubados (A1 commit-then-fail, A2 timeout com gravação tardia, B1 B fora, B3 sync derrubado no meio do job…).
+- GitHub Actions → último run da CI verde: testes do A, do B (xUnit), do sync (unitários + integração com Postgres) e o job **e2e**: 14 testes com os três sistemas de verdade, o caos ligado e containers derrubados (A1 commit-then-fail, A2 timeout com gravação tardia, B1 B fora, B3 sync derrubado no meio do job…).
 - **Um exercício de quebra ao vivo** (`docs/how-it-works.md`, seção 10): apagar a busca pelo marcador (`scanForMarker` devolve `null`) e rodar `process-job.test.ts` → 7 testes falham com duplicata. Desfazer com `git checkout -- src`.
 
 ## 26–30 · Decisões, fora do escopo, perguntas

@@ -11,7 +11,7 @@ alias dc='docker compose -f infra/docker-compose.yml --env-file .env'
 
 | Sinal | Onde |
 |---|---|
-| Fila, DLQ, mapeamentos, disjuntor, alertas | `https://sync.<DOMAIN>/dashboard` (pede login) |
+| Fila, DLQ, atividade recente, mapeamentos, disjuntor, alertas | `https://sync.<DOMAIN>/dashboard` (pede login) |
 | Dependências de pé | `https://sync.<DOMAIN>/ready` (Postgres, A e B) |
 | Métricas | `https://sync.<DOMAIN>/metrics` (login): `sync_jobs{status}`, `sync_dlq_pending`, `sync_ticket_mappings{state}`, disjuntor |
 | Logs com `correlation_id` | `dc logs -f --since 10m sync-service` |

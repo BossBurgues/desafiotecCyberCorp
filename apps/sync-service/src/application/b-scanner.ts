@@ -5,6 +5,7 @@ import { BError } from '../adapters/system-b/errors.js';
 import { findMarker, hashRecord } from '../domain/index.js';
 import type { MarkerField, RecordInput } from '../domain/types.js';
 import { B_CHANGED_JOB_KIND, enqueue } from '../infra/queue/queue.js';
+import { startLoop, type Loop } from '../infra/loop.js';
 
 export interface BScannerDeps {
   pool: Pool;
@@ -13,6 +14,9 @@ export interface BScannerDeps {
   markerField: MarkerField;
   pageSize: number;
 }
+
+/** Teto de GETs de confirmação por ciclo: uma listagem que veio curta não pode virar uma rajada contra um B instável. */
+export const MAX_SUSPECTS_PER_SCAN = 25;
 
 export interface ScanResult {
   seen: number;
@@ -33,9 +37,6 @@ export interface ScanResult {
  * completa, todo registro mapeado que não apareceu é suspeito e é confirmado por GET (a listagem pode ter pulado uma
  * página): 200 → foi a paginação; 410 (lápide) ou 404 (perdido) → job b_changed, e o processJob decide.
  */
-/** Teto de GETs de confirmação por ciclo: uma listagem que veio curta não pode virar uma rajada contra um B instável. */
-export const MAX_SUSPECTS_PER_SCAN = 25;
-
 export async function scanOnce(deps: BScannerDeps): Promise<ScanResult> {
   const { rows } = await deps.pool.query<{ a_ticket_id: string; b_record_id: string; last_written_hash: string | null }>(
     `SELECT a_ticket_id, b_record_id, last_written_hash FROM ticket_mapping
@@ -101,29 +102,14 @@ export async function scanOnce(deps: BScannerDeps): Promise<ScanResult> {
   return { seen, changed: changed.size, missing };
 }
 
-/** Laço da varredura: um ciclo a cada `intervalMs`, só com as dependências de pé; erro num ciclo espera o próximo. */
-export function startBScanner(deps: BScannerDeps & { intervalMs: number; isReady: () => boolean }): { stop(): Promise<void> } {
-  let stopped = false;
-  let timer: NodeJS.Timeout | undefined;
-  let running: Promise<void> = Promise.resolve();
-  const loop = () => {
-    running = (async () => {
-      if (!deps.isReady()) return;
-      try {
-        await scanOnce(deps);
-      } catch (err) {
-        deps.logger.warn({ err }, 'varredura do B falhou; tenta de novo no próximo ciclo');
-      }
-    })().finally(() => {
-      if (!stopped) timer = setTimeout(loop, deps.intervalMs);
-    });
-  };
-  timer = setTimeout(loop, deps.intervalMs);
-  return {
-    async stop() {
-      stopped = true;
-      clearTimeout(timer);
-      await running;
-    },
-  };
+/** Laço da varredura: um ciclo a cada `intervalMs` (o primeiro também espera um intervalo). */
+export function startBScanner(deps: BScannerDeps & { intervalMs: number; isReady: () => boolean }): Loop {
+  return startLoop({
+    run: () => scanOnce(deps),
+    intervalMs: deps.intervalMs,
+    firstDelayMs: deps.intervalMs,
+    isReady: deps.isReady,
+    logger: deps.logger,
+    failMessage: 'varredura do B falhou; tenta de novo no próximo ciclo',
+  });
 }

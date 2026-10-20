@@ -20,12 +20,6 @@ export const UI_SECURITY_HEADERS = Object.freeze({
   'referrer-policy': 'no-referrer',
 });
 
-// Rotas que ligam as seções de conversa (S1.4) e aprovações (S1.5) na UI.
-const FEATURE_ROUTES = Object.freeze({
-  followups: { method: 'GET', url: '/apirest.php/Ticket/:id/ITILFollowup' },
-  solutions: { method: 'PUT', url: '/apirest.php/ITILSolution/:id' },
-});
-
 export function loadUiAssets(dir = DEFAULT_UI_DIR) {
   const assets = new Map();
   for (const [name, contentType] of Object.entries(UI_FILES)) {
@@ -33,18 +27,4 @@ export function loadUiAssets(dir = DEFAULT_UI_DIR) {
     assets.set(name, { body: fs.readFileSync(path.join(dir, name)), contentType });
   }
   return assets;
-}
-
-function hasRoute(routes, { method, url }) {
-  return routes.some((route) => {
-    const methods = Array.isArray(route.method) ? route.method : [route.method];
-    return route.url === url && methods.includes(method);
-  });
-}
-
-export function detectFeatures(routes) {
-  return {
-    followups: hasRoute(routes, FEATURE_ROUTES.followups),
-    solutions: hasRoute(routes, FEATURE_ROUTES.solutions),
-  };
 }

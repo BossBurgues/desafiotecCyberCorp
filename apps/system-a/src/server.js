@@ -19,6 +19,7 @@ import { validateRegistration } from './users.js';
 import { DEFAULT_DB_PATH, TicketStore } from './store.js';
 import {
   DEFAULT_TIMEZONE,
+  GlpiError,
   TicketNotFoundError,
   buildListMeta,
   createTicketEmitter,
@@ -29,20 +30,19 @@ import {
   prepareNewTicket,
   prepareTicketUpdate,
 } from './tickets.js';
-import { UI_SECURITY_HEADERS, detectFeatures, loadUiAssets } from './ui.js';
+import { UI_SECURITY_HEADERS, loadUiAssets } from './ui.js';
 import { createWebhookDispatcher, loadWebhookConfig } from './webhooks.js';
 
-// O sync-bot mexe só no estado (B → A leve) e na lixeira (exclusão feita no B, ADR-015); o resto é do Técnico
+// O sync-bot edita só o estado (B → A leve); a exclusão feita no B chega pelo DELETE (ADR-015). Restaurar e o resto
+// são do Técnico
 const SYNC_BOT_FIELDS = new Set(['status']);
 
 const REGISTER_WINDOW_MS = 10 * 60_000;
 const REGISTER_MAX_PER_WINDOW = 10;
 
-class TicketDeletedError extends Error {
+class TicketDeletedError extends GlpiError {
   constructor(id) {
-    super(`Chamado ${id} está na lixeira: restaure antes de editar.`);
-    this.glpiCode = 'ERROR_TICKET_DELETED';
-    this.statusCode = 409;
+    super('ERROR_TICKET_DELETED', 409, `Chamado ${id} está na lixeira: restaure antes de editar.`);
   }
 }
 
@@ -81,10 +81,7 @@ function lifecycleDates(patch, existing) {
 /** Os IDs do chamado precisam existir nos catálogos (como as chaves estrangeiras do GLPI). */
 function assertReferences(fields, store) {
   const fail = (msg) => {
-    const err = new Error(msg);
-    err.glpiCode = 'ERROR_INVALID_INPUT';
-    err.statusCode = 400;
-    throw err;
+    throw new GlpiError('ERROR_INVALID_INPUT', 400, msg);
   };
   if (fields.itilcategories_id != null && !findById(CATEGORIES, fields.itilcategories_id)) {
     fail(`Categoria ${fields.itilcategories_id} não existe.`);
@@ -126,6 +123,7 @@ export function buildServer({
   selfRegisterTecnico = env.A_SELF_REGISTER_TECNICO === 'true',
   uiDir,
 } = {}) {
+  const clock = () => (typeof now === 'function' ? now() : now);
   const authConfig = loadAuthConfig(env, auth);
   const appTokens = [authConfig.appToken, authConfig.uiAppToken];
   const webhookConfig = loadWebhookConfig(env, webhookOverrides);
@@ -177,8 +175,7 @@ export function buildServer({
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof AuthError) {
-      const instant = typeof now === 'function' ? now() : now;
-      const occurredAt = new Date(instant).toISOString();
+      const occurredAt = new Date(clock()).toISOString();
       const action = error.context?.action ?? request.routeOptions?.config?.action ?? null;
       const denial = store.recordDenial({
         occurred_at: occurredAt,
@@ -211,12 +208,6 @@ export function buildServer({
     reply
       .code(error.statusCode || 500)
       .send(glpiError('ERROR_INTERNAL', error.message || 'Erro interno no Sistema A.'));
-  });
-
-  // Calculado depois de registradas todas as rotas: a UI liga conversa/aprovações sozinha quando S1.4/S1.5 entrarem.
-  let uiFeatures = { followups: false, solutions: false };
-  app.addHook('onReady', async () => {
-    uiFeatures = detectFeatures(registeredRoutes);
   });
 
   app.addHook('onSend', async (request, reply, payload) => {
@@ -263,7 +254,7 @@ export function buildServer({
   app.get('/ui/config.json', (_request, reply) =>
     reply
       .header('cache-control', 'no-store')
-      .send({ appToken: authConfig.uiAppToken, features: uiFeatures, selfRegisterTecnico }),
+      .send({ appToken: authConfig.uiAppToken, selfRegisterTecnico }),
   );
 
   app.get('/ui/:file', (request, reply) => sendUiAsset(reply, request.params.file));
@@ -294,10 +285,7 @@ export function buildServer({
 
         const action = request.routeOptions.config?.action;
         if (!action) {
-          const err = new Error(`Rota ${routeUrl} sem config.action declarada.`);
-          err.glpiCode = 'ERROR_INTERNAL';
-          err.statusCode = 500;
-          throw err;
+          throw new GlpiError('ERROR_INTERNAL', 500, `Rota ${routeUrl} sem config.action declarada.`);
         }
 
         // Permissão é conferida antes de validar o corpo ou buscar o chamado no banco para não revelar se o ID existe.
@@ -336,26 +324,20 @@ export function buildServer({
       });
 
       // Cadastro pela tela de login (simplificação do mock: no GLPI quem cria usuários é o administrador).
-      // A pessoa escolhe o nível (Técnico ou Estagiário); o sync-bot nunca é criado por aqui.
+      // Cria Estagiário (Técnico só com A_SELF_REGISTER_TECNICO, uso local); o sync-bot nunca é criado por aqui.
       api.post('/register', async (request, reply) => {
         // Limite simples por IP: o App-Token da UI é público, então o cadastro é a porta mais exposta do A
         const ip = request.ip;
-        const instant = typeof now === 'function' ? now() : now;
+        const instant = clock();
         const recent = (registerAttempts.get(ip) ?? []).filter((t) => instant - t < REGISTER_WINDOW_MS);
         if (recent.length >= REGISTER_MAX_PER_WINDOW) {
-          const err = new Error('Muitas contas criadas a partir deste endereço. Tente de novo em alguns minutos.');
-          err.glpiCode = 'ERROR_TOO_MANY_REQUESTS';
-          err.statusCode = 429;
-          throw err;
+          throw new GlpiError('ERROR_TOO_MANY_REQUESTS', 429, 'Muitas contas criadas a partir deste endereço. Tente de novo em alguns minutos.');
         }
         registerAttempts.set(ip, [...recent, instant]);
         const data = validateRegistration(request.body?.input, { allowTecnico: selfRegisterTecnico });
         const created = store.createUser({ ...data, passwordHash: hashPassword(data.password) });
         if (!created) {
-          const err = new Error(`O login ${data.login} já existe. Escolha outro ou entre com ele.`);
-          err.glpiCode = 'ERROR_LOGIN_TAKEN';
-          err.statusCode = 409;
-          throw err;
+          throw new GlpiError('ERROR_LOGIN_TAKEN', 409, `O login ${data.login} já existe. Escolha outro ou entre com ele.`);
         }
         return reply.code(201).send(publicUser(created));
       });
@@ -438,10 +420,7 @@ export function buildServer({
         async (request, reply) => {
           const input = request.body?.input;
           const bad = (msg) => {
-            const err = new Error(msg);
-            err.glpiCode = 'ERROR_INVALID_INPUT';
-            err.statusCode = 400;
-            throw err;
+            throw new GlpiError('ERROR_INVALID_INPUT', 400, msg);
           };
           if (!input || typeof input !== 'object' || Array.isArray(input)) bad('O corpo deve ter "input".');
           for (const key of Object.keys(input)) {
@@ -455,7 +434,7 @@ export function buildServer({
           if (!store.getById(input.items_id)) {
             throw new TicketNotFoundError(`Chamado ${input.items_id} não encontrado.`);
           }
-          const at = formatLocalDateTime(typeof now === 'function' ? now() : now, timeZone);
+          const at = formatLocalDateTime(clock(), timeZone);
           const created = store.insertFollowup({
             items_id: input.items_id,
             users_id: request.user.id,
@@ -475,10 +454,7 @@ export function buildServer({
           const id = parseTicketId(request.params.id);
           const item = list().find((x) => x.id === id);
           if (!item) {
-            const err = new Error(`${path.slice(1)} ${id} não encontrado.`);
-            err.glpiCode = 'ERROR_ITEM_NOT_FOUND';
-            err.statusCode = 404;
-            throw err;
+            throw new GlpiError('ERROR_ITEM_NOT_FOUND', 404, `${path.slice(1)} ${id} não encontrado.`);
           }
           return item;
         });

@@ -43,7 +43,7 @@ sequenceDiagram
 Duas portas de entrada, as duas terminam em `enqueue` (S3.4):
 
 - **Webhook** `POST /webhooks/system-a` ([`webhookPlugin`](../apps/sync-service/src/infra/http/webhook.ts#L51)). [`verifySignature`](../apps/sync-service/src/infra/http/webhook.ts#L16) confere `X-Signature-256 = sha256=HMAC(segredo, "<X-Timestamp>.<corpo cru>")` em tempo constante e recusa timestamp com mais de 5 min de diferença (**anti-replay**, H1). O evento é gravado em `inbound_events` e o job é enfileirado **na mesma transação, antes do 200** (**perda**: se o sync cair depois de responder, o job já está no Postgres). O mesmo `event_id` entregue de novo é aceito e ignorado (A4). Recusas vão para o `audit_log`.
-- **Poller** ([`pollOnce`](../apps/sync-service/src/application/poller.ts#L34)), a rede de segurança para o webhook perdido (B2). A cada 10 s pede ao A tudo com `date_mod >= checkpoint − 2 min`. A **sobreposição** cobre o commit atrasado e o relógio. O limite inferior usa o menor offset do fuso na janela (horário de verão, B11). O checkpoint só avança depois de enfileirar e nunca passa de agora. Chamado com o mesmo hash já sincronizado, ou com job pendente, não gera sinal novo. Comparar pelo hash cobre dois updates no mesmo segundo.
+- **Poller** ([`pollOnce`](../apps/sync-service/src/application/poller.ts#L35)), a rede de segurança para o webhook perdido (B2). A cada 10 s pede ao A tudo com `date_mod >= checkpoint − 2 min`. A **sobreposição** cobre o commit atrasado e o relógio. O limite inferior usa o menor offset do fuso na janela (horário de verão, B11). O checkpoint só avança depois de enfileirar e nunca passa de agora. Chamado com o mesmo hash já sincronizado, ou com job pendente, não gera sinal novo. Comparar pelo hash cobre dois updates no mesmo segundo.
 
 ## 3. Fila: um job por chamado
 
@@ -79,7 +79,7 @@ flowchart LR
 
 ## 5. processJob: o chamado chega ao B uma vez só
 
-[`createProcessJob`](../apps/sync-service/src/application/process-job.ts#L125) (S3.6 e S3.8, ADR-004):
+[`createProcessJob`](../apps/sync-service/src/application/process-job.ts#L126) (S3.6 e S3.8, ADR-004):
 
 ```mermaid
 flowchart TD
@@ -102,26 +102,26 @@ flowchart TD
 ```
 
 - **Dado velho:** o job só tem o ID; o estado vem do A na hora (um job atrasado nunca escreve dado velho, C1).
-- **Duplicata:** create ambíguo (timeout, 5xx, 200 com erro: o B pode ter gravado) nunca é reenviado às cegas ([`create`](../apps/sync-service/src/application/process-job.ts#L438)). O chamado fica em `create_uncertain` e o próximo ciclo procura o marcador em todas as páginas da listagem ([`scanForMarker`](../apps/sync-service/src/application/process-job.ts#L515)). Achou → [`adopt`](../apps/sync-service/src/application/process-job.ts#L653). Só depois de `CREATE_UNCERTAIN_SCANS` (2) varreduras sem achar é que recria (A1, A2).
-- **Perda por "ack sem gravar" (S3.8, B5):** depois de todo create e update o sync relê o registro no B ([`verify`](../apps/sync-service/src/application/process-job.ts#L545), `VERIFY_AFTER_WRITE` ligado por padrão) e compara o hash do conteúdo. Só então grava `last_synced_hash`. Se o B respondeu 200 sem gravar, o hash antigo fica, o job volta com backoff, relê o A e reenvia o estado atual. Sem isso o próximo evento viraria no-op e a atualização sumiria para sempre.
-- **Registro sumiu do B (404):** o A é a fonte da verdade. [`recordMissing`](../apps/sync-service/src/application/process-job.ts#L503) procura o marcador na listagem (o registro pode ter outro ID) e adota; não achou → `create_uncertain`, e recria só depois de N varreduras. Um 404 logo depois de um 201 também vira `create_uncertain`, porque pode ser gravação atrasada.
-- **Atomicidade:** [`saveActive`](../apps/sync-service/src/application/process-job.ts#L691) grava mapeamento, hashes e `audit_log` numa transação só. `last_written_hash` é o hash do que escrevemos no B: seria a base do anti-eco no B → A (ADR-009).
+- **Duplicata:** create ambíguo (timeout, 5xx, 200 com erro: o B pode ter gravado) nunca é reenviado às cegas ([`create`](../apps/sync-service/src/application/process-job.ts#L627)). O chamado fica em `create_uncertain` e o próximo ciclo procura o marcador em todas as páginas da listagem ([`scanForMarker`](../apps/sync-service/src/application/process-job.ts#L707)). Achou → [`adopt`](../apps/sync-service/src/application/process-job.ts#L717). Só depois de `CREATE_UNCERTAIN_SCANS` (2) varreduras sem achar é que recria (A1, A2).
+- **Perda por "ack sem gravar" (S3.8, B5):** depois de todo create e update o sync relê o registro no B ([`verify`](../apps/sync-service/src/application/process-job.ts#L609), `VERIFY_AFTER_WRITE` ligado por padrão) e compara o hash do conteúdo. Só então grava `last_synced_hash`. Se o B respondeu 200 sem gravar, o hash antigo fica, o job volta com backoff, relê o A e reenvia o estado atual. Sem isso o próximo evento viraria no-op e a atualização sumiria para sempre.
+- **Registro sumiu do B (404):** o A é a fonte da verdade. [`recordMissing`](../apps/sync-service/src/application/process-job.ts#L566) procura o marcador na listagem (o registro pode ter outro ID) e adota; não achou → `create_uncertain`, e recria só depois de N varreduras. Um 404 logo depois de um 201 também vira `create_uncertain`, porque pode ser gravação atrasada.
+- **Atomicidade:** [`saveActive`](../apps/sync-service/src/application/process-job.ts#L755) grava mapeamento, hashes e `audit_log` numa transação só. `last_written_hash` é o hash do que escrevemos no B: seria a base do anti-eco no B → A (ADR-009).
 - O sync fala com o A como **sync-bot** (`src/adapters/system-a/client.ts`, `user_token`), que só lê chamados e escreve notas. Sessão expirada (401) é reaberta uma vez.
-- A conversão de campos (status, prioridade, HTML → texto, fuso → UTC) é domínio puro: [`mapTicketToRecord`](../apps/sync-service/src/domain/mapper.ts#L50), [`hashTicket`](../apps/sync-service/src/domain/hash.ts#L59) e [`hashRecord`](../apps/sync-service/src/domain/hash.ts#L78). Tabela completa em [`field-mapping.md`](field-mapping.md).
+- A conversão de campos (status, prioridade, HTML → texto, fuso → UTC) é domínio puro: [`mapTicketToRecord`](../apps/sync-service/src/domain/mapper.ts#L50), [`hashTicket`](../apps/sync-service/src/domain/hash.ts#L59) e [`hashRecord`](../apps/sync-service/src/domain/hash.ts#L82). Tabela completa em [`field-mapping.md`](field-mapping.md).
 
 ## 6. Falar com o B
 
 `src/adapters/system-b/` (ADR-003, ADR-008):
 
-- [`createSystemBClient`](../apps/sync-service/src/adapters/system-b/client.ts#L55): timeout de 5 s, validação de toda resposta 2xx com zod estrito, desaceleração em 429 e classificação de cada falha em `BError` (`errorClass`, `reason`, `ambiguous`, `retryAfterMs`).
+- [`createSystemBClient`](../apps/sync-service/src/adapters/system-b/client.ts#L60): timeout de 5 s, validação de toda resposta 2xx com zod estrito, desaceleração em 429 e classificação de cada falha em `BError` (`errorClass`, `reason`, `ambiguous`, `retryAfterMs`).
 - [`createCircuitBreaker`](../apps/sync-service/src/adapters/system-b/circuit-breaker.ts#L18): 5 falhas seguidas → aberto 30 s → uma requisição de teste (E4).
 - "**B fora**" (timeout, rede, 5xx, 200 com erro) é transitório. "**B recusou**" (400/422, drift de formato) é permanente. `ambiguous = true` num create significa que o B pode ter gravado: nunca reenviar às cegas, procurar o marcador.
 
 ## 7. Ver acontecer: dashboard e caos
 
-[`dashboardPlugin`](../apps/sync-service/src/infra/http/dashboard.ts#L113) + `public/dashboard.html` (S3.10), em `https://sync.<DOMAIN>/dashboard`:
+[`dashboardPlugin`](../apps/sync-service/src/infra/http/dashboard.ts#L128) + `public/dashboard.html` (S3.10), em `https://sync.<DOMAIN>/dashboard`:
 
-- Fila por status, DLQ com o motivo, mapeamentos (`create_uncertain` aparece aqui), caixa de saída de alertas e o disjuntor do B, atualizando a cada 2 s. `/metrics` expõe os mesmos números para o Prometheus.
+- Fila (os jobs esperando e rodando, com tentativas e último erro; os concluídos só no contador, como histórico), DLQ com o motivo, **atividade recente** (a trilha de auditoria em português: criado, atualizado, adotado pelo marcador, excluído, conflito), mapeamentos (`create_uncertain` e arquivados aparecem aqui), caixa de saída de alertas e o disjuntor do B, atualizando a cada 2 s. `/metrics` expõe os números para o Prometheus.
 - **Reprocessar** cria um job novo que relê o A (B10). O **painel de caos** repassa ao `/admin/chaos` do B pela rede interna, com o `X-Admin-Token`. Pela internet, o Caddy responde 404 para o `/admin` do B.
 - **Login (S5.3, H2):** a página, a API e o `/metrics` pedem HTTP Basic ([`checkBasicAuth`](../apps/sync-service/src/infra/http/dashboard.ts#L29), comparação em tempo constante). Sem `DASHBOARD_USER` e `DASHBOARD_PASSWORD` o dashboard nem é registrado. Toda ação de controle loga o usuário.
 
@@ -183,9 +183,9 @@ sequenceDiagram
   Note over K,A: o poller vê a mudança no A → hash igual → no-op
 ```
 
-- **Varredura** ([`scanOnce`](../apps/sync-service/src/application/b-scanner.ts#L36)): para cada registro mapeado cujo hash não é o que o sync escreveu, enfileira um job `b_changed` na mesma fila do A → B (lease, retry, DLQ e auditoria valem igual).
-- **Ler antes de escrever** ([`update`](../apps/sync-service/src/application/process-job.ts#L223)): todo update relê o B antes do PUT. Uma edição no A nunca reabre o que o B acabou de fechar, mesmo antes da varredura.
-- **O que fazer com cada mudança** ([`reconcile`](../apps/sync-service/src/application/process-job.ts#L320)), comparando o B atual com o `last_written_record`:
+- **Varredura** ([`scanOnce`](../apps/sync-service/src/application/b-scanner.ts#L40)): para cada registro mapeado cujo hash não é o que o sync escreveu, enfileira um job `b_changed` na mesma fila do A → B (lease, retry, DLQ e auditoria valem igual).
+- **Ler antes de escrever** ([`update`](../apps/sync-service/src/application/process-job.ts#L232)): todo update relê o B antes do PUT. Uma edição no A nunca reabre o que o B acabou de fechar, mesmo antes da varredura.
+- **O que fazer com cada mudança** ([`reconcile`](../apps/sync-service/src/application/process-job.ts#L336)), comparando o B atual com o `last_written_record`:
   - estado mudado só no B → vale o do B (o `sync-bot` aplica no A e escreve a nota);
   - estado mudado nos dois lados → **o A vence**, nota no A dizendo o que o B tinha feito;
   - outro campo mudado no B → o A restaura, com nota.
@@ -201,8 +201,8 @@ sequenceDiagram
 |---|---|---|
 | Criar, campos | A | Vão ao B; edição de campo no B é desfeita |
 | Status | quem mudou desde a última sincronização; os dois → o A | ADR-014 (seção 11) |
-| Excluir no A | A | [`trashInB`](../apps/sync-service/src/application/process-job.ts#L404): `DELETE` no B e mapeamento `archived`; restaurar recria (o ID antigo vai para `b_record_history`) |
-| Excluir no B | o A decide | [`deletedInB`](../apps/sync-service/src/application/process-job.ts#L441): lixeira do A + nota "Excluído no Sistema B por …"; se o A mudou o chamado depois da última sincronização, o A vence e recria |
+| Excluir no A | A | [`trashInB`](../apps/sync-service/src/application/process-job.ts#L420): `DELETE` no B e mapeamento `archived`; restaurar recria (o ID antigo vai para `b_record_history`) |
+| Excluir no B | o A decide | [`deletedInB`](../apps/sync-service/src/application/process-job.ts#L493): lixeira do A + nota "Excluído no Sistema B por …"; se o A mudou o chamado depois da última sincronização, o A vence e recria |
 | Some do B sem lápide (404) | A | procura o marcador e recria (S3.8) |
 
 ```mermaid
@@ -227,6 +227,6 @@ sequenceDiagram
   end
 ```
 
-- **O bug de 19/10:** a varredura só comparava o que **aparecia** na listagem; o excluído sumia dela e nunca era visto. Agora, depois de uma listagem completa, todo registro mapeado ausente é confirmado por `GET` ([`scanOnce`](../apps/sync-service/src/application/b-scanner.ts#L36)). Teste: `deletion.test.ts`, "bug de 19/10".
+- **O bug de 19/10:** a varredura só comparava o que **aparecia** na listagem; o excluído sumia dela e nunca era visto. Agora, depois de uma listagem completa, todo registro mapeado ausente é confirmado por `GET` ([`scanOnce`](../apps/sync-service/src/application/b-scanner.ts#L40)). Teste: `deletion.test.ts`, "bug de 19/10".
 - **Anti-eco:** a lixeira feita pelo `sync-bot` não dispara webhook; o poller lê ativos e lixeira e vê o hash já sincronizado; os dois excluindo ao mesmo tempo → o `DELETE` do sync recebe 410 e conta como feito.
 - **Risco residual:** a exclusão no B só é percebida depois de uma listagem completa (30 s por ciclo, mais se a listagem do B estiver instável).

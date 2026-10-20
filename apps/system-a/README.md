@@ -135,7 +135,7 @@ O A é o sistema central (PDF) e a tela de trabalho, como no GLPI. Cada ação d
 | Reabrir (só em 5/6) | `PUT status 2` (o A limpa as datas) | `IN_PROGRESS` |
 | Excluir · Restaurar | `DELETE /Ticket/:id` · `PUT is_deleted 0` | registro excluído no B · recriado (ADR-015) |
 
-**Histórico de atividade (B → A leve, ADR-014; exclusão, ADR-015).** `GET /ui/config.json` devolve `{ appToken, features }`, calculado das rotas registradas no `onReady`; com a rota de acompanhamentos, o histórico aparece no detalhe. Cada nota vira uma entrada com **quem** (a pessoa do A pelo nome do catálogo, o operador do B pelo nome que ele informou, ou o sincronizador), **quando** e um ou mais **eventos** com etiqueta: *Estado alterado no B* (com a solução à parte), *Conflito: o A venceu*, *Edição desfeita*, *Excluído no B*, *Solução*. As frases que o sync escreve são reconhecidas em `describeNote` (`ui-core.js`); uma frase desconhecida aparece como nota comum.
+**Histórico de atividade (B → A leve, ADR-014; exclusão, ADR-015).** O histórico aparece no detalhe do chamado, lido de `GET /Ticket/:id/ITILFollowup`. Cada nota vira uma entrada com **quem** (a pessoa do A pelo nome do catálogo, o operador do B pelo nome que ele informou, ou o sincronizador), **quando** e um ou mais **eventos** com etiqueta: *Estado alterado no B* (com a solução à parte), *Conflito: o A venceu*, *Edição desfeita*, *Excluído no B*, *Solução*. As frases que o sync escreve são reconhecidas em `describeNote` (`ui-core.js`); uma frase desconhecida aparece como nota comum.
 
 **Mensagens de erro** (`errorMessage` em `ui-core.js`): `403 ERROR_RIGHT_MISSING` → "Seu perfil (Estagiário) não pode … Peça a um Técnico."; `409 ERROR_TICKET_DELETED` → "O chamado está na lixeira: restaure antes de editar."; sessão inválida → "Sua sessão expirou" e volta ao login; `ERROR_GLPI_LOGIN` → "Usuário ou senha incorretos."; falha de rede → "Sistema A fora do ar"; código desconhecido → mensagem do servidor + código. O formulário de edição não fecha nem perde o que foi digitado.
 
@@ -166,7 +166,7 @@ Quando `A_WEBHOOK_ENABLED=true`, toda criação (`POST /apirest.php/Ticket`) ou 
 | `GET` | `/apirest.php/getFullSession` | Usuário e perfil da sessão: `{ "session": { "glpiID", "glpiname", "glpiactiveprofile": { "name" } } }` (`200`); só exige sessão |
 | `GET` | `/`, `/ui` | Redirecionam (`302`) para `/ui/` |
 | `GET` | `/ui/`, `/ui/<arquivo>` | Interface web (lista fechada de arquivos, sem sessão; a API continua exigindo) |
-| `GET` | `/ui/config.json` | `{ appToken, features }` para a UI (`no-store`); não faz parte do contrato da API |
+| `GET` | `/ui/config.json` | `{ appToken, selfRegisterTecnico }` para a UI (`no-store`); não faz parte do contrato da API |
 | `POST` | `/apirest.php/Ticket` | Cria chamado a partir de `{ "input": { ... } }` (`201`). `name` e `content` obrigatórios; `status` assume `1`, `priority` assume `3` e `users_id_recipient` assume o usuário da sessão quando omitidos |
 | `GET` | `/apirest.php/Ticket/:id` | Lê chamado por ID (`200`) ou retorna `404` `["ERROR_ITEM_NOT_FOUND", "..."]` |
 | `GET` | `/apirest.php/Ticket` | Lista chamados com `range=<início>-<fim>` (padrão `0-49`, máx. `500`), `sort=date_mod\|id`, `order=ASC\|DESC` e filtro opcional `date_mod_gte=YYYY-MM-DD HH:MM:SS` e `is_deleted=0` ou `1` (padrão `0`: fora da lixeira). Retorna cabeçalho `Content-Range` (`200` ou `206`) |

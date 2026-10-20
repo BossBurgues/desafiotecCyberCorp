@@ -46,10 +46,14 @@ const BREAKER_VALUE: Record<BreakerState, number> = { closed: 0, half_open: 1, o
 
 export interface Summary {
   jobs: Record<(typeof STATUSES)[number], number>;
+  /** Jobs esperando ou em execução agora (os concluídos ficam só no contador: são histórico). */
+  queue: { id: number; ticket_id: number; kind: string; status: string; attempts: number; next_run_at: string; last_error: string | null }[];
   dlq: { id: number; ticket_id: number; attempts: number; error_class: string | null; last_error: string | null; updated_at: string }[];
   mappings: Record<(typeof MAPPING_STATES)[number], number>;
   recentMappings: { a_ticket_id: number; b_record_id: string | null; state: string; updated_at: string }[];
   alerts: { id: number; kind: string; ticket_id: number | null; message: string; created_at: string }[];
+  /** O que o sync fez, da trilha de auditoria (sem os "nada mudou" do poller, que só fariam ruído). */
+  activity: { id: number; ticket_id: number | null; direction: string | null; action: string; outcome: string; b_record_id: string | null; occurred_at: string }[];
   breaker: BreakerState;
   controlsEnabled: boolean;
   chaosAvailable: boolean;
@@ -66,8 +70,12 @@ function tally<K extends string>(keys: readonly K[], rows: Tally[]): Record<K, n
 }
 
 export async function loadSummary(pool: Pick<Pool, 'query'>): Promise<Omit<Summary, 'breaker' | 'controlsEnabled' | 'chaosAvailable'>> {
-  const [jobs, dlq, mappings, recent, alerts] = await Promise.all([
+  const [jobs, queue, dlq, mappings, recent, alerts, activity] = await Promise.all([
     pool.query<Tally>(`SELECT status AS key, count(*)::int AS n FROM sync_jobs GROUP BY status`),
+    pool.query(
+      `SELECT id, ticket_id, kind, status, attempts, next_run_at, last_error FROM sync_jobs
+       WHERE status IN ('pending', 'running') ORDER BY next_run_at, id LIMIT 50`,
+    ),
     pool.query(
       `SELECT id, ticket_id, attempts, error_class, last_error, updated_at FROM sync_jobs
        WHERE status = 'dead' AND reprocessed_at IS NULL ORDER BY updated_at DESC LIMIT 50`,
@@ -77,13 +85,20 @@ export async function loadSummary(pool: Pick<Pool, 'query'>): Promise<Omit<Summa
       `SELECT a_ticket_id, b_record_id, state, updated_at FROM ticket_mapping ORDER BY updated_at DESC LIMIT 50`,
     ),
     pool.query(`SELECT id, kind, ticket_id, message, created_at FROM alerts_outbox ORDER BY id DESC LIMIT 20`),
+    pool.query(
+      `SELECT id, ticket_id, direction, action, outcome, occurred_at,
+         COALESCE(response_summary->>'b_record_id', request_summary->>'b_record_id') AS b_record_id
+       FROM audit_log WHERE NOT (action = 'noop' AND outcome = 'unchanged') ORDER BY id DESC LIMIT 30`,
+    ),
   ]);
   return {
     jobs: tally(STATUSES, jobs.rows),
     mappings: tally(MAPPING_STATES, mappings.rows),
+    queue: queue.rows.map((r) => ({ ...r, id: Number(r.id), ticket_id: Number(r.ticket_id) })),
     dlq: dlq.rows.map((r) => ({ ...r, id: Number(r.id), ticket_id: Number(r.ticket_id) })),
     recentMappings: recent.rows.map((r) => ({ ...r, a_ticket_id: Number(r.a_ticket_id) })),
     alerts: alerts.rows.map((r) => ({ ...r, id: Number(r.id), ticket_id: r.ticket_id === null ? null : Number(r.ticket_id) })),
+    activity: activity.rows.map((r) => ({ ...r, id: Number(r.id), ticket_id: r.ticket_id === null ? null : Number(r.ticket_id) })),
   };
 }
 
@@ -107,8 +122,8 @@ export function renderMetrics(summary: Awaited<ReturnType<typeof loadSummary>>, 
 }
 
 /**
- * Dashboard básico (S3.10): a fila e a DLQ ao vivo, os mapeamentos, os alertas (caixa de saída simulada), o painel
- * de caos do B e /metrics. A página é estática e lê /api/dashboard/summary a cada 2 s.
+ * Dashboard básico (S3.10): a fila e a DLQ ao vivo, os mapeamentos, a atividade recente (auditoria), os alertas
+ * (caixa de saída simulada), o painel de caos do B e /metrics. A página é estática e lê /api/dashboard/summary a cada 2 s.
  */
 export function dashboardPlugin(options: DashboardOptions): FastifyPluginAsync {
   const { pool } = options;
@@ -133,6 +148,11 @@ export function dashboardPlugin(options: DashboardOptions): FastifyPluginAsync {
   };
 
   const operator = (req: FastifyRequest) => (req as FastifyRequest & { dashboardUser?: string }).dashboardUser;
+
+  const chaosGuard = async (_req: unknown, reply: { code(n: number): { send(b: unknown): unknown } }) => {
+    if (!options.bAdmin) return reply.code(503).send({ error: 'chaos_unavailable', message: 'B_ADMIN_TOKEN não configurado no sync.' });
+    return undefined;
+  };
 
   return async (app) => {
     // Hook no escopo do plugin: vale só para as rotas do dashboard. /health, /ready e o webhook (HMAC) seguem abertos
@@ -177,21 +197,18 @@ export function dashboardPlugin(options: DashboardOptions): FastifyPluginAsync {
       return { jobId: res.jobId };
     });
 
-    app.get('/api/dashboard/chaos', async (_req, reply) => {
-      if (!options.bAdmin) return reply.code(503).send({ error: 'chaos_unavailable', message: 'B_ADMIN_TOKEN não configurado no sync.' });
+    app.get('/api/dashboard/chaos', { preHandler: chaosGuard }, async (_req, reply) => {
       const r = await callChaos('GET', '/chaos');
       return reply.code(r.status).send(r.body);
     });
 
-    app.put('/api/dashboard/chaos', { preHandler: controlsGuard }, async (req, reply) => {
-      if (!options.bAdmin) return reply.code(503).send({ error: 'chaos_unavailable', message: 'B_ADMIN_TOKEN não configurado no sync.' });
+    app.put('/api/dashboard/chaos', { preHandler: [controlsGuard, chaosGuard] }, async (req, reply) => {
       const r = await callChaos('PUT', '/chaos', req.body ?? {});
       req.log.warn({ status: r.status, user: operator(req), chaos: req.body }, 'caos do B alterado pelo dashboard');
       return reply.code(r.status).send(r.body);
     });
 
-    app.post('/api/dashboard/chaos/reset', { preHandler: controlsGuard }, async (req, reply) => {
-      if (!options.bAdmin) return reply.code(503).send({ error: 'chaos_unavailable', message: 'B_ADMIN_TOKEN não configurado no sync.' });
+    app.post('/api/dashboard/chaos/reset', { preHandler: [controlsGuard, chaosGuard] }, async (req, reply) => {
       const r = await callChaos('POST', '/chaos/reset');
       req.log.warn({ status: r.status, user: operator(req) }, 'caos do B desligado pelo dashboard');
       return reply.code(r.status).send(r.body);
