@@ -156,7 +156,7 @@ O avaliador confirmou que só o **A → B** é obrigatório; o B → A entrou na
 
 ## Horas
 
-**Total: 25 h** (até 20/10), pelos registros do GitHub (commits, merges, PRs e issues; pausas acima de 1 h descontadas). Por dia e por issue em [`docs/timelog.md`](docs/timelog.md).
+**Total: 29 h** (até 20/10), pelos registros do GitHub (commits, merges, PRs e issues; pausas acima de 1 h descontadas). Por dia e por issue em [`docs/timelog.md`](docs/timelog.md).
 
 ## Documentação
 

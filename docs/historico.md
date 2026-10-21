@@ -6,12 +6,12 @@ Tudo o que foi feito do recebimento do desafio (16/10/2026) até a entrega, mont
 
 | | |
 |---|---|
-| Período | 16/10 (plano e backlog) a 20/10/2026 (código) |
-| Commits na `Dev` | 294: 218 em 18/10, 60 em 19/10, 16 em 20/10 |
-| Pull requests | 50: 41 mergeados e 9 fechados de propósito (PRs de teste que provam que a CI barra o erro) |
-| Releases `Dev` → `Prod` | 7: #144, #170, #173, #178, #180, #184 (V1.2) e #186 (V1.3) |
+| Período | 16/10 (plano e backlog) a 20/10/2026 (código); números até o release V1.4 (#188) |
+| Commits na `Dev` | 296: 218 em 18/10, 60 em 19/10, 18 em 20/10 |
+| Pull requests | 53: 43 mergeados, 9 fechados de propósito (PRs de teste que provam que a CI barra o erro) e 1 refeito (#189) |
+| Releases `Dev` → `Prod` | 8: #144, #170, #173, #178, #180, #184 (V1.2), #186 (V1.3) e #188 (V1.4) |
 | Issues | 135: 10 épicos, 62 stories, 8 categorias de cenário e 55 cenários |
-| Issues entregues | 71 (6 épicos, 34 stories, 6 categorias, 25 cenários) |
+| Issues entregues | 73 (7 épicos, 35 stories, 6 categorias, 25 cenários) |
 | Issues fora do escopo (*not planned*) | 62, com o desenho guardado nos ADRs e em [`out-of-scope.md`](out-of-scope.md) |
 | ADRs | 15 ([`adr/`](adr/)) |
 | Testes | 123 no A, 262 no sync (unitários e integração), 117 no B e 14 E2E sob caos |
@@ -52,6 +52,7 @@ timeline
           : Release V1.2 (#184)
           : README para o revisor, histórico e mapa (#185)
           : Release V1.3 (#186)
+          : Histórico atualizado (#187) e release V1.4 (#188)
 ```
 
 | Dia | O que aconteceu | Registro |
@@ -60,7 +61,7 @@ timeline
 | **17/10** | Sem trabalho registrado | — |
 | **18/10** | Fundação inteira e a maior parte do núcleo. Sistema A (API estilo GLPI, perfis, webhook com HMAC, UI), Sistema B em .NET com o caos, sync com domínio, fila no Postgres, adapter do B, processJob, webhook e poller. À noite, com o prazo à vista, a priorização: o escopo ampliado do plano (M2, M3 e M4) virou desenho documentado e o núcleo A → B do PDF ficou na frente | PRs #135–#165, release #144 |
 | **19/10** | Dashboard com login, E2E na CI, deploy automático na VM Oracle com HTTPS, verificação pós-escrita, runbook e README. Depois, as telas foram ajustadas ao papel que o PDF dá a cada sistema, sem as peças do desenho ampliado: o A é o sistema central (soluciona e fecha) e o B recebe. Em seguida, o A ganhou cara de GLPI e o B → A leve voltou ao escopo para responder às duas perguntas do avaliador | PRs #166–#178, releases #170, #173, #178 |
-| **20/10** | Tela de trabalho do GLPI no A, exclusão nos dois lados (lixeira do A e lápide do B), segurança dos cadastros, auditoria e sanitização do código, timelog. No fim do dia, o QA contra o PDF achou a duplicata após perda do banco do sync, corrigida no #183. À noite, o README virou a base para o revisor e entraram o histórico e o mapa do projeto | PRs #179–#185, releases #180, #184, #186 |
+| **20/10** | Tela de trabalho do GLPI no A, exclusão nos dois lados (lixeira do A e lápide do B), segurança dos cadastros, auditoria e sanitização do código, timelog. No fim do dia, o QA contra o PDF achou a duplicata após perda do banco do sync, corrigida no #183. À noite, o README virou a base para o revisor e entraram o histórico e o mapa do projeto | PRs #179–#187, releases #180, #184, #186, #188 |
 
 ## Como o trabalho foi organizado
 
@@ -78,7 +79,7 @@ timeline
 | **M2 · Auditoria & Segurança** | Auditoria append-only, linha do tempo, scans | 5, fora do escopo em 18/10 (desenho guardado) | O login do dashboard (S5.3) e o H2 foram para a M1 |
 | **M3 · B→A Propostas & Aprovação** (opcional) | O B propõe, o A aprova, congelamento | 34, fora do escopo em 18/10 (desenho guardado) | Voltou em versão leve em 19/10 (ADR-014) |
 | **M4 · Notas, Localização & Mocks** (opcional) | Notas nos dois sentidos, SLA, anexos | 13, fora do escopo em 18/10 | Desenho em `out-of-scope.md` |
-| **M5 · Entrega** | Documentação, timelog e demo | 11 entregues | Documentação completa |
+| **M5 · Entrega** | Documentação, timelog, demo e e-mail de entrega | 13 entregues | Fechado em 20/10 |
 
 ## Épicos e stories
 
@@ -193,6 +194,7 @@ A lista de cada E2E está em [`tests/e2e/README.md`](../tests/e2e/README.md).
 | S9.5 `out-of-scope.md` (#67) | ✅ | #160, #165 |
 | S9.6 `timelog.md` final (#68) | ✅ | #179, #182 |
 | S9.7 Roteiro da demo e vídeo de backup (#69) | ✂️ vídeo | O roteiro existe ([`demo-script.md`](demo-script.md)); o vídeo foi cancelado em 20/10 |
+| S9.8 E-mail de entrega (#70) | ✅ | Enviado ao avaliador com o repositório, as URLs e os acessos |
 | S9.9 Telas e docs no papel de cada sistema do PDF (#174) | ✅ | #175, #179 |
 
 ## Decisões de escopo
@@ -252,6 +254,8 @@ A lista de cada E2E está em [`tests/e2e/README.md`](../tests/e2e/README.md).
 | **#184** | 20/10 | **Release V1.2:** auditoria e sanitização, timelog final e reconciliação pelo marcador |
 | #185 | 20/10 | README para o revisor, `historico.md` e `mapa-do-projeto.md` |
 | **#186** | 20/10 | **Release V1.3:** README para o revisor, histórico e mapa |
+| #187 | 20/10 | Histórico com as releases V1.2 e V1.3 |
+| **#188** | 20/10 | **Release V1.4:** histórico atualizado |
 
 O #145 (`Prod` → `Dev`) só trouxe o merge da primeira release de volta para a `Dev`.
 
@@ -260,8 +264,8 @@ O #145 (`Prod` → `Dev`) só trouxe o merge da primeira release de volta para a
 | Tipo | Commits | | Escopo | Commits |
 |---|---|---|---|---|
 | `feat` | 92 | | `system-a` | 57 |
-| `docs` | 82 | | `sync` | 46 |
-| merges de PR | 47 | | `system-b` | 26 |
+| `docs` | 83 | | `sync` | 46 |
+| merges (PRs e sincronização de branches) | 48 | | `system-b` | 26 |
 | `test` | 30 | | `infra` | 14 |
 | `chore` | 17 | | `e2e` | 12 |
 | `fix` | 16 | | `contracts` | 11 |
