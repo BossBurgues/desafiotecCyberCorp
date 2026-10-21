@@ -7,9 +7,9 @@ Tudo o que foi feito do recebimento do desafio (16/10/2026) até a entrega, mont
 | | |
 |---|---|
 | Período | 16/10 (plano e backlog) a 20/10/2026 (código) |
-| Commits na `Dev` | 291: 218 em 18/10, 60 em 19/10, 13 em 20/10 |
-| Pull requests | 47: 38 mergeados e 9 fechados de propósito (PRs de teste que provam que a CI barra o erro) |
-| Releases `Dev` → `Prod` | 5: #144, #170, #173, #178, #180 |
+| Commits na `Dev` | 294: 218 em 18/10, 60 em 19/10, 16 em 20/10 |
+| Pull requests | 50: 41 mergeados e 9 fechados de propósito (PRs de teste que provam que a CI barra o erro) |
+| Releases `Dev` → `Prod` | 7: #144, #170, #173, #178, #180, #184 (V1.2) e #186 (V1.3) |
 | Issues | 135: 10 épicos, 62 stories, 8 categorias de cenário e 55 cenários |
 | Issues entregues | 71 (6 épicos, 34 stories, 6 categorias, 25 cenários) |
 | Issues cortadas (*not planned*) | 62, com o desenho mantido nos ADRs e em [`out-of-scope.md`](out-of-scope.md) |
@@ -39,6 +39,9 @@ timeline
           : Release (#180)
           : Auditoria e sanitização (#181), timelog (#182)
           : QA contra o PDF e reconciliação pelo marcador (#183)
+          : Release V1.2 (#184)
+          : README para o revisor, histórico e mapa (#185)
+          : Release V1.3 (#186)
 ```
 
 | Dia | O que aconteceu | Registro |
@@ -47,7 +50,7 @@ timeline
 | **17/10** | Sem trabalho registrado | — |
 | **18/10** | Fundação inteira e a maior parte do núcleo. Sistema A (API estilo GLPI, perfis, webhook com HMAC, UI), Sistema B em .NET com o caos, sync com domínio, fila no Postgres, adapter do B, processJob, webhook e poller. À noite, a revisão de escopo cortou M2, M3 e M4 e deixou o núcleo A → B como prioridade | PRs #135–#165, release #144 |
 | **19/10** | Dashboard com login, E2E na CI, deploy automático na VM Oracle com HTTPS, verificação pós-escrita, runbook e README. Depois, o realinhamento ao PDF: o A volta a ser o sistema central (soluciona e fecha) e o B só recebe. Em seguida, o A ganhou cara de GLPI e o B → A leve voltou ao escopo para responder às duas perguntas do avaliador | PRs #166–#178, releases #170, #173, #178 |
-| **20/10** | Tela de trabalho do GLPI no A, exclusão nos dois lados (lixeira do A e lápide do B), segurança dos cadastros, auditoria e sanitização do código, timelog. No fim do dia, o QA contra o PDF achou a duplicata após perda do banco do sync, corrigida no #183 | PRs #179–#183, release #180 |
+| **20/10** | Tela de trabalho do GLPI no A, exclusão nos dois lados (lixeira do A e lápide do B), segurança dos cadastros, auditoria e sanitização do código, timelog. No fim do dia, o QA contra o PDF achou a duplicata após perda do banco do sync, corrigida no #183. À noite, o README virou a base para o revisor e entraram o histórico e o mapa do projeto | PRs #179–#185, releases #180, #184, #186 |
 
 ## Como o trabalho foi organizado
 
@@ -173,7 +176,7 @@ A lista de cada E2E está em [`tests/e2e/README.md`](../tests/e2e/README.md).
 
 | Story | | PR |
 |---|---|---|
-| S9.1 README completo (#63) | ✅ | #171, #179 |
+| S9.1 README completo (#63) | ✅ | #171, #179, #185 |
 | S9.2 `architecture.md` com Mermaid (#64) | ✅ | #160 |
 | S9.3 `how-it-works.md` (#65) | ✅ | #171 |
 | S9.4 `field-mapping.md` e `runbook.md` (#66) | ✅ | #154, #168 |
@@ -237,6 +240,9 @@ A lista de cada E2E está em [`tests/e2e/README.md`](../tests/e2e/README.md).
 | #181 | 20/10 | Auditoria e sanitização (dashboard real, `GlpiError`, DRY) |
 | #182 | 20/10 | Timelog final e vídeo cancelado |
 | #183 | 20/10 | Reconciliação pelo marcador na subida do sync |
+| **#184** | 20/10 | **Release V1.2:** auditoria e sanitização, timelog final e reconciliação pelo marcador |
+| #185 | 20/10 | README para o revisor, `historico.md` e `mapa-do-projeto.md` |
+| **#186** | 20/10 | **Release V1.3:** README para o revisor, histórico e mapa |
 
 O #145 (`Prod` → `Dev`) só trouxe o merge da primeira release de volta para a `Dev`.
 
@@ -245,8 +251,8 @@ O #145 (`Prod` → `Dev`) só trouxe o merge da primeira release de volta para a
 | Tipo | Commits | | Escopo | Commits |
 |---|---|---|---|---|
 | `feat` | 92 | | `system-a` | 57 |
-| `docs` | 80 | | `sync` | 46 |
-| merges de PR | 46 | | `system-b` | 26 |
+| `docs` | 82 | | `sync` | 46 |
+| merges de PR | 47 | | `system-b` | 26 |
 | `test` | 30 | | `infra` | 14 |
 | `chore` | 17 | | `e2e` | 12 |
 | `fix` | 16 | | `contracts` | 11 |
@@ -260,5 +266,4 @@ git log --reverse --format='%h %ad %s' --date=short origin/Dev
 
 ## O que falta para a entrega
 
-- Release `Dev` → `Prod` com os PRs #181, #182, #183 e esta documentação.
 - E-mail de entrega com o link do repositório e a URL (#70), que fecha o E9 e a M5.
