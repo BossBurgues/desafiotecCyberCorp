@@ -13,7 +13,6 @@ Tudo o que foi feito do recebimento do desafio (16/10/2026) até a entrega, mont
 | Issues | 135: 10 épicos, 62 stories, 8 categorias de cenário e 55 cenários |
 | Issues entregues | 71 (6 épicos, 34 stories, 6 categorias, 25 cenários) |
 | Issues fora do escopo (*not planned*) | 62, com o desenho guardado nos ADRs e em [`out-of-scope.md`](out-of-scope.md) |
-| Abertas | 2: o épico E9 e a #70 (e-mail de entrega) |
 | ADRs | 15 ([`adr/`](adr/)) |
 | Testes | 123 no A, 262 no sync (unitários e integração), 117 no B e 14 E2E sob caos |
 
@@ -79,7 +78,7 @@ timeline
 | **M2 · Auditoria & Segurança** | Auditoria append-only, linha do tempo, scans | 5, fora do escopo em 18/10 (desenho guardado) | O login do dashboard (S5.3) e o H2 foram para a M1 |
 | **M3 · B→A Propostas & Aprovação** (opcional) | O B propõe, o A aprova, congelamento | 34, fora do escopo em 18/10 (desenho guardado) | Voltou em versão leve em 19/10 (ADR-014) |
 | **M4 · Notas, Localização & Mocks** (opcional) | Notas nos dois sentidos, SLA, anexos | 13, fora do escopo em 18/10 | Desenho em `out-of-scope.md` |
-| **M5 · Entrega** | Documentação, timelog, demo, e-mail | 11 entregues, 2 abertas | Falta o e-mail (#70) |
+| **M5 · Entrega** | Documentação, timelog e demo | 11 entregues | Documentação completa |
 
 ## Épicos e stories
 
@@ -183,7 +182,7 @@ O catálogo do plano tinha 61 cenários em 8 categorias. Na priorização de 18/
 
 A lista de cada E2E está em [`tests/e2e/README.md`](../tests/e2e/README.md).
 
-### E9 · Documentação e entrega (#11), aberto
+### E9 · Documentação e entrega (#11)
 
 | Story | | PR |
 |---|---|---|
@@ -194,7 +193,6 @@ A lista de cada E2E está em [`tests/e2e/README.md`](../tests/e2e/README.md).
 | S9.5 `out-of-scope.md` (#67) | ✅ | #160, #165 |
 | S9.6 `timelog.md` final (#68) | ✅ | #179, #182 |
 | S9.7 Roteiro da demo e vídeo de backup (#69) | ✂️ vídeo | O roteiro existe ([`demo-script.md`](demo-script.md)); o vídeo foi cancelado em 20/10 |
-| S9.8 E-mail de entrega (#70) | aberta | — |
 | S9.9 Telas e docs no papel de cada sistema do PDF (#174) | ✅ | #175, #179 |
 
 ## Decisões de escopo
@@ -274,7 +272,3 @@ Primeiro commit: `0e55455`, em 18/10 às 08:41. Para ver tudo:
 ```bash
 git log --reverse --format='%h %ad %s' --date=short origin/Dev
 ```
-
-## O que falta para a entrega
-
-- E-mail de entrega com o link do repositório e a URL (#70), que fecha o E9 e a M5.

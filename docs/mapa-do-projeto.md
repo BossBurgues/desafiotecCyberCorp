@@ -7,7 +7,7 @@ O escopo, quem usa cada sistema e o que cada um faz hoje, comparado com a versã
 | | O que é | Situação |
 |---|---|---|
 | **Obrigatório (PDF)** | Todo chamado criado ou atualizado no A aparece e fica atualizado no B, sem duplicata, sem atualização perdida e sem dado velho sobre novo, com o B lento e com erros | Entregue e provado por 14 E2E sob caos |
-| **Obrigatório (entrega)** | Repositório com histórico, documentação, projeto publicado numa URL, lista do que ficou de fora, horas | Entregue; falta o e-mail (#70) |
+| **Obrigatório (entrega)** | Repositório com histórico, documentação, projeto publicado numa URL, lista do que ficou de fora, horas | Entregue |
 | **Opcional do avaliador** | B → A: status, quem alterou, solução, fechamento e reabertura, mostrando o anti-eco e a concorrência | Entregue em versão leve, sem aprovação ([ADR-014](adr/014-b-para-a-leve.md)) |
 | **Além do pedido** | Exclusão nos dois lados ([ADR-015](adr/015-exclusao-nos-dois-lados-e-o-mestre.md)), A com cara de GLPI, dashboard com caos, deploy automático, reconciliação pelo marcador | Entregue |
 | **Fora** | Aprovação do Técnico, notas nos dois sentidos, anexos, SLA, auditoria append-only, alta disponibilidade | Desenho em [`out-of-scope.md`](out-of-scope.md) e nos ADRs |
