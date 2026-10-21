@@ -156,7 +156,7 @@ O avaliador confirmou que só o **A → B** é obrigatório; o B → A entrou na
 
 ## Horas
 
-**Total: 25 h** (até 20/10), pelos registros do GitHub (commits, merges, PRs e issues; pausas acima de 1 h descontadas). Por dia e por issue em [`docs/timelog.md`](docs/timelog.md).
+**Total: 29 h** (até 20/10), pelos registros do GitHub (commits, merges, PRs e issues; pausas acima de 1 h descontadas). Por dia e por issue em [`docs/timelog.md`](docs/timelog.md).
 
 ## Documentação
 
@@ -165,6 +165,7 @@ O avaliador confirmou que só o **A → B** é obrigatório; o B → A entrou na
 | [`docs/how-it-works.md`](docs/how-it-works.md) | Passeio pelo código, garantias provadas e exercícios de quebra |
 | [`docs/mapa-do-projeto.md`](docs/mapa-do-projeto.md) | Escopo, mapa mental, casos de uso de hoje e como seria a versão completa |
 | [`docs/historico.md`](docs/historico.md) | Linha do tempo, épicos, stories, cenários, PRs e mudanças de rumo, pelos registros do GitHub |
+| [`docs/glossario.md`](docs/glossario.md) | Siglas e termos do projeto (E2E, DLQ, caos, marcador…) |
 | [`docs/architecture.md`](docs/architecture.md) | Diagramas da arquitetura |
 | [`docs/adr/`](docs/adr/) | Por que cada decisão foi tomada (15 ADRs) |
 | [`docs/field-mapping.md`](docs/field-mapping.md) | Conversão campo a campo A → B |

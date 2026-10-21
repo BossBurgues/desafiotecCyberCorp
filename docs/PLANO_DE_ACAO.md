@@ -15,11 +15,11 @@
 
 ---
 
-## 0. ⚠️ Escopo revisado em 18/10 e realinhado ao PDF em 19/10 (prevalece sobre o resto do documento)
+## 0. ⚠️ Escopo priorizado em 18/10 e telas ajustadas ao PDF em 19/10 (prevalece sobre o resto do documento)
 
-### 0.5 Realinhamento de 19/10: o PDF é a régua
+### 0.5 19/10: as telas no papel de cada sistema do PDF
 
-O corte de 18/10 tirou o B → A do plano e das issues, mas o que já estava construído continuou com o desenho "o B executa, o A aprova": a UI do B resolvia, fechava, reabria e excluía, e o A não podia solucionar nem fechar. O resultado parecia o contrário do PDF. A regra a partir de 19/10:
+A priorização de 18/10 tirou o B → A do plano e das issues, mas as telas já construídas ainda tinham peças do desenho ampliado "o B executa, o A aprova": a UI do B resolvia, fechava, reabria e excluía, e o A não podia solucionar nem fechar. Em 19/10 elas foram ajustadas ao papel que o PDF dá a cada sistema:
 
 | Papel | Pelo PDF | Na entrega |
 |---|---|---|
@@ -30,20 +30,20 @@ O corte de 18/10 tirou o B → A do plano e das issues, mas o que já estava con
 
 As decisões da seção 2 ligadas ao B → A (Q4/Q7 "o B propõe, o A aprova", Q19, Q26, Q17/Q18/Q27, Q28, Q29, Q5/Q9/Q20) valem **só para o opcional**. No núcleo, o A muda o próprio status e o sync leva `RESOLVED`/`CLOSED` ao B como qualquer outra atualização.
 
-### 0.6 O que foi cortado e voltou (validação de 19/10)
+### 0.6 O que ficou para depois e voltou (validação de 19/10)
 
 Critério: só volta o que cabe até 21/10 sem arriscar o núcleo publicado, e tem prioridade o que o PDF pede e depois o que responde às duas perguntas do avaliador. Ponto de parada: o que não estivesse verde no fim de 20/10 ficava de fora.
 
 | Item | Decisão | Onde |
 |---|---|---|
-| 7 cenários cortados que já tinham teste (A5, A7, B12, C6, E3, G3, H5) | Reclassificados como concluídos | issues, épico E8 |
+| 7 cenários fora do escopo que já tinham teste (A5, A7, B12, C6, E3, G3, H5) | Reclassificados como concluídos | issues, épico E8 |
 | **A como GLPI** (catálogos de categoria, local e usuário; datas de solução/fechamento; formulário) + conversão completa dos campos | **Entrou** (o PDF pede o GLPI como referência e deixa a conversão por nossa conta) | PR #176 |
 | **B → A leve:** estado, quem alterou e solução voltam ao A; ler antes de escrever; varredura do B; anti-eco e o A vencendo conflitos | **Entrou** (opcional do avaliador, com as duas perguntas respondidas e provadas) | ADR-014, PR do M3 |
 | **A como tela de trabalho do GLPI:** cartão Ações (atribuir, atender, pendente, solucionar, fechar, reabrir), requerente no formulário | **Entrou** (pelo PDF, o A é o central) | `Docs/PlanosDeAcao/plano-final-a-central-e-entrega.md`, PR da M5 |
 | **Exclusão nos dois lados:** lixeira do A, lápide 410 no B, o A decide; correção do bug "excluir no B não chega ao A" | **Entrou** (responde "quem é o mestre" em cada mudança) | ADR-015, PR da M5 |
 | B → A completo (aprovação, congelamento), notas A → B, M2, homologação, GitLab | Continua fora | `out-of-scope.md` |
 
-O plano original cresceu além do que o desafio pede. Com o prazo de 22/10, a estratégia passa a ser: **entregar o núcleo A → B à prova de caos, publicado e bem documentado**, e transformar o resto em **desenho documentado** (ADRs + `out-of-scope.md`). O próprio enunciado valoriza mais o raciocínio do que uma solução completa, e o avaliador confirmou que o B → A é opcional.
+O plano original foi feito de propósito maior que o desafio, para mapear melhorias além do núcleo. Com o prazo de 22/10, a estratégia passa a ser: **entregar o núcleo A → B à prova de caos, publicado e bem documentado**, e transformar o resto em **desenho documentado** (ADRs + `out-of-scope.md`). O próprio enunciado valoriza mais o raciocínio do que uma solução completa, e o avaliador confirmou que o B → A é opcional.
 
 ### 0.1 O que já está pronto e é aproveitado
 
@@ -53,14 +53,14 @@ O plano original cresceu além do que o desafio pede. Com o prazo de 22/10, a es
 | Sistema A | API estilo GLPI, perfis (Técnico/Estagiário/sync-bot), webhook HMAC com perda simulada, UI, Docker | S1.1, S1.2, S1.3, S1.6, S1.7 |
 | Sistema B | API do contrato mínimo, **caos completo**, UI do operador, admin, testes e Docker | S2.1, S2.2, S2.4, S2.5, S2.6 |
 | Sync | Bootstrap, domínio puro (mapper, hash, fuso, marcador), fila com lease/backoff/DLQ, adapter do B com circuit breaker | S3.1, S3.2, S3.3, S3.5 |
-| Sync (PR #163 aberto) | processJob idempotente com marcador, webhook + poller | S3.4, S3.6 |
+| Sync (PR #163) | processJob idempotente com marcador, webhook + poller | S3.4, S3.6 |
 | Infra e docs | Compose completo, architecture.md, field-mapping.md, how-it-works.md, out-of-scope.md | S4.1, S9.2, S9.5 |
 
 Também é aproveitado o **desenho completo do B → A** (ADRs 006, 007, 009 e 011, seções 5.1 e 5.2): ele responde às duas perguntas do avaliador mesmo sem estar implementado.
 
-### 0.2 O que falta (o novo escopo inteiro)
+### 0.2 O escopo priorizado
 
-| # | Issue | Por que fica | Situação em 19/10 |
+| # | Issue | Por que fica | Situação |
 |---|---|---|---|
 | 1 | **S3.4 + S3.6** (PR #163) | O coração: sem eles não há sincronização | ✅ |
 | 2 | **S3.8** Verificação pós-escrita + 404 | Barata e fecha o "B diz que gravou e não gravou" (perda) | ✅ #167 |
@@ -69,8 +69,8 @@ Também é aproveitado o **desenho completo do B → A** (ADRs 006, 007, 009 e 0
 | 5 | **S4.2** CI com E2E | Prova as garantias a cada PR | ✅ #166 (9 cenários) |
 | 6 | **S4.3 + S4.4** VM + deploy, **um único ambiente** (produção, a partir da `Prod`) | Entregável obrigatório: URL publicada. A `Dev` fica só com a CI | ✅ #166, #169, #170 (rollback testado) |
 | 7 | **14 cenários** do núcleo | A1, A2, A4, A6, B1, B2, B3, B5, B6, B10, C1, E4, H1, H2 | ✅ + B11, G1, G2, G4 |
-| 8 | **Realinhamento ao PDF** (seção 0.5): A soluciona/fecha; UIs sem sobras do B → A | O A é o central no PDF | ✅ #172 · docs em andamento |
-| 9 | **M5:** README, how-it-works final, runbook curto, timelog, roteiro, entrega | Entregáveis do enunciado | 🟡 README, how-it-works, runbook, roteiro e timelog ✅; vídeo cancelado (20/10); falta o e-mail |
+| 8 | **Telas no papel de cada sistema** (seção 0.5): o A soluciona e fecha; o B recebe | O A é o central no PDF | ✅ #172, #175 |
+| 9 | **M5:** README, how-it-works final, runbook curto, timelog, roteiro, entrega | Entregáveis do enunciado | ✅ README, how-it-works, runbook, roteiro, timelog e e-mail de entrega; vídeo fora do escopo (20/10) |
 
 ### 0.3 O que sai (fechado como *not planned*, label `out-of-scope`, explicado no `out-of-scope.md`)
 
@@ -89,9 +89,9 @@ Também é aproveitado o **desenho completo do B → A** (ADRs 006, 007, 009 e 0
 |---|---|---|
 | 18/10 (dom) | Merge do PR #163 (S3.4 + S3.6) | ✅ |
 | 19/10 (seg) | S3.8 · S3.10 + S5.3 · E2E (S4.2) · **URL publicada** (S4.3 + S4.4, adiantadas) · README e how-it-works · realinhamento ao PDF | ✅ |
-| 20/10 (ter) | Docs alinhadas ao PDF · validação do que foi cortado (0.6) e, se aprovado, o opcional escolhido · roteiro da demo · ensaio na URL | ⏳ |
-| 21/10 (qua) | Última release (nenhuma em 22/10) · timelog final (vídeo cancelado em 20/10) | ⏳ |
-| 22/10 (qui) | **Entrega:** e-mail com o repositório, a URL e as credenciais de demo | ⏳ |
+| 20/10 (ter) | Docs alinhadas ao PDF · validação do que ficou para depois (0.6) e o opcional escolhido · roteiro da demo · QA na URL | ✅ releases #180, #184, #186, #188 |
+| 21/10 (qua) | Última release (nenhuma em 22/10) · timelog final (vídeo fora do escopo em 20/10) | ✅ adiantado para 20/10 |
+| 22/10 (qui) | **Entrega:** e-mail com o repositório, a URL e as credenciais de demo | ✅ adiantado para 20/10 |
 | 23/10 (sex) | Reserva | — |
 
 **Regra de corte:** se a URL não estiver no ar no fim de 20/10, o E2E na CI (S4.2) vira teste local documentado e todo o esforço vai para o deploy.
@@ -605,4 +605,4 @@ Cada item corresponde a um pedido do PDF ("O que esperamos" e "Prazo e regras").
 - [x] `timelog.md` (o PDF pede: "conte quanto tempo você gastou"), regerado pelos registros do GitHub
 - [x] CI verde + deploy automático
 - [x] ~~Vídeo de backup da demo~~ cancelado em 20/10 (#69, *not planned*)
-- [ ] E-mail com o link do repositório + a URL
+- [x] E-mail com o link do repositório + a URL (#70)

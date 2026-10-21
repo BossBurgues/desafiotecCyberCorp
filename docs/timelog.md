@@ -12,8 +12,8 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 17/10 | nada | — | 0 |
 | 18/10 | 399 eventos (commits, merges, PRs, issues) | 08:41–13:14 · 14:23–17:37 · 19:28–21:43 | 10 |
 | 19/10 | 131 eventos (commits, merges, PRs, issues) | 07:29–07:44 · 10:07–12:10 · 13:13–16:43 · 18:35–18:47 · 20:12–21:20 | 7,25 |
-| 20/10 | 21 eventos (commits, merges, PRs, issues) | 09:11–10:55 · 13:59–14:34 | 2,25 |
-| **Total** | | | **25** |
+| 20/10 | 62 eventos (commits, merges, PRs, issues) | 09:11–10:55 · 13:59–14:37 · 16:21–17:19 · 19:57–22:50 | 6,25 |
+| **Total** | | | **29** |
 
 ## Por issue (do primeiro ao último commit no dia, + 15 min)
 
@@ -71,6 +71,7 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | 19/10 | #130 [C7] A e B alteram o mesmo campo ao mesmo tempo | M3 · B→A Propostas & Aprovação (opcional) | 1 | 0,25 |
 | 19/10 | #69 [S9.7] Roteiro da demo e vídeo de backup | M5 · Entrega | 1 | 0,25 |
 | 19/10 | #68 [S9.6] timelog.md final | M5 · Entrega | 1 | 0,25 |
+| 20/10 | #11 [E9] Épico: Documentação & entrega (README para o revisor, histórico, mapa, glossário) | M5 · Entrega | 5 | 5,75 |
 
 ## Por milestone (soma das linhas por issue; passa do relógio pelas sobreposições)
 
@@ -79,6 +80,6 @@ Desafio recebido em **16/10/2026**. Entrega-alvo: **22/10/2026**.
 | M0 · Fundação | 1,25 |
 | M1 · Núcleo A→B (3 garantias) | 18,25 |
 | M3 · B→A Propostas & Aprovação (opcional) | 0,25 |
-| M5 · Entrega | 15,25 |
+| M5 · Entrega | 21 |
 
-Gerado a partir do `git log` e da API do GitHub em 20/10/2026 14:36 (horário de Brasília).
+Gerado a partir do `git log` e da API do GitHub em 20/10/2026 14:36 e atualizado em 20/10/2026 22:55 (horário de Brasília).
