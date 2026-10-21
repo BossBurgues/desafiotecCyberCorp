@@ -15,17 +15,33 @@ Mantém os chamados de um sistema estilo **GLPI (Sistema A)** sincronizados num 
 | Saúde do sync | https://sync.150-230-231-210.sslip.io/ready |
 | Backlog (Project) | https://github.com/users/BossBurgues/projects/2 |
 
-As **credenciais de demonstração** (Técnico, Estagiário e dashboard) foram enviadas por e-mail junto com a entrega. Em produção elas são aleatórias e nunca entram no repositório. Também dá para **criar a própria conta** na tela de entrada: no A, escolhendo o nível (Técnico ou Estagiário); no B, toda conta é de administrador (o B não tem níveis).
+As **credenciais de demonstração** (Técnico e Estagiário do A, código de convite para criar a conta no B e login do dashboard) foram enviadas por e-mail junto com a entrega. Em produção elas são aleatórias e nunca entram no repositório.
+
+Também dá para criar contas na tela de entrada. No A, o cadastro cria um **Estagiário**, que abre e consulta chamados; para trabalhar o chamado, use o Técnico do e-mail. No B, criar conta exige o **código de convite**, e toda conta é de operador (o B não tem níveis).
+
+## Entrega × o que o PDF pede
+
+| O PDF pede | Onde está |
+|---|---|
+| Chamado criado ou atualizado no A aparece e fica atualizado no B | Sistema A → Sync → Sistema B, nas URLs acima |
+| Sem duplicata, sem atualização perdida, sem dado velho sobre novo | [As três garantias](#as-três-garantias-e-como-cada-uma-é-provada), com 14 testes E2E sob caos em todo PR |
+| O B lento e com erro, simulado | O caos do B, ligado pelo dashboard ([demo](#roteiro-da-demonstração)) |
+| Repositório Git com o histórico | Este repositório; o resumo do histórico está em [`docs/historico.md`](docs/historico.md) |
+| Documentação | [Documentação](#documentação) |
+| Projeto publicado numa URL | [Links](#links) |
+| Lista do que ficou de fora e por quê | [`docs/out-of-scope.md`](docs/out-of-scope.md) |
+| Tempo gasto | [Horas](#horas) |
+| Suposições anotadas no README | [Suposições](#suposições) |
 
 ## As três garantias e como cada uma é provada
 
 | Nunca… | Mecanismo | Prova (roda em todo PR) |
 |---|---|---|
-| **duplicar** um chamado no B | Marcador `⟦s:glpi-<id>⟧` gravado no próprio registro. Create ambíguo (timeout, 500 depois de gravar) nunca é reenviado às cegas: o sync procura o marcador antes de recriar. Um job ativo por chamado, com lease | [`a1-commit-then-fail-nao-duplica`](tests/e2e/scenarios/a1-commit-then-fail-nao-duplica.test.js), [`a2-timeout-gravacao-tardia-nao-duplica`](tests/e2e/scenarios/a2-timeout-gravacao-tardia-nao-duplica.test.js), A4 e A6 (integração) |
+| **duplicar** um chamado no B | Marcador `⟦s:glpi-<id>⟧` gravado no próprio registro. Create ambíguo (timeout, 500 depois de gravar) nunca é reenviado às cegas: o sync procura o marcador antes de recriar. Um job ativo por chamado, com lease. Se o banco do sync for perdido, na subida ele adota pelo marcador o que já está no B antes de criar qualquer coisa | [`a1-commit-then-fail-nao-duplica`](tests/e2e/scenarios/a1-commit-then-fail-nao-duplica.test.js), [`a2-timeout-gravacao-tardia-nao-duplica`](tests/e2e/scenarios/a2-timeout-gravacao-tardia-nao-duplica.test.js), A4 e A6 (integração), [`reconcile.test.ts`](apps/sync-service/test/integration/reconcile.test.ts) |
 | **perder** uma atualização | Evento gravado antes do 200; poller com sobreposição cobre webhook perdido; retry com backoff por até 24 h e DLQ reprocessável; **verificação pós-escrita** (o B pode responder 200 sem gravar) | [`b1-b-fora-jobs-esperam-e-drenam`](tests/e2e/scenarios/b1-b-fora-jobs-esperam-e-drenam.test.js), [`b2-webhook-perdido-poller-recupera`](tests/e2e/scenarios/b2-webhook-perdido-poller-recupera.test.js), [`b3-sync-cai-no-meio-do-job`](tests/e2e/scenarios/b3-sync-cai-no-meio-do-job.test.js), [`e4-b-lento-disjuntor`](tests/e2e/scenarios/e4-b-lento-disjuntor.test.js), B5 (integração) |
 | **sobrescrever** dado novo com velho | O evento é só um sinal: o worker sempre relê o estado atual do A; um job por chamado | [`c1-eventos-fora-de-ordem`](tests/e2e/scenarios/c1-eventos-fora-de-ordem.test.js), [`b6-vinte-updates-terminam-no-ultimo`](tests/e2e/scenarios/b6-vinte-updates-terminam-no-ultimo.test.js), B10 (integração) |
 
-Os 14 testes E2E sobem os três sistemas de verdade, ligam o caos do B e derrubam containers ([`tests/e2e/README.md`](tests/e2e/README.md)). O passeio pelo código, com exercícios de quebra, está em [`docs/how-it-works.md`](docs/how-it-works.md).
+Os 14 testes E2E sobem os três sistemas de verdade, ligam o caos do B e derrubam containers ([`tests/e2e/README.md`](tests/e2e/README.md)). Além deles, rodam em todo PR 123 testes do A, 262 do sync (unitários e integração com Postgres) e 117 do B. O passeio pelo código, com exercícios de quebra, está em [`docs/how-it-works.md`](docs/how-it-works.md).
 
 ## O opcional do avaliador: B → A leve
 
@@ -50,6 +66,7 @@ flowchart LR
   subgraph S["Sync Service · Node/TS"]
     IN["webhook + poller"] --> Q[("Postgres<br/>sync_jobs · ticket_mapping · audit_log")]
     Q --> W["worker: relê o A → escreve no B → relê o B"]
+    V["varredura do B a cada 30 s (B → A leve)"] --> Q
     D["dashboard + /metrics (login)"]
   end
   subgraph B["Sistema B · C#/.NET · caixa-preta"]
@@ -57,8 +74,9 @@ flowchart LR
   end
   AWH -- sinal --> IN
   IN -- "GET por date_mod" --> AUI
-  W -- "estado atual" --> AUI
+  W -- "estado atual; status e nota vindos do B" --> AUI
   W -- "create/update + GET" --> BAPI
+  V -- "lista" --> BAPI
   D -. "liga/desliga caos" .-> BAPI
 ```
 
@@ -73,7 +91,7 @@ cp .env.example .env
 docker compose -f infra/docker-compose.yml --env-file .env up -d --build --wait
 ```
 
-A em http://127.0.0.1:3001/ui/, B em http://127.0.0.1:5002/ui/, dashboard em http://127.0.0.1:3000/dashboard (usuário e senha no `.env`).
+A em http://127.0.0.1:3001/ui/ (usuários `tecnico` e `estagiario`, senhas `A_TECNICO_PASSWORD` e `A_ESTAGIARIO_PASSWORD` do `.env`), B em http://127.0.0.1:5002/ui/ (crie a conta na tela; localmente o convite fica vazio), dashboard em http://127.0.0.1:3000/dashboard (`DASHBOARD_USER` e `DASHBOARD_PASSWORD`).
 
 Os testes:
 
@@ -85,13 +103,31 @@ docker compose -f infra/docker-compose.yml -f infra/docker-compose.e2e.yml --env
 npm run e2e              # 14 testes sob caos, ~4 min
 ```
 
-## Demo de caos (para repetir na URL)
+## Roteiro da demonstração
 
-1. Entre no **dashboard** e, no painel **Caos do Sistema B**, ponha *erro 5xx (taxa)* em `0.5` e *grava e falha (taxa)* em `0.2`, e clique em **Aplicar**.
-2. No **Sistema A**, como Técnico, crie e edite alguns chamados.
-3. No dashboard, veja a fila crescer, os retries e o disjuntor abrir. A DLQ continua vazia.
-4. Clique em **Desligar tudo**: a fila drena em segundos.
-5. No **Sistema B**, confira: cada chamado aparece **uma vez**, com a última versão (o marcador `⟦s:glpi-<id>⟧` fica no fim da descrição).
+Dá para repetir tudo nas URLs acima, com as credenciais do e-mail. O roteiro completo de 30 min, com plano B por bloco, está em [`docs/demo-script.md`](docs/demo-script.md).
+
+**1. O caminho feliz (A → B).**
+1. No **Sistema A**, como Técnico: **Novo chamado** → preencha e crie.
+2. Em segundos, ele aparece no **Sistema B** uma vez, com o marcador `⟦s:glpi-<id>⟧` no fim da descrição.
+3. No A: **Atribuir a mim** → escreva a solução → **Solucionar** → **Fechar**. O B acompanha no mesmo registro (`RESOLVED`, `CLOSED`).
+
+**2. O B instável (as três garantias sob caos).**
+1. No **dashboard**, painel **Caos do Sistema B**: *erro 5xx (taxa)* em `0.5` e *grava e falha (taxa)* em `0.2` → **Aplicar**.
+2. No A, crie e edite vários chamados.
+3. No dashboard: a fila cresce, os retries aparecem e o disjuntor abre. A DLQ continua vazia.
+4. **Desligar tudo**: a fila drena em segundos. No B, cada chamado aparece **uma vez**, com a última versão.
+
+**3. O opcional: B → A sem ida e volta.**
+1. No B, abra um registro → **Fechar** com uma solução.
+2. Em até 30 s, o A fica Fechado, com uma nota de quem alterou e da solução. Nenhum dos dois lados recebe escrita depois disso.
+3. No B, mude o **título** → em 30 s o título volta e o A ganha a nota "o A é a fonte da verdade".
+
+**4. Exclusão nos dois lados.**
+1. No B, **Excluir** um registro → no A, o chamado vai para a lixeira, com a nota de quem excluiu.
+2. No A, **Ver lixeira** → **Restaurar** → o registro volta ao B, sem duplicar.
+
+Termine sempre com **Desligar tudo** no painel de caos: em produção o caos começa desligado.
 
 ## Decisões principais
 
@@ -127,6 +163,8 @@ O avaliador confirmou que só o **A → B** é obrigatório; o B → A entrou na
 | Documento | Para quê |
 |---|---|
 | [`docs/how-it-works.md`](docs/how-it-works.md) | Passeio pelo código, garantias provadas e exercícios de quebra |
+| [`docs/mapa-do-projeto.md`](docs/mapa-do-projeto.md) | Escopo, mapa mental, casos de uso de hoje e como seria a versão completa |
+| [`docs/historico.md`](docs/historico.md) | Linha do tempo, épicos, stories, cenários, PRs e mudanças de rumo, pelos registros do GitHub |
 | [`docs/architecture.md`](docs/architecture.md) | Diagramas da arquitetura |
 | [`docs/adr/`](docs/adr/) | Por que cada decisão foi tomada (15 ADRs) |
 | [`docs/field-mapping.md`](docs/field-mapping.md) | Conversão campo a campo A → B |
