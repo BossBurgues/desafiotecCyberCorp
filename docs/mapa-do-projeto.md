@@ -1,6 +1,6 @@
 # Mapa do projeto
 
-O escopo, quem usa cada sistema e o que cada um faz hoje, comparado com a versão completa que ficou desenhada. Os diagramas de sequência e de estados estão em [`architecture.md`](architecture.md); o caminho pelo código está em [`how-it-works.md`](how-it-works.md); o histórico de como se chegou aqui está em [`historico.md`](historico.md).
+O escopo, quem usa cada sistema e o que cada um faz hoje, comparado com a versão completa que ficou desenhada. Os diagramas de sequência e de estados estão em [`architecture.md`](architecture.md); o caminho pelo código está em [`how-it-works.md`](how-it-works.md); o histórico de como se chegou aqui está em [`historico.md`](historico.md); as siglas e termos estão no [`glossario.md`](glossario.md).
 
 ## Escopo
 
@@ -180,7 +180,7 @@ Os diagramas desses passos estão em [`architecture.md`](architecture.md): fluxo
 
 ## Como funcionaria a versão completa
 
-O desenho completo continua nos ADRs 006, 007 e 011 e nas issues cortadas (M3 e M4). A diferença principal: **o B propõe, o A aprova**.
+O desenho completo continua nos ADRs 006, 007 e 011 e nas issues que ficaram fora do escopo (M3 e M4). A diferença principal: **o B propõe, o A aprova**.
 
 ```mermaid
 flowchart LR
